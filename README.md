@@ -1,50 +1,238 @@
-# Brain - Gestión de Cadenas de Pensamiento con IA
+# Brain - Sistema de Gestión de Cadenas de Pensamiento con IA
 
-Proyecto para la gestión y visualización de flujos de IA utilizando LangChain, LangGraph y un stack moderno.
+Brain es una plataforma para diseñar, ejecutar y monitorizar flujos de procesamiento con IA utilizando LangChain y LangGraph. Proporciona una interfaz visual para gestionar conexiones con LLMs, configurar cadenas de pensamiento y visualizar ejecuciones en tiempo real.
 
 ## Arquitectura
 
-- **API:** Python 3.11 con FastAPI, LangChain y LangGraph.
-- **GUI:** Angular 17+ con visualización de grafos (ngx-graph).
-- **CMS:** Strapi con PostgreSQL para gestión de contenido y configuraciones.
-- **Base de Datos:** PostgreSQL 16 con extensión `pgvector` para RAG.
-- **Cache/Queue:** Redis 7.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Docker Compose                          │
+├─────────────┬─────────────┬─────────────┬──────────┬───────────┤
+│   Angular   │   FastAPI   │   Strapi    │ PostgreSQL│   Redis   │
+│    GUI      │    API      │    CMS      │ + pgvector│   Cache   │
+│   :4200     │   :8000     │   :1337     │   :5432   │   :6379   │
+└──────┬──────┴──────┬──────┴──────┬──────┴─────┬─────┴─────┬─────┘
+       │             │             │            │           │
+       └─────────────┴─────────────┴────────────┴───────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    │  Servicios LLM    │
+                    │  (Ollama, OpenAI, │
+                    │   Gemini, etc.)   │
+                    └───────────────────┘
+```
 
-## Requisitos Previos
+## Características
 
-- Docker y Docker Compose instalados.
-- Ollama corriendo localmente (opcional, para LLM local).
+- **Gestión de LLMs**: Configura múltiples proveedores (Ollama, OpenAI, Gemini, Anthropic, Azure, Groq)
+- **Conexiones MCP**: Integración con servidores Model Context Protocol
+- **Cadenas de Pensamiento**: Define y visualiza flujos con LangGraph
+- **RAG**: Base de datos vectorial con pgvector para Retrieval Augmented Generation
+- **Testing en Tiempo Real**: Chat con streaming y renderizado Markdown
+- **Monitorización**: Historial de ejecuciones con métricas y trazas
 
-## Inicio Rápido
+## Requisitos
 
-1. **Configurar el entorno:**
-   ```bash
-   cp .env.example .env
-   ```
+- Docker y Docker Compose
+- Git
+- (Opcional) Ollama u otro servidor LLM
 
-2. **Arrancar el stack:**
-   ```bash
-   docker compose up --build
-   ```
+## Instalación
 
-3. **Acceder a los servicios:**
-   - **GUI (Angular):** [http://localhost:4200](http://localhost:4200)
-   - **API (FastAPI):** [http://localhost:8000/docs](http://localhost:8000/docs)
-   - **CMS (Strapi):** [http://localhost:1337/admin](http://localhost:1337/admin)
-   - **PostgreSQL:** `localhost:5432`
+### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/jordiportal/brain.git
+cd brain
+```
+
+### 2. Configurar variables de entorno
+
+```bash
+cp .env-example .env
+```
+
+Edita `.env` según tu configuración:
+
+```env
+# Puertos (opcionales, valores por defecto)
+API_PORT=8000
+STRAPI_PORT=1337
+GUI_PORT=4200
+
+# PostgreSQL
+POSTGRES_USER=brain
+POSTGRES_PASSWORD=tu_password_seguro
+POSTGRES_DB=brain_db
+
+# Ollama (ajusta la IP a tu servidor)
+OLLAMA_BASE_URL=http://localhost:11434
+
+# Strapi (genera valores únicos para producción)
+JWT_SECRET=genera-un-secret-seguro
+ADMIN_JWT_SECRET=genera-otro-secret-seguro
+```
+
+### 3. Levantar los servicios
+
+```bash
+# Primera vez (construye las imágenes)
+docker compose up -d --build
+
+# Siguientes veces
+docker compose up -d
+```
+
+La primera ejecución tardará unos minutos mientras:
+- Se descargan las imágenes base
+- Se instalan las dependencias de cada servicio
+- Strapi y Angular se inicializan
+
+### 4. Configuración inicial
+
+#### Strapi (CMS)
+
+1. Accede a http://localhost:1337/admin
+2. Crea el usuario administrador
+3. Ve a **Settings > Users & Permissions > Roles**
+4. En el rol **Authenticated**, habilita permisos para:
+   - `llm-provider`: find, findOne, create, update, delete
+   - `mcp-connection`: find, findOne, create, update, delete
+   - `brain-chain`: find, findOne, create, update, delete
+   - `execution-log`: find, findOne
+   - `system-setting`: find, findOne, update
+
+#### Usuario de la Aplicación
+
+Registra un usuario para la aplicación (diferente al admin de Strapi):
+
+```bash
+curl -X POST http://localhost:1337/api/auth/local/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "usuario", "email": "tu@email.com", "password": "tu_password"}'
+```
+
+## Uso
+
+### URLs de Acceso
+
+| Servicio | URL | Descripción |
+|----------|-----|-------------|
+| **GUI** | http://localhost:4200 | Interfaz de usuario principal |
+| **API Docs** | http://localhost:8000/docs | Documentación Swagger de la API |
+| **Strapi Admin** | http://localhost:1337/admin | Panel de administración del CMS |
+
+### Flujo de Trabajo
+
+1. **Configurar LLM**: Ve a Configuración > Proveedores LLM y añade tu servidor Ollama u otro proveedor
+2. **Probar Conexión**: En Testing LLM, verifica que la conexión funciona
+3. **Crear Cadenas**: Define tus flujos de procesamiento en la sección Cadenas
+4. **Monitorizar**: Revisa las ejecuciones y métricas en Monitorización
+
+## Estructura del Proyecto
+
+```
+brain/
+├── docker-compose.yml          # Orquestación de servicios
+├── .env-example                 # Template de configuración
+│
+├── services/
+│   ├── api/                     # API Python
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       ├── main.py          # Entry point FastAPI
+│   │       ├── config.py        # Configuración
+│   │       ├── llm/             # Endpoints LLM y streaming
+│   │       ├── chains/          # Cadenas LangChain
+│   │       ├── graphs/          # Grafos LangGraph
+│   │       └── rag/             # RAG con pgvector
+│   │
+│   ├── gui/                     # Frontend Angular
+│   │   ├── Dockerfile
+│   │   └── src/app/
+│   │       ├── core/            # Servicios, guards, modelos
+│   │       ├── features/        # Componentes por funcionalidad
+│   │       └── layouts/         # Layout principal
+│   │
+│   └── strapi/                  # CMS Strapi
+│       ├── Dockerfile
+│       └── src/api/             # Content-types personalizados
+│           ├── llm-provider/
+│           ├── mcp-connection/
+│           ├── brain-chain/
+│           ├── execution-log/
+│           └── system-setting/
+│
+└── database/
+    └── init/
+        └── 01-init-pgvector.sql # Inicialización PostgreSQL + pgvector
+```
+
+## Comandos Útiles
+
+```bash
+# Ver estado de los servicios
+docker compose ps
+
+# Ver logs de todos los servicios
+docker compose logs -f
+
+# Ver logs de un servicio específico
+docker compose logs -f api
+
+# Reiniciar un servicio
+docker compose restart api
+
+# Parar todo
+docker compose down
+
+# Parar y eliminar volúmenes (reset completo)
+docker compose down -v
+
+# Reconstruir un servicio
+docker compose build api && docker compose up -d api
+```
 
 ## Desarrollo
 
-### Estructura de la API
+### API Python
 
-Los grafos de pensamiento se definen en `services/api/src/graphs/`.
-Las cadenas de LangChain se definen en `services/api/src/chains/`.
-La lógica de RAG se encuentra en `services/api/src/rag/`.
+Los cambios en `services/api/src/` se recargan automáticamente gracias a uvicorn con `--reload`.
 
-### Visualización
+### GUI Angular
 
-El GUI utiliza WebSocket para recibir actualizaciones en tiempo real de las ejecuciones de los grafos y renderiza el flujo paso a paso para un fácil seguimiento.
+Los cambios en `services/gui/src/` se recompilan automáticamente con hot-reload.
 
-## Notas de Strapi
+### Strapi
 
-En la primera ejecución, Strapi se inicializará automáticamente. Deberás crear el primer usuario administrador en la interfaz web.
+Los cambios en los content-types requieren reiniciar el servicio:
+```bash
+docker compose restart strapi
+```
+
+## Tecnologías
+
+- **Backend**: Python 3.11, FastAPI, LangChain, LangGraph
+- **Frontend**: Angular 17, Angular Material
+- **CMS**: Strapi 5
+- **Base de Datos**: PostgreSQL 16 + pgvector
+- **Cache**: Redis 7
+- **Contenedores**: Docker, Docker Compose
+
+## Roadmap
+
+- [ ] Editor visual de grafos LangGraph
+- [ ] Integración completa con RAG
+- [ ] WebSocket para ejecuciones en tiempo real
+- [ ] Exportar/Importar configuraciones
+- [ ] Métricas y dashboards avanzados
+- [ ] Soporte multi-tenant
+
+## Licencia
+
+MIT
+
+## Contribuir
+
+Las contribuciones son bienvenidas. Por favor, abre un issue para discutir cambios mayores antes de crear un PR.
