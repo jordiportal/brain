@@ -1,0 +1,42 @@
+{
+  "kind": "collectionType",
+  "collectionName": "system_settings",
+  "info": {
+    "singularName": "system-setting",
+    "pluralName": "system-settings",
+    "displayName": "System Setting",
+    "description": "Configuraciones generales del sistema Brain"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "key": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "value": {
+      "type": "json",
+      "required": true
+    },
+    "type": {
+      "type": "enumeration",
+      "enum": ["string", "number", "boolean", "json", "secret"],
+      "default": "string"
+    },
+    "category": {
+      "type": "enumeration",
+      "enum": ["general", "security", "llm", "mcp", "rag", "monitoring", "other"],
+      "default": "general"
+    },
+    "description": {
+      "type": "text"
+    },
+    "isPublic": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

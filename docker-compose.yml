@@ -1,0 +1,149 @@
+services:
+  # ===========================================
+  # PostgreSQL con pgvector
+  # ===========================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: brain-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-brain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brain_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-brain_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-brain} -d ${POSTGRES_DB:-brain_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - brain-network
+
+  # ===========================================
+  # Redis - Cache y Cola de Tareas
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: brain-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - brain-network
+
+  # ===========================================
+  # API Python - LangChain/LangGraph
+  # ===========================================
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: brain-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD:-brain_secret}@postgres:5432/${POSTGRES_DB:-brain_db}
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - DEBUG=${DEBUG:-true}
+    volumes:
+      - ./services/api/src:/app/src:ro
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - brain-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ===========================================
+  # Strapi CMS
+  # ===========================================
+  strapi:
+    build:
+      context: ./services/strapi
+      dockerfile: Dockerfile
+    container_name: brain-strapi
+    restart: unless-stopped
+    environment:
+      - DATABASE_CLIENT=postgres
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=${POSTGRES_DB:-brain_db}
+      - DATABASE_USERNAME=${POSTGRES_USER:-brain}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-brain_secret}
+      - DATABASE_SSL=false
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-change-me}
+      - ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-your-admin-jwt-secret-change-me}
+      - APP_KEYS=${APP_KEYS:-key1,key2,key3,key4}
+      - API_TOKEN_SALT=${API_TOKEN_SALT:-your-api-token-salt}
+      - TRANSFER_TOKEN_SALT=${TRANSFER_TOKEN_SALT:-your-transfer-token-salt}
+    volumes:
+      - strapi_data:/app/public/uploads
+    ports:
+      - "${STRAPI_PORT:-1337}:1337"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - brain-network
+
+  # ===========================================
+  # Angular GUI
+  # ===========================================
+  gui:
+    build:
+      context: ./services/gui
+      dockerfile: Dockerfile
+      target: development
+    container_name: brain-gui
+    restart: unless-stopped
+    environment:
+      - API_URL=http://api:8000
+      - STRAPI_URL=http://strapi:1337
+    volumes:
+      - ./services/gui:/app
+      - gui_node_modules:/app/node_modules
+    ports:
+      - "${GUI_PORT:-4200}:4200"
+    depends_on:
+      - api
+      - strapi
+    networks:
+      - brain-network
+
+# ===========================================
+# Volúmenes Persistentes
+# ===========================================
+volumes:
+  postgres_data:
+    name: brain-postgres-data
+  redis_data:
+    name: brain-redis-data
+  strapi_data:
+    name: brain-strapi-data
+  gui_node_modules:
+    name: brain-gui-node-modules
+
+# ===========================================
+# Red Interna
+# ===========================================
+networks:
+  brain-network:
+    name: brain-network
+    driver: bridge

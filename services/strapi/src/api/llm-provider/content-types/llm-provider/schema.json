@@ -1,0 +1,51 @@
+{
+  "kind": "collectionType",
+  "collectionName": "llm_providers",
+  "info": {
+    "singularName": "llm-provider",
+    "pluralName": "llm-providers",
+    "displayName": "LLM Provider",
+    "description": "Configuración de proveedores de LLM (Ollama, OpenAI, Gemini, etc.)"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "type": {
+      "type": "enumeration",
+      "enum": ["ollama", "openai", "gemini", "anthropic", "azure", "groq", "custom"],
+      "required": true,
+      "default": "ollama"
+    },
+    "baseUrl": {
+      "type": "string",
+      "required": true
+    },
+    "apiKey": {
+      "type": "string",
+      "private": true
+    },
+    "defaultModel": {
+      "type": "string"
+    },
+    "embeddingModel": {
+      "type": "string"
+    },
+    "isActive": {
+      "type": "boolean",
+      "default": true
+    },
+    "config": {
+      "type": "json"
+    },
+    "description": {
+      "type": "text"
+    }
+  }
+}

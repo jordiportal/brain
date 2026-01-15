@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.class
+.env
+.venv
+env/
+venv/
+node_modules/
+dist/
+.angular/
+.cache/
+.tmp/
+public/uploads/
+.DS_Store

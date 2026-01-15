@@ -1,0 +1,43 @@
+# ===========================================
+# Brain API Dependencies
+# ===========================================
+
+# FastAPI y servidor
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# LangChain ecosystem
+langchain>=0.1.9
+langchain-community>=0.0.24
+langchain-core>=0.1.27
+langgraph>=0.0.32
+langchain-postgres>=0.0.2
+
+# Base de datos
+psycopg2-binary==2.9.9
+asyncpg==0.29.0
+sqlalchemy==2.0.27
+
+# Redis
+redis==5.0.1
+celery==5.3.6
+
+# Modelos y validación
+pydantic==2.6.1
+pydantic-settings==2.2.1
+
+# Embeddings (para uso con Ollama u otros)
+sentence-transformers==2.5.1
+
+# Utilidades
+python-dotenv==1.0.1
+httpx==0.26.0
+aiofiles==23.2.1
+
+# Logging y monitorización
+structlog==24.1.0
+
+# Testing (desarrollo)
+pytest==8.0.1
+pytest-asyncio==0.23.5

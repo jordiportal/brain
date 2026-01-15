@@ -1,0 +1,62 @@
+{
+  "kind": "collectionType",
+  "collectionName": "execution_logs",
+  "info": {
+    "singularName": "execution-log",
+    "pluralName": "execution-logs",
+    "displayName": "Execution Log",
+    "description": "Historial de ejecuciones de cadenas y grafos"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "executionId": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "brainChain": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::brain-chain.brain-chain"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": ["pending", "running", "completed", "failed", "cancelled"],
+      "required": true,
+      "default": "pending"
+    },
+    "input": {
+      "type": "json"
+    },
+    "output": {
+      "type": "json"
+    },
+    "trace": {
+      "type": "json"
+    },
+    "error": {
+      "type": "text"
+    },
+    "startedAt": {
+      "type": "datetime"
+    },
+    "completedAt": {
+      "type": "datetime"
+    },
+    "durationMs": {
+      "type": "integer"
+    },
+    "tokensUsed": {
+      "type": "integer"
+    },
+    "cost": {
+      "type": "decimal"
+    },
+    "metadata": {
+      "type": "json"
+    }
+  }
+}
