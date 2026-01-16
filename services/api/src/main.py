@@ -10,6 +10,9 @@ import structlog
 
 from src.config import get_settings
 from src.llm.router import router as llm_router
+from src.engine.router import router as chains_router
+from src.engine.chains import register_all_chains
+from src.rag.router import router as rag_router
 
 # Configurar logging estructurado
 structlog.configure(
@@ -35,6 +38,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Iniciando Brain API", version=settings.app_version)
     
+    # Registrar cadenas predefinidas
+    register_all_chains()
+    logger.info("Cadenas predefinidas registradas")
+    
     # TODO: Inicializar conexiones a DB, Redis, etc.
     
     yield
@@ -53,17 +60,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configurar CORS
+# Configurar CORS - permitir todas las peticiones en desarrollo
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En desarrollo permitir todos los orígenes
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight por 1 hora
 )
 
 # Incluir routers
 app.include_router(llm_router, prefix="/api/v1")
+app.include_router(chains_router, prefix="/api/v1")
+app.include_router(rag_router, prefix="/api/v1")
 
 
 # ===========================================
@@ -82,115 +93,13 @@ async def health_check():
 @app.get("/health/ready", tags=["Health"])
 async def readiness_check():
     """Verificar que la API está lista para recibir tráfico"""
-    # TODO: Verificar conexiones a DB, Redis, Ollama
+    from src.engine.registry import chain_registry
+    
     return {
         "status": "ready",
+        "chains_registered": len(chain_registry.list_chain_ids()),
         "database": "connected",  # TODO: verificar real
         "redis": "connected",     # TODO: verificar real
-    }
-
-
-# ===========================================
-# API Endpoints - Graphs
-# ===========================================
-
-@app.get("/api/v1/graphs", tags=["Graphs"])
-async def list_graphs():
-    """Listar todos los grafos disponibles"""
-    # TODO: Implementar listado desde DB/registro
-    return {
-        "graphs": [
-            {
-                "id": "example-graph",
-                "name": "Grafo de Ejemplo",
-                "description": "Un grafo de demostración",
-                "nodes": ["start", "process", "end"],
-                "status": "active"
-            }
-        ]
-    }
-
-
-@app.get("/api/v1/graphs/{graph_id}", tags=["Graphs"])
-async def get_graph(graph_id: str):
-    """Obtener estructura de un grafo específico"""
-    # TODO: Implementar obtención desde registro de grafos
-    return {
-        "id": graph_id,
-        "name": f"Grafo {graph_id}",
-        "nodes": [
-            {"id": "start", "type": "entry", "label": "Inicio"},
-            {"id": "process", "type": "action", "label": "Procesar"},
-            {"id": "end", "type": "exit", "label": "Fin"},
-        ],
-        "edges": [
-            {"source": "start", "target": "process"},
-            {"source": "process", "target": "end"},
-        ]
-    }
-
-
-@app.get("/api/v1/graphs/{graph_id}/executions", tags=["Graphs"])
-async def list_graph_executions(graph_id: str, limit: int = 10):
-    """Listar historial de ejecuciones de un grafo"""
-    # TODO: Implementar desde DB
-    return {
-        "graph_id": graph_id,
-        "executions": [],
-        "total": 0
-    }
-
-
-# ===========================================
-# API Endpoints - Executions
-# ===========================================
-
-@app.get("/api/v1/executions/{execution_id}", tags=["Executions"])
-async def get_execution(execution_id: str):
-    """Obtener detalles de una ejecución específica"""
-    # TODO: Implementar desde DB
-    return {
-        "id": execution_id,
-        "graph_id": "example-graph",
-        "status": "completed",
-        "started_at": "2024-01-15T10:00:00Z",
-        "completed_at": "2024-01-15T10:00:05Z",
-        "trace": []
-    }
-
-
-@app.get("/api/v1/executions/{execution_id}/trace", tags=["Executions"])
-async def get_execution_trace(execution_id: str):
-    """Obtener trace completo de una ejecución (paso a paso)"""
-    # TODO: Implementar desde DB
-    return {
-        "execution_id": execution_id,
-        "steps": [
-            {
-                "step": 1,
-                "node_id": "start",
-                "timestamp": "2024-01-15T10:00:00Z",
-                "input": {},
-                "output": {"next": "process"},
-                "duration_ms": 10
-            },
-            {
-                "step": 2,
-                "node_id": "process",
-                "timestamp": "2024-01-15T10:00:01Z",
-                "input": {"data": "example"},
-                "output": {"result": "processed"},
-                "duration_ms": 3500
-            },
-            {
-                "step": 3,
-                "node_id": "end",
-                "timestamp": "2024-01-15T10:00:05Z",
-                "input": {"result": "processed"},
-                "output": {"final": True},
-                "duration_ms": 5
-            }
-        ]
     }
 
 
@@ -201,7 +110,6 @@ async def get_execution_trace(execution_id: str):
 @app.get("/api/v1/rag/collections", tags=["RAG"])
 async def list_rag_collections():
     """Listar colecciones de documentos RAG"""
-    # TODO: Implementar desde pgvector
     return {
         "collections": [
             {
@@ -216,35 +124,11 @@ async def list_rag_collections():
 @app.post("/api/v1/rag/search", tags=["RAG"])
 async def rag_search(query: str, collection: str = None, top_k: int = 5):
     """Búsqueda semántica en documentos RAG"""
-    # TODO: Implementar búsqueda vectorial
+    # TODO: Implementar búsqueda vectorial con pgvector
     return {
         "query": query,
         "results": [],
         "total": 0
-    }
-
-
-# ===========================================
-# API Endpoints - Chains
-# ===========================================
-
-@app.get("/api/v1/chains", tags=["Chains"])
-async def list_chains():
-    """Listar cadenas de LangChain disponibles"""
-    # TODO: Implementar registro de cadenas
-    return {
-        "chains": []
-    }
-
-
-@app.post("/api/v1/chains/{chain_id}/invoke", tags=["Chains"])
-async def invoke_chain(chain_id: str, input_data: dict = None):
-    """Ejecutar una cadena de LangChain"""
-    # TODO: Implementar invocación de cadenas
-    return {
-        "chain_id": chain_id,
-        "status": "not_implemented",
-        "message": "Chain invocation not yet implemented"
     }
 
 

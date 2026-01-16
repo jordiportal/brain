@@ -11,10 +11,12 @@ if [ ! -f "package.json" ]; then
         --skip-git \
         --skip-install=false \
         --ssr=false
-    
-    # Instalar dependencias adicionales para visualización de grafos
-    npm install @swimlane/ngx-graph d3 @types/d3
-    npm install @angular/cdk @angular/material
+fi
+
+# Instalar dependencias si no existen o si se actualizó package.json
+if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
+    echo "Instalando dependencias..."
+    npm install --legacy-peer-deps
 fi
 
 # Ejecutar el comando pasado

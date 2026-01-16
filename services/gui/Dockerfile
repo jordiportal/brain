@@ -15,8 +15,8 @@ RUN npm install -g @angular/cli@17
 # Copiar package.json si existe
 COPY package*.json* ./
 
-# Instalar dependencias si existen
-RUN if [ -f package.json ]; then npm install; fi
+# Instalar dependencias si existen (legacy-peer-deps para ngx-graph)
+RUN if [ -f package.json ]; then npm install --legacy-peer-deps; fi
 
 # Script de inicio para desarrollo
 COPY docker-entrypoint.sh /docker-entrypoint.sh

@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     
     # Ollama (LLM externo)
-    ollama_base_url: str = "http://localhost:11434"
+    # Por defecto usa host.docker.internal para acceder al Ollama del host desde Docker
+    ollama_base_url: str = "http://host.docker.internal:11434"
     default_model: str = "llama3.2"
     default_embedding_model: str = "nomic-embed-text"
     

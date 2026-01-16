@@ -68,8 +68,21 @@ export class ApiService {
     return this.http.get(`${this.API_URL}/chains`);
   }
 
-  invokeChain(chainId: string, input: any): Observable<any> {
-    return this.http.post(`${this.API_URL}/chains/${chainId}/invoke`, input);
+  getChain(chainId: string): Observable<any> {
+    return this.http.get(`${this.API_URL}/chains/${chainId}`);
+  }
+
+  invokeChain(chainId: string, input: any, sessionId?: string): Observable<any> {
+    const params = sessionId ? `?session_id=${sessionId}` : '';
+    return this.http.post(`${this.API_URL}/chains/${chainId}/invoke${params}`, input);
+  }
+
+  getChainMemory(chainId: string, sessionId: string): Observable<any> {
+    return this.http.get(`${this.API_URL}/chains/${chainId}/memory/${sessionId}`);
+  }
+
+  clearChainMemory(chainId: string, sessionId: string): Observable<any> {
+    return this.http.delete(`${this.API_URL}/chains/${chainId}/memory/${sessionId}`);
   }
 
   // ===========================================

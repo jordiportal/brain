@@ -1,0 +1,56 @@
+{
+  "kind": "collectionType",
+  "collectionName": "rag_documents",
+  "info": {
+    "singularName": "rag-document",
+    "pluralName": "rag-documents",
+    "displayName": "RAG Document",
+    "description": "Documentos para indexar en RAG"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "file": {
+      "type": "media",
+      "multiple": false,
+      "required": true,
+      "allowedTypes": ["files"]
+    },
+    "collection": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::rag-collection.rag-collection",
+      "inversedBy": "documents"
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": ["pending", "processing", "indexed", "failed"],
+      "default": "pending"
+    },
+    "fileType": {
+      "type": "string"
+    },
+    "fileSize": {
+      "type": "integer"
+    },
+    "chunksCount": {
+      "type": "integer",
+      "default": 0
+    },
+    "indexedAt": {
+      "type": "datetime"
+    },
+    "errorMessage": {
+      "type": "text"
+    },
+    "metadata": {
+      "type": "json"
+    }
+  }
+}
