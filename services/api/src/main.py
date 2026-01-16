@@ -13,6 +13,7 @@ from src.llm.router import router as llm_router
 from src.engine.router import router as chains_router
 from src.engine.chains import register_all_chains
 from src.rag.router import router as rag_router
+from src.tools.router import router as tools_router
 
 # Configurar logging estructurado
 structlog.configure(
@@ -75,6 +76,7 @@ app.add_middleware(
 app.include_router(llm_router, prefix="/api/v1")
 app.include_router(chains_router, prefix="/api/v1")
 app.include_router(rag_router, prefix="/api/v1")
+app.include_router(tools_router, prefix="/api/v1")
 
 
 # ===========================================

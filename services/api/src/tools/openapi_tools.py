@@ -1,0 +1,366 @@
+"""
+OpenAPI Tools - Convierte especificaciones OpenAPI en herramientas para agentes
+"""
+
+import os
+import re
+import json
+import httpx
+import structlog
+from typing import Any, Dict, List, Optional, Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from urllib.parse import urljoin, urlencode
+
+logger = structlog.get_logger()
+
+STRAPI_URL = os.getenv("STRAPI_URL", "http://strapi:1337")
+
+
+@dataclass
+class OpenAPITool:
+    """Representa una herramienta generada desde un endpoint OpenAPI"""
+    id: str
+    name: str
+    description: str
+    method: str
+    path: str
+    parameters: List[Dict[str, Any]] = field(default_factory=list)
+    request_body: Optional[Dict[str, Any]] = None
+    responses: Dict[str, Any] = field(default_factory=dict)
+    
+    # Conexión
+    connection_id: str = ""
+    base_url: str = ""
+    auth_type: str = "none"
+    auth_token: Optional[str] = None
+    auth_header: str = "Authorization"
+    auth_prefix: str = "Bearer"
+    custom_headers: Dict[str, str] = field(default_factory=dict)
+    timeout: int = 30000
+    
+    def to_function_schema(self) -> Dict[str, Any]:
+        """Convierte a schema de función para el LLM"""
+        properties = {}
+        required = []
+        
+        # Parámetros de path y query
+        for param in self.parameters:
+            param_name = param.get("name", "")
+            param_schema = param.get("schema", {"type": "string"})
+            
+            properties[param_name] = {
+                "type": param_schema.get("type", "string"),
+                "description": param.get("description", f"Parameter {param_name}")
+            }
+            
+            if param.get("required", False):
+                required.append(param_name)
+        
+        # Request body
+        if self.request_body:
+            content = self.request_body.get("content", {})
+            json_schema = content.get("application/json", {}).get("schema", {})
+            
+            if json_schema.get("properties"):
+                for prop_name, prop_schema in json_schema["properties"].items():
+                    properties[prop_name] = {
+                        "type": prop_schema.get("type", "string"),
+                        "description": prop_schema.get("description", f"Body parameter {prop_name}")
+                    }
+                
+                if json_schema.get("required"):
+                    required.extend(json_schema["required"])
+        
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": list(set(required))
+            }
+        }
+    
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        """Ejecuta la llamada al endpoint"""
+        try:
+            # Construir URL con path parameters
+            url = self.path
+            path_params = {}
+            query_params = {}
+            body_params = {}
+            
+            for param in self.parameters:
+                param_name = param.get("name", "")
+                param_in = param.get("in", "query")
+                
+                if param_name in kwargs:
+                    if param_in == "path":
+                        path_params[param_name] = kwargs[param_name]
+                    elif param_in == "query":
+                        query_params[param_name] = kwargs[param_name]
+            
+            # Reemplazar path parameters
+            for name, value in path_params.items():
+                url = url.replace(f"{{{name}}}", str(value))
+            
+            # Body parameters (lo que no es path ni query)
+            if self.request_body:
+                for key, value in kwargs.items():
+                    if key not in path_params and key not in query_params:
+                        body_params[key] = value
+            
+            # Construir URL completa
+            full_url = urljoin(self.base_url, url)
+            if query_params:
+                full_url += "?" + urlencode(query_params)
+            
+            # Headers
+            headers = dict(self.custom_headers)
+            headers["Content-Type"] = "application/json"
+            
+            # Auth
+            if self.auth_type == "bearer" and self.auth_token:
+                headers[self.auth_header] = f"{self.auth_prefix} {self.auth_token}"
+            elif self.auth_type == "apikey" and self.auth_token:
+                headers[self.auth_header] = self.auth_token
+            
+            # Ejecutar request
+            timeout = httpx.Timeout(self.timeout / 1000)
+            
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                if self.method.upper() == "GET":
+                    response = await client.get(full_url, headers=headers)
+                elif self.method.upper() == "POST":
+                    response = await client.post(full_url, headers=headers, json=body_params or None)
+                elif self.method.upper() == "PUT":
+                    response = await client.put(full_url, headers=headers, json=body_params or None)
+                elif self.method.upper() == "PATCH":
+                    response = await client.patch(full_url, headers=headers, json=body_params or None)
+                elif self.method.upper() == "DELETE":
+                    response = await client.delete(full_url, headers=headers)
+                else:
+                    return {"error": f"Método HTTP no soportado: {self.method}"}
+                
+                # Parsear respuesta
+                try:
+                    result = response.json()
+                except:
+                    result = {"text": response.text}
+                
+                return {
+                    "success": response.is_success,
+                    "status_code": response.status_code,
+                    "data": result
+                }
+                
+        except httpx.TimeoutException:
+            return {"error": "Timeout en la llamada al servicio", "success": False}
+        except Exception as e:
+            logger.error(f"Error ejecutando OpenAPI tool: {e}")
+            return {"error": str(e), "success": False}
+
+
+class OpenAPIToolkit:
+    """Gestiona las conexiones OpenAPI y genera herramientas"""
+    
+    def __init__(self):
+        self.connections: Dict[str, Dict] = {}
+        self.tools: Dict[str, OpenAPITool] = {}
+        self._loaded = False
+    
+    async def load_connections_from_strapi(self) -> int:
+        """Carga conexiones activas desde Strapi"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{STRAPI_URL}/api/openapi-connections",
+                    params={"filters[isActive][$eq]": "true", "populate": "*"}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    count = 0
+                    
+                    for item in data.get("data", []):
+                        conn_id = item.get("documentId") or str(item.get("id"))
+                        self.connections[conn_id] = {
+                            "id": conn_id,
+                            "name": item.get("name"),
+                            "slug": item.get("slug"),
+                            "specUrl": item.get("specUrl"),
+                            "baseUrl": item.get("baseUrl"),
+                            "authType": item.get("authType", "none"),
+                            "authToken": item.get("authToken"),
+                            "authHeader": item.get("authHeader", "Authorization"),
+                            "authPrefix": item.get("authPrefix", "Bearer"),
+                            "timeout": item.get("timeout", 30000),
+                            "customHeaders": item.get("customHeaders") or {},
+                            "enabledEndpoints": item.get("enabledEndpoints"),
+                            "cachedSpec": item.get("cachedSpec")
+                        }
+                        count += 1
+                    
+                    self._loaded = True
+                    logger.info(f"Cargadas {count} conexiones OpenAPI desde Strapi")
+                    return count
+                else:
+                    logger.warning(f"Error cargando conexiones: {response.status_code}")
+                    return 0
+                    
+        except Exception as e:
+            logger.error(f"Error conectando con Strapi: {e}")
+            return 0
+    
+    async def add_connection(
+        self,
+        name: str,
+        spec_url: str,
+        base_url: str,
+        auth_type: str = "none",
+        auth_token: Optional[str] = None,
+        auth_header: str = "Authorization",
+        auth_prefix: str = "Bearer",
+        timeout: int = 30000,
+        custom_headers: Optional[Dict] = None
+    ) -> str:
+        """Añade una conexión manualmente (sin Strapi)"""
+        conn_id = name.lower().replace(" ", "_")
+        
+        self.connections[conn_id] = {
+            "id": conn_id,
+            "name": name,
+            "slug": conn_id,
+            "specUrl": spec_url,
+            "baseUrl": base_url,
+            "authType": auth_type,
+            "authToken": auth_token,
+            "authHeader": auth_header,
+            "authPrefix": auth_prefix,
+            "timeout": timeout,
+            "customHeaders": custom_headers or {},
+            "enabledEndpoints": None,
+            "cachedSpec": None
+        }
+        
+        return conn_id
+    
+    async def fetch_and_parse_spec(self, connection_id: str) -> Dict[str, Any]:
+        """Descarga y parsea la especificación OpenAPI"""
+        if connection_id not in self.connections:
+            raise ValueError(f"Conexión no encontrada: {connection_id}")
+        
+        conn = self.connections[connection_id]
+        
+        # Usar spec cacheada si existe
+        if conn.get("cachedSpec"):
+            return conn["cachedSpec"]
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(conn["specUrl"])
+                
+                if response.status_code == 200:
+                    spec = response.json()
+                    conn["cachedSpec"] = spec
+                    return spec
+                else:
+                    raise Exception(f"Error descargando spec: {response.status_code}")
+                    
+        except Exception as e:
+            logger.error(f"Error obteniendo spec OpenAPI: {e}")
+            raise
+    
+    async def generate_tools(self, connection_id: str) -> List[OpenAPITool]:
+        """Genera herramientas a partir de la especificación OpenAPI"""
+        spec = await self.fetch_and_parse_spec(connection_id)
+        conn = self.connections[connection_id]
+        
+        tools = []
+        enabled_endpoints = conn.get("enabledEndpoints")
+        
+        # Iterar sobre los paths
+        for path, methods in spec.get("paths", {}).items():
+            for method, details in methods.items():
+                if method not in ["get", "post", "put", "patch", "delete"]:
+                    continue
+                
+                # Generar ID único para la tool
+                operation_id = details.get("operationId")
+                if not operation_id:
+                    # Generar operation_id desde path y method
+                    clean_path = re.sub(r'[{}]', '', path).replace('/', '_').strip('_')
+                    operation_id = f"{method}_{clean_path}"
+                
+                tool_id = f"{conn['slug']}_{operation_id}"
+                
+                # Verificar si está habilitado
+                if enabled_endpoints and tool_id not in enabled_endpoints:
+                    continue
+                
+                # Crear herramienta
+                tool = OpenAPITool(
+                    id=tool_id,
+                    name=tool_id,
+                    description=details.get("summary") or details.get("description") or f"{method.upper()} {path}",
+                    method=method.upper(),
+                    path=path,
+                    parameters=details.get("parameters", []),
+                    request_body=details.get("requestBody"),
+                    responses=details.get("responses", {}),
+                    connection_id=connection_id,
+                    base_url=conn["baseUrl"],
+                    auth_type=conn["authType"],
+                    auth_token=conn["authToken"],
+                    auth_header=conn["authHeader"],
+                    auth_prefix=conn["authPrefix"],
+                    custom_headers=conn.get("customHeaders", {}),
+                    timeout=conn.get("timeout", 30000)
+                )
+                
+                tools.append(tool)
+                self.tools[tool_id] = tool
+        
+        logger.info(f"Generadas {len(tools)} herramientas para {conn['name']}")
+        return tools
+    
+    async def load_all_tools(self) -> Dict[str, OpenAPITool]:
+        """Carga todas las herramientas de todas las conexiones"""
+        if not self.connections:
+            await self.load_connections_from_strapi()
+        
+        for conn_id in self.connections:
+            try:
+                await self.generate_tools(conn_id)
+            except Exception as e:
+                logger.error(f"Error generando tools para {conn_id}: {e}")
+        
+        return self.tools
+    
+    def get_tool(self, tool_id: str) -> Optional[OpenAPITool]:
+        """Obtiene una herramienta por ID"""
+        return self.tools.get(tool_id)
+    
+    def list_tools(self, connection_id: Optional[str] = None) -> List[OpenAPITool]:
+        """Lista todas las herramientas o las de una conexión específica"""
+        if connection_id:
+            return [t for t in self.tools.values() if t.connection_id == connection_id]
+        return list(self.tools.values())
+    
+    def get_tools_for_llm(self, connection_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Obtiene las herramientas en formato para el LLM"""
+        tools = self.list_tools(connection_id)
+        return [tool.to_function_schema() for tool in tools]
+    
+    async def execute_tool(self, tool_id: str, **kwargs) -> Dict[str, Any]:
+        """Ejecuta una herramienta por ID"""
+        tool = self.get_tool(tool_id)
+        if not tool:
+            return {"error": f"Herramienta no encontrada: {tool_id}"}
+        
+        return await tool.execute(**kwargs)
+
+
+# Instancia global
+openapi_toolkit = OpenAPIToolkit()
