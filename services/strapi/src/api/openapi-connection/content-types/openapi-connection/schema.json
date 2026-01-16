@@ -38,8 +38,7 @@
       "default": "none"
     },
     "authToken": {
-      "type": "string",
-      "private": true
+      "type": "string"
     },
     "authHeader": {
       "type": "string",

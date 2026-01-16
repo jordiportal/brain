@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlencode
 logger = structlog.get_logger()
 
 STRAPI_URL = os.getenv("STRAPI_URL", "http://strapi:1337")
+STRAPI_API_TOKEN = os.getenv("STRAPI_API_TOKEN", "")
 
 
 @dataclass
@@ -173,10 +174,15 @@ class OpenAPIToolkit:
     async def load_connections_from_strapi(self) -> int:
         """Carga conexiones activas desde Strapi"""
         try:
+            headers = {}
+            if STRAPI_API_TOKEN:
+                headers["Authorization"] = f"Bearer {STRAPI_API_TOKEN}"
+            
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
                     f"{STRAPI_URL}/api/openapi-connections",
-                    params={"filters[isActive][$eq]": "true", "populate": "*"}
+                    params={"filters[isActive][$eq]": "true", "populate": "*"},
+                    headers=headers
                 )
                 
                 if response.status_code == 200:
@@ -213,38 +219,12 @@ class OpenAPIToolkit:
             logger.error(f"Error conectando con Strapi: {e}")
             return 0
     
-    async def add_connection(
-        self,
-        name: str,
-        spec_url: str,
-        base_url: str,
-        auth_type: str = "none",
-        auth_token: Optional[str] = None,
-        auth_header: str = "Authorization",
-        auth_prefix: str = "Bearer",
-        timeout: int = 30000,
-        custom_headers: Optional[Dict] = None
-    ) -> str:
-        """Añade una conexión manualmente (sin Strapi)"""
-        conn_id = name.lower().replace(" ", "_")
-        
-        self.connections[conn_id] = {
-            "id": conn_id,
-            "name": name,
-            "slug": conn_id,
-            "specUrl": spec_url,
-            "baseUrl": base_url,
-            "authType": auth_type,
-            "authToken": auth_token,
-            "authHeader": auth_header,
-            "authPrefix": auth_prefix,
-            "timeout": timeout,
-            "customHeaders": custom_headers or {},
-            "enabledEndpoints": None,
-            "cachedSpec": None
-        }
-        
-        return conn_id
+    async def refresh_connections(self) -> int:
+        """Recarga las conexiones desde Strapi"""
+        self.connections = {}
+        self.tools = {}
+        self._loaded = False
+        return await self.load_connections_from_strapi()
     
     async def fetch_and_parse_spec(self, connection_id: str) -> Dict[str, Any]:
         """Descarga y parsea la especificación OpenAPI"""
@@ -293,7 +273,9 @@ class OpenAPIToolkit:
                     clean_path = re.sub(r'[{}]', '', path).replace('/', '_').strip('_')
                     operation_id = f"{method}_{clean_path}"
                 
-                tool_id = f"{conn['slug']}_{operation_id}"
+                # Usar slug o generar desde nombre
+                conn_prefix = conn.get('slug') or conn['name'].lower().replace(' ', '_').replace('-', '_')
+                tool_id = f"{conn_prefix}_{operation_id}"
                 
                 # Verificar si está habilitado
                 if enabled_endpoints and tool_id not in enabled_endpoints:

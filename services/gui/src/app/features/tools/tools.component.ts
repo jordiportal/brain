@@ -70,9 +70,13 @@ interface Tool {
           <h1>Herramientas</h1>
           <p class="subtitle">Conexiones OpenAPI y herramientas para agentes</p>
         </div>
-        <button mat-raised-button color="primary" (click)="showAddConnection = true">
-          <mat-icon>add</mat-icon>
-          Nueva Conexión OpenAPI
+        <button mat-raised-button color="primary" (click)="refreshConnections()" [disabled]="refreshingConnections()">
+          @if (refreshingConnections()) {
+            <mat-spinner diameter="20"></mat-spinner>
+          } @else {
+            <mat-icon>refresh</mat-icon>
+          }
+          Refrescar desde Strapi
         </button>
       </div>
 
@@ -84,59 +88,6 @@ interface Tool {
             <span class="tab-label">Conexiones</span>
             <span class="badge" *ngIf="connections().length">{{ connections().length }}</span>
           </ng-template>
-
-          <!-- Formulario nueva conexión -->
-          @if (showAddConnection) {
-            <mat-card class="connection-form">
-              <mat-card-header>
-                <mat-card-title>Nueva Conexión OpenAPI</mat-card-title>
-              </mat-card-header>
-              <mat-card-content>
-                <div class="form-grid">
-                  <mat-form-field appearance="outline">
-                    <mat-label>Nombre</mat-label>
-                    <input matInput [(ngModel)]="newConnection.name" placeholder="SAP BTP Gateway">
-                  </mat-form-field>
-
-                  <mat-form-field appearance="outline">
-                    <mat-label>URL Spec OpenAPI</mat-label>
-                    <input matInput [(ngModel)]="newConnection.specUrl" placeholder="http://example.com/openapi.json">
-                  </mat-form-field>
-
-                  <mat-form-field appearance="outline">
-                    <mat-label>URL Base</mat-label>
-                    <input matInput [(ngModel)]="newConnection.baseUrl" placeholder="http://example.com">
-                  </mat-form-field>
-
-                  <mat-form-field appearance="outline">
-                    <mat-label>Tipo de Autenticación</mat-label>
-                    <mat-select [(ngModel)]="newConnection.authType">
-                      <mat-option value="none">Sin autenticación</mat-option>
-                      <mat-option value="bearer">Bearer Token</mat-option>
-                      <mat-option value="apikey">API Key</mat-option>
-                      <mat-option value="basic">Basic Auth</mat-option>
-                    </mat-select>
-                  </mat-form-field>
-
-                  @if (newConnection.authType !== 'none') {
-                    <mat-form-field appearance="outline" class="full-width">
-                      <mat-label>Token / API Key</mat-label>
-                      <input matInput [(ngModel)]="newConnection.authToken" type="password">
-                    </mat-form-field>
-                  }
-                </div>
-              </mat-card-content>
-              <mat-card-actions align="end">
-                <button mat-button (click)="showAddConnection = false">Cancelar</button>
-                <button mat-raised-button color="primary" 
-                        [disabled]="!newConnection.name || !newConnection.specUrl"
-                        (click)="addConnection()">
-                  <mat-icon>add</mat-icon>
-                  Añadir Conexión
-                </button>
-              </mat-card-actions>
-            </mat-card>
-          }
 
           <!-- Lista de conexiones -->
           @if (loadingConnections()) {
@@ -197,10 +148,10 @@ interface Tool {
                 <div class="empty-state">
                   <mat-icon>cloud_off</mat-icon>
                   <h3>No hay conexiones configuradas</h3>
-                  <p>Añade una conexión OpenAPI para generar herramientas</p>
-                  <button mat-raised-button color="primary" (click)="showAddConnection = true">
-                    <mat-icon>add</mat-icon>
-                    Añadir Conexión
+                  <p>Crea conexiones OpenAPI desde <a href="http://localhost:1337/admin" target="_blank">Strapi Admin</a></p>
+                  <button mat-raised-button color="primary" (click)="refreshConnections()">
+                    <mat-icon>refresh</mat-icon>
+                    Refrescar desde Strapi
                   </button>
                 </div>
               }
@@ -590,22 +541,14 @@ export class ToolsComponent implements OnInit {
   loadingTools = signal(false);
   generatingTools = signal(false);
   executingTool = signal(false);
+  refreshingConnections = signal(false);
   toolResult = signal<any>(null);
 
-  showAddConnection = false;
   generatingConnectionId = '';
   searchTerm = '';
   filterType = '';
   selectedTool: Tool | null = null;
   testParams = '{}';
-
-  newConnection = {
-    name: '',
-    specUrl: '',
-    baseUrl: '',
-    authType: 'none',
-    authToken: ''
-  };
 
   ngOnInit(): void {
     this.loadConnections();
@@ -660,27 +603,21 @@ export class ToolsComponent implements OnInit {
     return this.tools().filter(t => t.connection_id === connectionId).length;
   }
 
-  addConnection(): void {
-    const conn = this.newConnection;
+  refreshConnections(): void {
+    this.refreshingConnections.set(true);
     
-    this.http.post<any>('http://localhost:8000/api/v1/tools/openapi/connections', {
-      name: conn.name,
-      specUrl: conn.specUrl,
-      baseUrl: conn.baseUrl,
-      authType: conn.authType,
-      authToken: conn.authToken || undefined,
-      timeout: 60000
-    }).subscribe({
-      next: (response) => {
-        this.snackBar.open(`Conexión "${conn.name}" añadida`, 'Cerrar', { duration: 3000 });
-        this.showAddConnection = false;
-        this.newConnection = { name: '', specUrl: '', baseUrl: '', authType: 'none', authToken: '' };
-        this.loadConnections();
-      },
-      error: (err) => {
-        this.snackBar.open('Error añadiendo conexión', 'Cerrar', { duration: 3000 });
-      }
-    });
+    this.http.post<any>('http://localhost:8000/api/v1/tools/openapi/connections/refresh', {})
+      .subscribe({
+        next: (response) => {
+          this.snackBar.open(`${response.count} conexiones cargadas desde Strapi`, 'Cerrar', { duration: 3000 });
+          this.refreshingConnections.set(false);
+          this.loadConnections();
+        },
+        error: (err) => {
+          this.snackBar.open('Error refrescando conexiones', 'Cerrar', { duration: 3000 });
+          this.refreshingConnections.set(false);
+        }
+      });
   }
 
   generateTools(connectionId: string): void {

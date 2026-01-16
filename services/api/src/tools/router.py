@@ -12,19 +12,6 @@ from .tool_registry import tool_registry, ToolType
 router = APIRouter(prefix="/tools", tags=["Tools"])
 
 
-class ConnectionCreate(BaseModel):
-    """Request para crear una conexión OpenAPI"""
-    name: str
-    specUrl: str
-    baseUrl: str
-    authType: str = "none"
-    authToken: Optional[str] = None
-    authHeader: str = "Authorization"
-    authPrefix: str = "Bearer"
-    timeout: int = 30000
-    customHeaders: Optional[Dict[str, str]] = None
-
-
 class ToolExecuteRequest(BaseModel):
     """Request para ejecutar una herramienta"""
     tool_id: str
@@ -60,25 +47,15 @@ async def list_openapi_connections():
     }
 
 
-@router.post("/openapi/connections")
-async def add_openapi_connection(connection: ConnectionCreate):
-    """Añade una conexión OpenAPI (sin persistir en Strapi)"""
-    conn_id = await openapi_toolkit.add_connection(
-        name=connection.name,
-        spec_url=connection.specUrl,
-        base_url=connection.baseUrl,
-        auth_type=connection.authType,
-        auth_token=connection.authToken,
-        auth_header=connection.authHeader,
-        auth_prefix=connection.authPrefix,
-        timeout=connection.timeout,
-        custom_headers=connection.customHeaders
-    )
+@router.post("/openapi/connections/refresh")
+async def refresh_openapi_connections():
+    """Recarga las conexiones OpenAPI desde Strapi"""
+    count = await openapi_toolkit.refresh_connections()
     
     return {
         "status": "ok",
-        "message": f"Conexión '{connection.name}' añadida",
-        "connection_id": conn_id
+        "message": f"Recargadas {count} conexiones desde Strapi",
+        "count": count
     }
 
 
