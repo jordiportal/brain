@@ -30,6 +30,11 @@ COPY package*.json* ./
 # Si existe package.json, instalar dependencias
 RUN if [ -f package.json ]; then npm install; fi
 
+# Copiar código fuente (content-types, configs, etc.)
+COPY src/ ./src/
+COPY config/ ./config/
+COPY tsconfig.json ./
+
 # Script de inicio que crea Strapi si no existe
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
