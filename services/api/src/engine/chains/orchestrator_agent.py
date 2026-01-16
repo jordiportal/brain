@@ -391,9 +391,6 @@ async def build_orchestrator_agent(
             # Seleccionar herramienta SAP
             tools_list = await get_sap_tools_for_prompt()
             
-            # Debug
-            print(f"[DEBUG] Tools disponibles: {len(tools_list.split(chr(10)))}", flush=True)
-            
             selector_messages = [
                 {"role": "system", "content": SAP_TOOL_SELECTOR_PROMPT.format(
                     tools=tools_list,
@@ -404,10 +401,7 @@ async def build_orchestrator_agent(
             ]
             
             selector_response = await call_llm(llm_url, model, selector_messages, temperature=0.1)
-            print(f"[DEBUG] Selector response: {selector_response[:300]}", flush=True)
-            
             tool_selection = extract_json(selector_response)
-            print(f"[DEBUG] Tool selection: {tool_selection}", flush=True)
             
             if tool_selection and tool_selection.get("tool"):
                 tool_id = tool_selection["tool"]
