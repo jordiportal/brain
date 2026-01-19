@@ -94,15 +94,23 @@ class BrowserService:
         
         return None
     
-    async def initialize(self) -> bool:
+    async def initialize(self, force: bool = False) -> bool:
         """Inicializar Playwright - conectar al navegador remoto o crear uno local"""
         if not PLAYWRIGHT_AVAILABLE:
             logger.error("Playwright no está instalado")
             return False
         
         async with self._lock:
-            if self._browser:
-                return True
+            if self._browser and not force:
+                # Verificar que la conexión sigue activa
+                try:
+                    if self._is_remote:
+                        # Para remoto, verificar que hay contexts
+                        _ = self._browser.contexts
+                    return True
+                except Exception:
+                    logger.warning("Conexión al navegador perdida, reinicializando...")
+                    self._browser = None
             
             try:
                 self._playwright = await async_playwright().start()
@@ -138,12 +146,40 @@ class BrowserService:
                 logger.error(f"Error iniciando Playwright: {e}")
                 return False
     
+    async def _reconnect(self) -> bool:
+        """Reconectar al navegador si la conexión se perdió"""
+        logger.info("Intentando reconectar al navegador...")
+        
+        # Limpiar estado anterior
+        self._browser = None
+        self._sessions.clear()
+        
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
+        
+        # Reinicializar
+        return await self.initialize()
+    
     async def get_or_create_session(self, session_id: str = None) -> Optional[BrowserSession]:
         """Obtener o crear una sesión de navegador"""
         session_id = session_id or self._default_session_id
         
         if session_id in self._sessions and self._sessions[session_id].is_active:
-            return self._sessions[session_id]
+            # Verificar que la página sigue siendo válida
+            try:
+                session = self._sessions[session_id]
+                if session.page:
+                    # Intentar una operación simple para verificar conexión
+                    await session.page.evaluate("1")
+                    return session
+            except Exception:
+                # La sesión no es válida, limpiarla
+                logger.warning(f"Sesión {session_id} inválida, recreando...")
+                del self._sessions[session_id]
         
         # Asegurar que el navegador está inicializado
         if not self._browser:
@@ -187,6 +223,14 @@ class BrowserService:
             return session
             
         except Exception as e:
+            error_msg = str(e)
+            # Si el error indica conexión perdida, intentar reconectar
+            if "closed" in error_msg.lower() or "disconnected" in error_msg.lower():
+                logger.warning("Conexión al navegador perdida, reconectando...")
+                if await self._reconnect():
+                    # Reintentar crear la sesión
+                    return await self.get_or_create_session(session_id)
+            
             logger.error(f"Error creando sesión: {e}")
             return None
     
