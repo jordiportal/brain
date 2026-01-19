@@ -2,6 +2,7 @@
 Obtener configuración de LLM Provider desde Strapi
 """
 
+import os
 from typing import Optional
 from dataclasses import dataclass
 import httpx
@@ -10,7 +11,8 @@ import structlog
 logger = structlog.get_logger()
 
 # URL de Strapi (dentro de Docker network)
-STRAPI_URL = "http://strapi:1337"
+STRAPI_URL = os.getenv("STRAPI_URL", "http://strapi:1337")
+STRAPI_API_TOKEN = os.getenv("STRAPI_API_TOKEN", "")
 
 # Cache simple para evitar llamadas repetidas
 _provider_cache: Optional["LLMProviderConfig"] = None
@@ -50,10 +52,16 @@ async def get_active_llm_provider(use_cache: bool = True) -> Optional[LLMProvide
         return _provider_cache
     
     try:
+        # Preparar headers con autenticación
+        headers = {}
+        if STRAPI_API_TOKEN:
+            headers["Authorization"] = f"Bearer {STRAPI_API_TOKEN}"
+        
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
                 f"{STRAPI_URL}/api/llm-providers",
-                params={"filters[isActive][$eq]": "true"}
+                params={"filters[isActive][$eq]": "true"},
+                headers=headers
             )
             
             if response.status_code != 200:
@@ -108,10 +116,16 @@ def get_active_llm_provider_sync() -> Optional[LLMProviderConfig]:
         return _provider_cache
     
     try:
+        # Preparar headers con autenticación
+        headers = {}
+        if STRAPI_API_TOKEN:
+            headers["Authorization"] = f"Bearer {STRAPI_API_TOKEN}"
+        
         with httpx.Client(timeout=10.0) as client:
             response = client.get(
                 f"{STRAPI_URL}/api/llm-providers",
-                params={"filters[isActive][$eq]": "true"}
+                params={"filters[isActive][$eq]": "true"},
+                headers=headers
             )
             
             if response.status_code != 200:
