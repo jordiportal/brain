@@ -14,8 +14,11 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { StrapiService } from '../../core/services/strapi.service';
 import { LlmProvider, McpConnection } from '../../core/models';
+import { HttpClient } from '@angular/common/http';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 @Component({
   selector: 'app-settings',
@@ -35,7 +38,8 @@ import { LlmProvider, McpConnection } from '../../core/models';
     MatDialogModule,
     MatSnackBarModule,
     MatProgressSpinnerModule,
-    MatChipsModule
+    MatChipsModule,
+    MatTooltipModule
   ],
   template: `
     <div class="settings-page">
@@ -102,9 +106,40 @@ import { LlmProvider, McpConnection } from '../../core/models';
                         <mat-hint>Opcional para Ollama local</mat-hint>
                       </mat-form-field>
 
+                      <button mat-stroked-button type="button" 
+                              (click)="testLlmConnection()" 
+                              [disabled]="testingConnection() || !llmForm.get('baseUrl')?.value"
+                              class="test-connection-btn">
+                        @if (testingConnection()) {
+                          <mat-spinner diameter="18"></mat-spinner>
+                        } @else {
+                          <mat-icon>wifi_tethering</mat-icon>
+                        }
+                        Probar Conexión
+                      </button>
+                    </div>
+
+                    @if (connectionStatus()) {
+                      <div class="connection-status" [class]="connectionStatus()?.success ? 'success' : 'error'">
+                        <mat-icon>{{ connectionStatus()?.success ? 'check_circle' : 'error' }}</mat-icon>
+                        <span>{{ connectionStatus()?.message }}</span>
+                      </div>
+                    }
+
+                    <div class="form-row">
                       <mat-form-field appearance="outline">
                         <mat-label>Modelo por defecto</mat-label>
-                        <input matInput formControlName="defaultModel" placeholder="llama3.2">
+                        @if (availableModels().length > 0) {
+                          <mat-select formControlName="defaultModel">
+                            @for (model of availableModels(); track model) {
+                              <mat-option [value]="model">{{ model }}</mat-option>
+                            }
+                          </mat-select>
+                          <mat-hint>{{ availableModels().length }} modelos disponibles</mat-hint>
+                        } @else {
+                          <input matInput formControlName="defaultModel" placeholder="llama3.2">
+                          <mat-hint>Prueba la conexión para ver modelos disponibles</mat-hint>
+                        }
                       </mat-form-field>
                     </div>
 
@@ -500,15 +535,51 @@ import { LlmProvider, McpConnection } from '../../core/models';
       align-items: center;
       gap: 8px;
     }
+
+    .test-connection-btn {
+      height: 56px;
+      min-width: 160px;
+    }
+
+    .test-connection-btn mat-spinner {
+      margin-right: 8px;
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .connection-status.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .connection-status.error {
+      background: #ffebee;
+      color: #c62828;
+    }
   `]
 })
 export class SettingsComponent implements OnInit {
+  private readonly API_URL = 'http://localhost:8000/api/v1';
+
   // LLM Providers
   llmProviders = signal<LlmProvider[]>([]);
   showLlmForm = signal(false);
   editingLlm = signal<LlmProvider | null>(null);
   savingLlm = signal(false);
   llmForm: FormGroup;
+
+  // Model loading
+  availableModels = signal<string[]>([]);
+  testingConnection = signal(false);
+  connectionStatus = signal<{ success: boolean; message: string } | null>(null);
 
   // MCP Connections
   mcpConnections = signal<McpConnection[]>([]);
@@ -520,7 +591,8 @@ export class SettingsComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private strapiService: StrapiService,
-    private snackBar: MatSnackBar
+    private snackBar: MatSnackBar,
+    private http: HttpClient
   ) {
     this.llmForm = this.fb.group({
       name: ['', Validators.required],
@@ -573,12 +645,59 @@ export class SettingsComponent implements OnInit {
     this.editingLlm.set(provider);
     this.llmForm.patchValue(provider);
     this.showLlmForm.set(true);
+    // Cargar modelos para el proveedor que se está editando
+    this.testLlmConnection();
   }
 
   cancelLlmEdit(): void {
     this.showLlmForm.set(false);
     this.editingLlm.set(null);
+    this.availableModels.set([]);
+    this.connectionStatus.set(null);
     this.llmForm.reset({ type: 'ollama', baseUrl: 'http://localhost:11434', isActive: true });
+  }
+
+  testLlmConnection(): void {
+    const formValue = this.llmForm.value;
+    if (!formValue.baseUrl) return;
+
+    this.testingConnection.set(true);
+    this.connectionStatus.set(null);
+
+    this.http.post<{ success: boolean; message: string; models?: string[] }>(
+      `${this.API_URL}/llm/test-connection`,
+      {
+        provider_url: formValue.baseUrl,
+        provider_type: formValue.type,
+        api_key: formValue.apiKey || null
+      }
+    ).subscribe({
+      next: (response) => {
+        this.testingConnection.set(false);
+        this.connectionStatus.set({
+          success: response.success,
+          message: response.message
+        });
+
+        if (response.success && response.models) {
+          this.availableModels.set(response.models);
+          // Si no hay modelo seleccionado y hay modelos disponibles, seleccionar el primero
+          if (!formValue.defaultModel && response.models.length > 0) {
+            this.llmForm.patchValue({ defaultModel: response.models[0] });
+          }
+        } else {
+          this.availableModels.set([]);
+        }
+      },
+      error: (err) => {
+        this.testingConnection.set(false);
+        this.connectionStatus.set({
+          success: false,
+          message: `Error de conexión: ${err.message || 'Error desconocido'}`
+        });
+        this.availableModels.set([]);
+      }
+    });
   }
 
   saveLlmProvider(): void {
