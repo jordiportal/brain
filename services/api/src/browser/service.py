@@ -1,8 +1,10 @@
 """
-Browser Service - Servicio de navegación web usando Playwright directamente
+Browser Service - Servicio de navegación web usando Playwright
 
-Proporciona herramientas de navegación web para los agentes sin depender
-del servidor MCP externo.
+Proporciona herramientas de navegación web para los agentes.
+Soporta:
+- Navegador local (headless o headed)
+- Navegador remoto via CDP (Chrome DevTools Protocol)
 """
 
 import asyncio
@@ -22,6 +24,10 @@ except ImportError:
     BrowserContext = None
 
 logger = structlog.get_logger()
+
+# Configuración
+BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
+BROWSER_VNC_HOST = os.getenv("BROWSER_VNC_HOST", "browser")  # Host del servicio VNC
 
 
 @dataclass
@@ -52,10 +58,10 @@ class BrowserService:
         self._sessions: Dict[str, BrowserSession] = {}
         self._default_session_id = "default"
         self._lock = asyncio.Lock()
-        self._headless = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
+        self._headless = BROWSER_HEADLESS
     
     async def initialize(self) -> bool:
-        """Inicializar Playwright y el navegador"""
+        """Inicializar Playwright con navegador local headless"""
         if not PLAYWRIGHT_AVAILABLE:
             logger.error("Playwright no está instalado")
             return False
@@ -66,6 +72,8 @@ class BrowserService:
             
             try:
                 self._playwright = await async_playwright().start()
+                
+                # Iniciar navegador local headless
                 self._browser = await self._playwright.chromium.launch(
                     headless=self._headless,
                     args=[
@@ -432,6 +440,19 @@ class BrowserService:
                 }
             }
         ]
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Obtener estado del servicio de navegador"""
+        # VNC está disponible si el servicio browser-service está corriendo
+        vnc_available = BROWSER_VNC_HOST is not None and BROWSER_VNC_HOST != ""
+        
+        return {
+            "initialized": self._browser is not None,
+            "headless": self._headless,
+            "active_sessions": len([s for s in self._sessions.values() if s.is_active]),
+            "vnc_available": vnc_available,
+            "vnc_host": BROWSER_VNC_HOST if vnc_available else None
+        }
 
 
 # Instancia global del servicio

@@ -22,6 +22,7 @@ import { ApiService } from '../../core/services/api.service';
 import { StrapiService } from '../../core/services/strapi.service';
 import { LlmProvider } from '../../core/models';
 import { ChainEditorComponent } from './chain-editor/chain-editor.component';
+import { BrowserViewerComponent } from '../../shared/components/browser-viewer/browser-viewer.component';
 import { marked } from 'marked';
 
 // Configurar marked para evitar warnings
@@ -101,7 +102,8 @@ interface ChatMessage {
     MatSlideToggleModule,
     MatExpansionModule,
     MarkdownPipe,
-    ChainEditorComponent
+    ChainEditorComponent,
+    BrowserViewerComponent
   ],
   template: `
     <div class="chains-page">
@@ -367,6 +369,15 @@ interface ChatMessage {
                     }
                   </button>
                 </div>
+
+                <!-- Browser Viewer - Solo para Browser Agent -->
+                @if (selectedChain()?.id === 'browser_agent') {
+                  <app-browser-viewer 
+                    [apiUrl]="apiBaseUrl"
+                    [browserPort]="6080"
+                    (connectionChange)="onBrowserConnectionChange($event)">
+                  </app-browser-viewer>
+                }
 
                 @if (useMemory && sessionId) {
                   <div class="session-info">
@@ -905,6 +916,10 @@ export class ChainsComponent implements OnInit {
   availableModels = signal<string[]>([]);
   loadingModels = signal(false);
 
+  // Browser viewer
+  apiBaseUrl = 'http://localhost:8000/api/v1';
+  browserConnected = signal(false);
+
   // Map para rastrear pasos intermedios activos
   private activeSteps = new Map<string, IntermediateStep>();
 
@@ -912,6 +927,13 @@ export class ChainsComponent implements OnInit {
     this.loadChains();
     this.loadLlmProviders();
     this.sessionId = `session-${Date.now()}`;
+  }
+  
+  onBrowserConnectionChange(connected: boolean): void {
+    this.browserConnected.set(connected);
+    if (connected) {
+      console.log('Browser viewer connected');
+    }
   }
   
   loadLlmProviders(): void {

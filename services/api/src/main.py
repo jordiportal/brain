@@ -17,6 +17,7 @@ from src.tools.router import router as tools_router
 from src.mcp.router import router as mcp_router
 from src.mcp.client import mcp_client
 from src.browser.service import browser_service
+from src.browser.router import router as browser_router
 
 # Configurar logging estructurado
 structlog.configure(
@@ -97,6 +98,7 @@ app.include_router(chains_router, prefix="/api/v1")
 app.include_router(rag_router, prefix="/api/v1")
 app.include_router(tools_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
+app.include_router(browser_router, prefix="/api/v1")
 
 
 # ===========================================

@@ -58,7 +58,8 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://192.168.7.101:11434}
       - STRAPI_URL=http://strapi:1337
       - STRAPI_API_TOKEN=${STRAPI_API_TOKEN:-}
-      - MCP_PLAYWRIGHT_URL=http://mcp-playwright:3001
+      # Browser config - usar headless local (más robusto)
+      - BROWSER_HEADLESS=true
       - DEBUG=${DEBUG:-true}
     volumes:
       - ./services/api/src:/app/src:ro
@@ -109,25 +110,25 @@ services:
       - brain-network
 
   # ===========================================
-  # MCP Playwright - Navegador controlado por IA
+  # Browser Service - Chrome + noVNC + CDP
+  # Navegador visual accesible desde la web
   # ===========================================
-  mcp-playwright:
+  browser:
     build:
-      context: ./services/mcp-playwright
+      context: ./services/browser-service
       dockerfile: Dockerfile
-    container_name: brain-mcp-playwright
+    container_name: brain-browser
     restart: unless-stopped
-    environment:
-      - MCP_HEADLESS=true
-      - MCP_PORT=3001
     ports:
-      - "${MCP_PLAYWRIGHT_PORT:-3001}:3001"
+      - "${BROWSER_VNC_PORT:-6080}:6080"   # noVNC (web interface)
+      - "${BROWSER_CDP_PORT:-9223}:9223"   # Chrome DevTools Protocol (via socat proxy)
     networks:
       - brain-network
     # Necesario para Chromium en Docker
     ipc: host
     security_opt:
       - seccomp=unconfined
+    shm_size: '2gb'
     # Recursos para el navegador
     deploy:
       resources:
