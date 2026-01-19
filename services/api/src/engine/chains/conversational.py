@@ -1,10 +1,10 @@
 """
 Cadena Conversacional - Chat con memoria
+Soporta múltiples proveedores LLM: Ollama, OpenAI, Anthropic, etc.
 """
 
 import json
 from typing import AsyncGenerator, Optional
-import httpx
 from datetime import datetime
 
 from ..models import (
@@ -17,6 +17,7 @@ from ..models import (
     StreamEvent
 )
 from ..registry import chain_registry
+from .llm_utils import call_llm, call_llm_stream
 
 
 # Definición de la cadena
@@ -59,6 +60,8 @@ async def build_conversational_chain_stream(
     input_data: dict,
     memory: list,
     execution_id: str = "",
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
     **kwargs
 ) -> AsyncGenerator[StreamEvent, None]:
     """Builder de la cadena conversacional con streaming"""
@@ -88,43 +91,27 @@ async def build_conversational_chain_stream(
     )
     
     full_content = ""
-    tokens = 0
     
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        async with client.stream(
-            "POST",
-            f"{llm_url}/api/chat",
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": True,
-                "options": {"temperature": config.temperature}
-            }
-        ) as response:
-            async for line in response.aiter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        content = data.get("message", {}).get("content", "")
-                        if content:
-                            full_content += content
-                            yield StreamEvent(
-                                event_type="token",
-                                execution_id=execution_id,
-                                node_id="llm",
-                                content=content
-                            )
-                        if data.get("done"):
-                            tokens = data.get("eval_count", 0)
-                    except json.JSONDecodeError:
-                        continue
+    async for token in call_llm_stream(
+        llm_url, model, messages, 
+        temperature=config.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    ):
+        full_content += token
+        yield StreamEvent(
+            event_type="token",
+            execution_id=execution_id,
+            node_id="llm",
+            content=token
+        )
     
     yield StreamEvent(
         event_type="node_end",
         execution_id=execution_id,
         node_id="llm",
         node_name="LLM Response",
-        data={"tokens": tokens, "response": full_content}
+        data={"response": full_content}
     )
 
 
@@ -137,6 +124,8 @@ async def build_conversational_chain(
     execution_id: str = "",
     execution_state: Optional[ExecutionState] = None,
     stream: bool = False,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
     **kwargs
 ):
     """Builder de la cadena conversacional"""
@@ -149,7 +138,9 @@ async def build_conversational_chain(
             model=model,
             input_data=input_data,
             memory=memory,
-            execution_id=execution_id
+            execution_id=execution_id,
+            provider_type=provider_type,
+            api_key=api_key
         ):
             yield event
         return
@@ -173,20 +164,12 @@ async def build_conversational_chain(
     
     start_time = datetime.utcnow()
     
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        response = await client.post(
-            f"{llm_url}/api/chat",
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": False,
-                "options": {"temperature": config.temperature}
-            }
-        )
-        
-        data = response.json()
-        content = data.get("message", {}).get("content", "")
-        tokens = data.get("eval_count", 0)
+    content = await call_llm(
+        llm_url, model, messages,
+        temperature=config.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    )
     
     end_time = datetime.utcnow()
     
@@ -200,13 +183,11 @@ async def build_conversational_chain(
             completed_at=end_time,
             duration_ms=int((end_time - start_time).total_seconds() * 1000),
             input_data={"messages": messages},
-            output_data={"response": content},
-            tokens_used=tokens
+            output_data={"response": content}
         ))
-        execution_state.total_tokens = tokens
     
     # Para funciones no-streaming que retornan dict, usamos yield con resultado especial
-    yield {"_result": {"response": content, "tokens": tokens}}
+    yield {"_result": {"response": content}}
 
 
 def register_conversational_chain():

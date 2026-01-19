@@ -188,6 +188,8 @@ class ChainInvokeRequest(BaseModel):
     
     # Override de LLM
     llm_provider_url: Optional[str] = None
+    llm_provider_type: str = "ollama"  # "ollama", "openai", "anthropic", "groq", "azure"
+    api_key: Optional[str] = None
     model: Optional[str] = None
 
 

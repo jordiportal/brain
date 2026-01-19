@@ -14,6 +14,9 @@ from src.engine.router import router as chains_router
 from src.engine.chains import register_all_chains
 from src.rag.router import router as rag_router
 from src.tools.router import router as tools_router
+from src.mcp.router import router as mcp_router
+from src.mcp.client import mcp_client
+from src.browser.service import browser_service
 
 # Configurar logging estructurado
 structlog.configure(
@@ -43,12 +46,28 @@ async def lifespan(app: FastAPI):
     register_all_chains()
     logger.info("Cadenas predefinidas registradas")
     
-    # TODO: Inicializar conexiones a DB, Redis, etc.
+    # Cargar conexiones MCP desde Strapi
+    try:
+        mcp_count = await mcp_client.load_connections_from_strapi()
+        logger.info(f"Conexiones MCP cargadas: {mcp_count}")
+        
+        # Asegurar que existe conexión de Playwright (auto-configura si no existe)
+        await mcp_client.ensure_playwright_connection()
+    except Exception as e:
+        logger.warning(f"No se pudieron cargar conexiones MCP: {e}")
     
     yield
     
     # Shutdown
     logger.info("Cerrando Brain API")
+    
+    # Desconectar servidores MCP
+    await mcp_client.disconnect_all()
+    logger.info("Conexiones MCP cerradas")
+    
+    # Cerrar servicio de navegador
+    await browser_service.shutdown()
+    logger.info("Servicio de navegador cerrado")
 
 
 # Crear aplicación FastAPI
@@ -77,6 +96,7 @@ app.include_router(llm_router, prefix="/api/v1")
 app.include_router(chains_router, prefix="/api/v1")
 app.include_router(rag_router, prefix="/api/v1")
 app.include_router(tools_router, prefix="/api/v1")
+app.include_router(mcp_router, prefix="/api/v1")
 
 
 # ===========================================
@@ -97,9 +117,14 @@ async def readiness_check():
     """Verificar que la API está lista para recibir tráfico"""
     from src.engine.registry import chain_registry
     
+    mcp_connections = mcp_client.list_connections()
+    mcp_connected = sum(1 for c in mcp_connections if c.get("is_connected"))
+    
     return {
         "status": "ready",
         "chains_registered": len(chain_registry.list_chain_ids()),
+        "mcp_connections": len(mcp_connections),
+        "mcp_connected": mcp_connected,
         "database": "connected",  # TODO: verificar real
         "redis": "connected",     # TODO: verificar real
     }

@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject, Pipe, PipeTransform, ViewChild } from '@angular/core';
+import { Component, OnInit, signal, inject, Pipe, PipeTransform, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -16,9 +16,11 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatExpansionModule } from '@angular/material/expansion';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ApiService } from '../../core/services/api.service';
 import { StrapiService } from '../../core/services/strapi.service';
+import { LlmProvider } from '../../core/models';
 import { ChainEditorComponent } from './chain-editor/chain-editor.component';
 import { marked } from 'marked';
 
@@ -54,6 +56,28 @@ interface ExecutionStep {
   data?: any;
 }
 
+// Nuevo: Paso intermedio con contenido streaming
+interface IntermediateStep {
+  id: string;
+  name: string;
+  icon: string;
+  status: 'running' | 'completed' | 'failed';
+  content: string;
+  data?: any;
+  startTime: Date;
+  endTime?: Date;
+  expanded: boolean;
+}
+
+// Mensaje con pasos intermedios desplegables
+interface ChatMessage {
+  role: string;
+  content: string;
+  intermediateSteps?: IntermediateStep[];
+  tokens?: number;
+  isStreaming?: boolean;
+}
+
 @Component({
   selector: 'app-chains',
   standalone: true,
@@ -75,6 +99,7 @@ interface ExecutionStep {
     MatSnackBarModule,
     MatSelectModule,
     MatSlideToggleModule,
+    MatExpansionModule,
     MarkdownPipe,
     ChainEditorComponent
   ],
@@ -185,14 +210,34 @@ interface ExecutionStep {
                 </div>
                 
                 <div class="execution-options">
-                  <mat-form-field appearance="outline" class="model-select">
-                    <mat-label>Modelo</mat-label>
-                    <mat-select [(ngModel)]="llmModel">
-                      @for (model of availableModels; track model) {
-                        <mat-option [value]="model">{{ model }}</mat-option>
+                  <!-- Selector de Proveedor -->
+                  <mat-form-field appearance="outline" class="provider-select">
+                    <mat-label>Proveedor</mat-label>
+                    <mat-select [(ngModel)]="selectedProvider" (selectionChange)="onProviderChange()">
+                      @for (provider of llmProviders(); track provider.id) {
+                        <mat-option [value]="provider">
+                          {{ provider.name }} ({{ provider.type }})
+                        </mat-option>
                       }
                     </mat-select>
                   </mat-form-field>
+                  
+                  <!-- Selector de Modelo -->
+                  <mat-form-field appearance="outline" class="model-select">
+                    <mat-label>Modelo</mat-label>
+                    <mat-select [(ngModel)]="llmModel" [disabled]="loadingModels()">
+                      @if (loadingModels()) {
+                        <mat-option disabled>Cargando modelos...</mat-option>
+                      }
+                      @for (model of availableModels(); track model) {
+                        <mat-option [value]="model">{{ model }}</mat-option>
+                      }
+                    </mat-select>
+                    @if (loadingModels()) {
+                      <mat-spinner matSuffix diameter="20"></mat-spinner>
+                    }
+                  </mat-form-field>
+                  
                   <mat-slide-toggle [(ngModel)]="useStreaming">
                     Streaming
                   </mat-slide-toggle>
@@ -211,21 +256,70 @@ interface ExecutionStep {
                         <mat-icon>{{ msg.role === 'user' ? 'person' : 'smart_toy' }}</mat-icon>
                       </div>
                       <div class="message-content">
-                        @if (msg.role === 'assistant') {
-                          <div class="markdown-content" [innerHTML]="msg.content | markdown"></div>
-                        } @else {
+                        @if (msg.role === 'user') {
                           <p>{{ msg.content }}</p>
-                        }
-                        @if (msg.steps && msg.steps.length > 0) {
-                          <div class="execution-trace">
-                            <span class="trace-label">Trace:</span>
-                            @for (step of msg.steps; track $index) {
-                              <span class="step-chip" [class]="step.event_type">
-                                <mat-icon>{{ getStepIcon(step.event_type) }}</mat-icon>
-                                {{ step.node_name || step.event_type }}
-                              </span>
-                            }
-                          </div>
+                        } @else {
+                          <!-- Pasos intermedios desplegables -->
+                          @if (msg.intermediateSteps && msg.intermediateSteps.length > 0) {
+                            <mat-accordion class="steps-accordion" multi>
+                              @for (step of msg.intermediateSteps; track step.id) {
+                                <mat-expansion-panel 
+                                  [expanded]="step.expanded"
+                                  [class.step-running]="step.status === 'running'"
+                                  [class.step-completed]="step.status === 'completed'"
+                                  [class.step-failed]="step.status === 'failed'">
+                                  <mat-expansion-panel-header>
+                                    <mat-panel-title>
+                                      <div class="step-header">
+                                        @if (step.status === 'running') {
+                                          <mat-spinner diameter="16"></mat-spinner>
+                                        } @else {
+                                          <mat-icon [class]="'step-icon-' + step.status">{{ step.icon }}</mat-icon>
+                                        }
+                                        <span class="step-name">{{ step.name }}</span>
+                                      </div>
+                                    </mat-panel-title>
+                                    <mat-panel-description>
+                                      @if (step.status === 'completed' && step.endTime && step.startTime) {
+                                        <span class="step-duration">
+                                          {{ getDuration(step.startTime, step.endTime) }}
+                                        </span>
+                                      }
+                                      @if (step.status === 'running') {
+                                        <span class="step-running-label">En progreso...</span>
+                                      }
+                                    </mat-panel-description>
+                                  </mat-expansion-panel-header>
+                                  
+                                  <div class="step-content">
+                                    @if (step.content) {
+                                      <div class="step-text" [innerHTML]="step.content | markdown"></div>
+                                    }
+                                    @if (step.data) {
+                                      <details class="step-data-details">
+                                        <summary>Ver datos</summary>
+                                        <pre class="step-data">{{ step.data | json }}</pre>
+                                      </details>
+                                    }
+                                  </div>
+                                </mat-expansion-panel>
+                              }
+                            </mat-accordion>
+                          }
+                          
+                          <!-- Respuesta final -->
+                          @if (msg.content) {
+                            <div class="final-response">
+                              <div class="response-label">
+                                <mat-icon>auto_awesome</mat-icon>
+                                Respuesta Final
+                              </div>
+                              <div class="markdown-content" [innerHTML]="msg.content | markdown"></div>
+                              @if (msg.isStreaming) {
+                                <span class="cursor-blink">▊</span>
+                              }
+                            </div>
+                          }
                         }
                         @if (msg.tokens) {
                           <span class="token-count">{{ msg.tokens }} tokens</span>
@@ -234,7 +328,7 @@ interface ExecutionStep {
                     </div>
                   }
                   
-                  @if (isExecuting()) {
+                  @if (isExecuting() && !currentAssistantMessage()) {
                     <div class="message assistant">
                       <div class="message-avatar">
                         <mat-icon>smart_toy</mat-icon>
@@ -246,7 +340,7 @@ interface ExecutionStep {
                         @if (currentStep()) {
                           <div class="current-step">
                             <mat-icon>{{ getStepIcon(currentStep()!.event_type) }}</mat-icon>
-                            {{ currentStep()!.node_name || currentStep()!.event_type }}
+                            {{ currentStep()!.node_name || 'Procesando...' }}
                           </div>
                         }
                       </div>
@@ -360,6 +454,7 @@ interface ExecutionStep {
     .chain-icon.tools { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
     .chain-icon.rag { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
     .chain-icon.custom { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    .chain-icon.agent { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
 
     .chain-icon mat-icon {
       color: white;
@@ -465,8 +560,12 @@ interface ExecutionStep {
       align-items: center;
     }
 
+    .provider-select {
+      min-width: 180px;
+    }
+
     .model-select {
-      min-width: 200px;
+      min-width: 220px;
     }
 
     .chat-container {
@@ -516,84 +615,205 @@ interface ExecutionStep {
     }
 
     .message-content {
-      max-width: 70%;
-      padding: 12px 16px;
-      border-radius: 12px;
-      background: #f5f5f5;
+      max-width: 85%;
+      min-width: 300px;
     }
 
     .message.user .message-content {
       background: #667eea;
       color: white;
+      padding: 12px 16px;
       border-radius: 12px 12px 0 12px;
     }
 
     .message.assistant .message-content {
-      background: #f0f0f0;
-      border-radius: 12px 12px 12px 0;
+      background: transparent;
     }
 
     .message-content p {
       margin: 0;
     }
 
+    /* Accordion de pasos intermedios */
+    .steps-accordion {
+      margin-bottom: 16px;
+    }
+
+    .steps-accordion mat-expansion-panel {
+      margin-bottom: 8px !important;
+      border-radius: 8px !important;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+    }
+
+    .steps-accordion mat-expansion-panel.step-running {
+      border-left: 3px solid #2196f3;
+      background: linear-gradient(90deg, rgba(33, 150, 243, 0.05) 0%, transparent 100%);
+    }
+
+    .steps-accordion mat-expansion-panel.step-completed {
+      border-left: 3px solid #4caf50;
+    }
+
+    .steps-accordion mat-expansion-panel.step-failed {
+      border-left: 3px solid #f44336;
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .step-header mat-spinner {
+      margin-right: 4px;
+    }
+
+    .step-icon-completed {
+      color: #4caf50;
+    }
+
+    .step-icon-failed {
+      color: #f44336;
+    }
+
+    .step-icon-running {
+      color: #2196f3;
+    }
+
+    .step-name {
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .step-duration {
+      font-size: 12px;
+      color: #888;
+      background: #f5f5f5;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .step-running-label {
+      font-size: 12px;
+      color: #2196f3;
+      font-style: italic;
+    }
+
+    .step-content {
+      padding: 8px 0;
+    }
+
+    .step-text {
+      font-size: 13px;
+      line-height: 1.6;
+      color: #444;
+    }
+
+    .step-data-details {
+      margin-top: 12px;
+    }
+
+    .step-data-details summary {
+      cursor: pointer;
+      font-size: 12px;
+      color: #666;
+      padding: 4px 0;
+    }
+
+    .step-data {
+      background: #1a1a2e;
+      color: #a0f0a0;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      overflow-x: auto;
+      max-height: 200px;
+      margin-top: 8px;
+    }
+
+    /* Respuesta final */
+    .final-response {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .response-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #667eea;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .response-label mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
     .markdown-content {
       line-height: 1.6;
     }
 
-    .markdown-content pre {
-      background: #1a1a2e;
-      color: #e0e0e0;
-      padding: 12px;
-      border-radius: 8px;
-      overflow-x: auto;
+    .markdown-content ::ng-deep {
+      p { margin: 0 0 12px; }
+      p:last-child { margin-bottom: 0; }
+      
+      pre {
+        background: #1a1a2e;
+        color: #e0e0e0;
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+      
+      code {
+        background: rgba(0,0,0,0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+      }
+      
+      th, td {
+        border: 1px solid #ddd;
+        padding: 8px 12px;
+        text-align: left;
+      }
+      
+      th {
+        background: #f5f5f5;
+        font-weight: 600;
+      }
     }
 
-    .markdown-content code {
-      background: rgba(0,0,0,0.1);
-      padding: 2px 6px;
-      border-radius: 4px;
+    .cursor-blink {
+      animation: blink 1s infinite;
+      color: #667eea;
+      font-weight: bold;
     }
 
-    .execution-trace {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid #ddd;
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
     }
-
-    .trace-label {
-      font-size: 11px;
-      color: #888;
-      display: block;
-      margin-bottom: 8px;
-    }
-
-    .step-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 11px;
-      margin-right: 8px;
-      background: #e0e0e0;
-    }
-
-    .step-chip mat-icon {
-      font-size: 14px;
-      width: 14px;
-      height: 14px;
-    }
-
-    .step-chip.node_start { background: #e3f2fd; color: #1976d2; }
-    .step-chip.node_end { background: #e8f5e9; color: #388e3c; }
-    .step-chip.token { background: #f3e5f5; color: #7b1fa2; }
 
     .token-count {
       display: block;
       font-size: 11px;
       color: #888;
-      margin-top: 8px;
+      margin-top: 12px;
+      text-align: right;
     }
 
     .typing-indicator {
@@ -661,15 +881,17 @@ export class ChainsComponent implements OnInit {
   private snackBar = inject(MatSnackBar);
 
   @ViewChild(MatTabGroup) tabGroup!: MatTabGroup;
+  @ViewChild('messagesContainer') messagesContainer!: ElementRef;
 
   engineChains = signal<EngineChain[]>([]);
   loading = signal(true);
   
   selectedChain = signal<EngineChain | null>(null);
   editingChainId = signal<string | null>(null);
-  messages = signal<{role: string; content: string; steps?: ExecutionStep[]; tokens?: number}[]>([]);
+  messages = signal<ChatMessage[]>([]);
   isExecuting = signal(false);
   currentStep = signal<ExecutionStep | null>(null);
+  currentAssistantMessage = signal<ChatMessage | null>(null);
   
   userInput = '';
   useStreaming = true;
@@ -677,44 +899,83 @@ export class ChainsComponent implements OnInit {
   sessionId = '';
   
   // Configuración de LLM
-  llmProviderUrl = 'http://192.168.7.101:11434';  // Por defecto
-  llmModel = 'qwen3:8b';  // Por defecto
-  availableModels: string[] = [];
+  llmProviders = signal<LlmProvider[]>([]);
+  selectedProvider: LlmProvider | null = null;
+  llmModel = '';
+  availableModels = signal<string[]>([]);
+  loadingModels = signal(false);
+
+  // Map para rastrear pasos intermedios activos
+  private activeSteps = new Map<string, IntermediateStep>();
 
   ngOnInit(): void {
     this.loadChains();
-    this.loadLlmConfig();
+    this.loadLlmProviders();
     this.sessionId = `session-${Date.now()}`;
   }
   
-  loadLlmConfig(): void {
-    // Cargar configuración del provider activo desde Strapi
+  loadLlmProviders(): void {
     this.strapiService.getLlmProviders().subscribe({
       next: (providers) => {
-        // Buscar el provider activo
+        this.llmProviders.set(providers);
+        // Seleccionar el proveedor activo por defecto
         const activeProvider = providers.find(p => p.isActive);
         if (activeProvider) {
-          this.llmProviderUrl = activeProvider.baseUrl;
-          this.llmModel = activeProvider.defaultModel || 'qwen3:8b';
+          this.selectedProvider = activeProvider;
+          this.loadModelsForProvider(activeProvider);
+        } else if (providers.length > 0) {
+          this.selectedProvider = providers[0];
+          this.loadModelsForProvider(providers[0]);
         }
-        this.loadModels();
       },
-      error: () => {
-        this.loadModels();  // Intentar cargar modelos con config por defecto
+      error: (err) => {
+        console.error('Error cargando proveedores LLM:', err);
+        this.snackBar.open('Error cargando proveedores LLM', 'Cerrar', { duration: 3000 });
       }
     });
   }
   
-  loadModels(): void {
-    // Cargar modelos disponibles del provider
-    fetch(`${this.llmProviderUrl}/api/tags`)
-      .then(res => res.json())
-      .then(data => {
-        this.availableModels = data.models?.map((m: any) => m.name) || [];
-      })
-      .catch(() => {
-        console.warn('No se pudieron cargar los modelos');
-      });
+  onProviderChange(): void {
+    if (this.selectedProvider) {
+      this.loadModelsForProvider(this.selectedProvider);
+    }
+  }
+  
+  loadModelsForProvider(provider: LlmProvider): void {
+    this.loadingModels.set(true);
+    this.availableModels.set([]);
+    this.llmModel = '';
+    
+    this.apiService.getLlmModels({
+      providerUrl: provider.baseUrl,
+      providerType: provider.type,
+      apiKey: provider.apiKey
+    }).subscribe({
+      next: (response) => {
+        const models = response.models?.map(m => m.name) || [];
+        this.availableModels.set(models);
+        
+        // Seleccionar modelo por defecto
+        if (provider.defaultModel && models.includes(provider.defaultModel)) {
+          this.llmModel = provider.defaultModel;
+        } else if (models.length > 0) {
+          this.llmModel = models[0];
+        }
+        
+        this.loadingModels.set(false);
+      },
+      error: (err) => {
+        console.error('Error cargando modelos:', err);
+        this.snackBar.open('Error cargando modelos del proveedor', 'Cerrar', { duration: 3000 });
+        this.loadingModels.set(false);
+        
+        // Fallback: usar modelo por defecto del proveedor
+        if (provider.defaultModel) {
+          this.availableModels.set([provider.defaultModel]);
+          this.llmModel = provider.defaultModel;
+        }
+      }
+    });
   }
 
   loadChains(): void {
@@ -734,7 +995,6 @@ export class ChainsComponent implements OnInit {
 
   openEditor(chain: EngineChain): void {
     this.editingChainId.set(chain.id);
-    // Switch to editor tab (index 1)
     setTimeout(() => {
       if (this.tabGroup) {
         this.tabGroup.selectedIndex = 1;
@@ -758,7 +1018,6 @@ export class ChainsComponent implements OnInit {
     this.selectedChain.set(chain);
     this.messages.set([]);
     this.useMemory = chain.config.use_memory;
-    // Switch to execute tab (index 2 now)
     setTimeout(() => {
       if (this.tabGroup) {
         this.tabGroup.selectedIndex = 2;
@@ -772,11 +1031,11 @@ export class ChainsComponent implements OnInit {
     const chain = this.selectedChain()!;
     const userMessage = this.userInput.trim();
     
-    // Añadir mensaje del usuario
     this.messages.update(msgs => [...msgs, { role: 'user', content: userMessage }]);
     this.userInput = '';
     this.isExecuting.set(true);
     this.currentStep.set(null);
+    this.activeSteps.clear();
 
     try {
       if (this.useStreaming) {
@@ -790,6 +1049,7 @@ export class ChainsComponent implements OnInit {
     } finally {
       this.isExecuting.set(false);
       this.currentStep.set(null);
+      this.currentAssistantMessage.set(null);
     }
   }
 
@@ -802,7 +1062,9 @@ export class ChainsComponent implements OnInit {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         input: { message },
-        llm_provider_url: this.llmProviderUrl,
+        llm_provider_url: this.selectedProvider?.baseUrl || 'http://localhost:11434',
+        llm_provider_type: this.selectedProvider?.type || 'ollama',
+        api_key: this.selectedProvider?.apiKey,
         model: this.llmModel
       })
     });
@@ -813,9 +1075,22 @@ export class ChainsComponent implements OnInit {
     if (!reader) throw new Error('No reader available');
 
     const decoder = new TextDecoder();
-    let fullContent = '';
-    const steps: ExecutionStep[] = [];
+    let finalContent = '';
     let tokens = 0;
+    const intermediateSteps: IntermediateStep[] = [];
+    let currentStepId: string | null = null;
+    let stepContentBuffer: string = '';
+
+    // Crear mensaje de asistente inicial
+    const assistantMessage: ChatMessage = {
+      role: 'assistant',
+      content: '',
+      intermediateSteps: [],
+      isStreaming: true
+    };
+    
+    this.messages.update(msgs => [...msgs, assistantMessage]);
+    this.currentAssistantMessage.set(assistantMessage);
 
     while (true) {
       const { done, value } = await reader.read();
@@ -829,19 +1104,89 @@ export class ChainsComponent implements OnInit {
           try {
             const data = JSON.parse(line.slice(6));
             
-            if (data.event_type === 'token' && data.content) {
-              fullContent += data.content;
-              // Actualizar mensaje en tiempo real
-              this.updateOrAddAssistantMessage(fullContent, steps, tokens);
-            } else if (data.event_type === 'node_start') {
+            if (data.event_type === 'node_start') {
+              // Nuevo paso iniciado
+              const stepId = data.node_id || `step-${Date.now()}`;
+              const nodeName = data.node_name || 'Procesando';
+              
+              // Plegar todos los pasos anteriores
+              intermediateSteps.forEach(step => {
+                step.expanded = false;
+              });
+              
+              const newStep: IntermediateStep = {
+                id: stepId,
+                name: nodeName,
+                icon: this.getStepIconName(nodeName),
+                status: 'running',
+                content: '',
+                data: data.data,
+                startTime: new Date(),
+                expanded: true  // El nuevo paso inicia desplegado
+              };
+              
+              intermediateSteps.push(newStep);
+              this.activeSteps.set(stepId, newStep);
+              currentStepId = stepId;
+              stepContentBuffer = '';
+              
               this.currentStep.set(data);
-              steps.push(data);
+              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+              this.scrollToBottom();
+              
+            } else if (data.event_type === 'token' && data.content) {
+              // Token recibido
+              if (data.node_id === 'synthesizer' || !data.node_id) {
+                // Token de respuesta final
+                finalContent += data.content;
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+              } else if (currentStepId && this.activeSteps.has(currentStepId)) {
+                // Token de paso intermedio
+                stepContentBuffer += data.content;
+                const step = this.activeSteps.get(currentStepId)!;
+                step.content = stepContentBuffer;
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+              }
+              this.scrollToBottom();
+              
             } else if (data.event_type === 'node_end') {
-              if (data.data?.tokens) tokens = data.data.tokens;
-              steps.push(data);
+              // Paso completado
+              const stepId = data.node_id;
+              if (stepId && this.activeSteps.has(stepId)) {
+                const step = this.activeSteps.get(stepId)!;
+                step.status = 'completed';
+                step.endTime = new Date();
+                // Se mantiene desplegado hasta que empiece el siguiente paso
+                
+                // Agregar datos finales del paso
+                if (data.data) {
+                  if (data.data.thinking) {
+                    step.content = data.data.thinking;
+                  }
+                  if (data.data.observation) {
+                    step.content = data.data.observation;
+                  }
+                  if (data.data.result_preview) {
+                    step.content += step.content ? '\n\n' + data.data.result_preview : data.data.result_preview;
+                  }
+                  step.data = { ...step.data, ...data.data };
+                }
+                
+                if (data.data?.tokens) tokens = data.data.tokens;
+              }
+              
+              currentStepId = null;
+              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+              
             } else if (data.event_type === 'end') {
               if (data.data?.output?.response) {
-                fullContent = data.data.output.response;
+                finalContent = data.data.output.response;
+              }
+            } else if (data.event_type === 'error') {
+              if (currentStepId && this.activeSteps.has(currentStepId)) {
+                const step = this.activeSteps.get(currentStepId)!;
+                step.status = 'failed';
+                step.content = data.data?.error || 'Error desconocido';
               }
             }
           } catch (e) {
@@ -851,7 +1196,9 @@ export class ChainsComponent implements OnInit {
       }
     }
 
-    this.updateOrAddAssistantMessage(fullContent, steps, tokens);
+    // Finalizar mensaje
+    this.updateAssistantMessage(finalContent, intermediateSteps, tokens, false);
+    this.scrollToBottom();
   }
 
   private async executeWithoutStreaming(chainId: string, message: string): Promise<void> {
@@ -859,22 +1206,31 @@ export class ChainsComponent implements OnInit {
     
     this.apiService.invokeChain(chainId, { 
       input: { message },
-      llm_provider_url: this.llmProviderUrl,
+      llm_provider_url: this.selectedProvider?.baseUrl || 'http://localhost:11434',
+      llm_provider_type: this.selectedProvider?.type || 'ollama',
+      api_key: this.selectedProvider?.apiKey,
       model: this.llmModel
     }, sessionId).subscribe({
       next: (response) => {
         const content = response.output?.response || 'Sin respuesta';
-        const steps = response.steps?.map((s: any) => ({
-          event_type: 'node_end',
-          node_id: s.node_id,
-          node_name: s.node_name
+        const steps: IntermediateStep[] = response.steps?.map((s: any, i: number) => ({
+          id: s.node_id || `step-${i}`,
+          name: s.node_name || 'Paso',
+          icon: this.getStepIconName(s.node_name),
+          status: 'completed' as const,
+          content: s.output_data?.response || JSON.stringify(s.output_data) || '',
+          data: s.output_data,
+          startTime: new Date(s.started_at),
+          endTime: new Date(s.completed_at),
+          expanded: false
         })) || [];
         
         this.messages.update(msgs => [...msgs, {
           role: 'assistant',
           content,
-          steps,
-          tokens: response.total_tokens
+          intermediateSteps: steps,
+          tokens: response.total_tokens,
+          isStreaming: false
         }]);
       },
       error: (err) => {
@@ -884,17 +1240,37 @@ export class ChainsComponent implements OnInit {
     });
   }
 
-  private updateOrAddAssistantMessage(content: string, steps: ExecutionStep[], tokens: number): void {
+  private updateAssistantMessage(
+    content: string, 
+    steps: IntermediateStep[], 
+    tokens: number,
+    isStreaming: boolean
+  ): void {
     this.messages.update(msgs => {
-      const lastMsg = msgs[msgs.length - 1];
+      const newMsgs = [...msgs];
+      const lastMsg = newMsgs[newMsgs.length - 1];
+      
       if (lastMsg?.role === 'assistant') {
-        return [
-          ...msgs.slice(0, -1),
-          { role: 'assistant', content, steps, tokens }
-        ];
+        newMsgs[newMsgs.length - 1] = {
+          ...lastMsg,
+          content,
+          intermediateSteps: [...steps],
+          tokens,
+          isStreaming
+        };
       }
-      return [...msgs, { role: 'assistant', content, steps, tokens }];
+      
+      return newMsgs;
     });
+  }
+
+  private scrollToBottom(): void {
+    setTimeout(() => {
+      if (this.messagesContainer) {
+        const container = this.messagesContainer.nativeElement;
+        container.scrollTop = container.scrollHeight;
+      }
+    }, 50);
   }
 
   clearMemory(): void {
@@ -917,7 +1293,8 @@ export class ChainsComponent implements OnInit {
       conversational: 'chat',
       rag: 'search',
       tools: 'build',
-      custom: 'settings'
+      custom: 'settings',
+      agent: 'psychology'
     };
     return icons[type] || 'psychology';
   }
@@ -932,5 +1309,26 @@ export class ChainsComponent implements OnInit {
       error: 'error'
     };
     return icons[eventType] || 'radio_button_checked';
+  }
+
+  getStepIconName(nodeName: string): string {
+    const name = (nodeName || '').toLowerCase();
+    
+    if (name.includes('planificador') || name.includes('planner')) return 'assignment';
+    if (name.includes('pensando') || name.includes('think')) return 'psychology';
+    if (name.includes('actuando') || name.includes('act') || name.includes('delegando')) return 'bolt';
+    if (name.includes('observando') || name.includes('observ')) return 'visibility';
+    if (name.includes('sintetiz') || name.includes('synthes') || name.includes('respuesta final')) return 'auto_awesome';
+    if (name.includes('sap')) return 'storage';
+    if (name.includes('rag') || name.includes('búsqueda')) return 'search';
+    if (name.includes('llm') || name.includes('generación')) return 'smart_toy';
+    
+    return 'radio_button_checked';
+  }
+
+  getDuration(start: Date, end: Date): string {
+    const ms = new Date(end).getTime() - new Date(start).getTime();
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
   }
 }

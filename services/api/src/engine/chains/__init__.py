@@ -7,6 +7,7 @@ from .rag_chain import register_rag_chain
 from .tool_agent import register_tool_agent
 from .sap_agent import register_sap_agent
 from .orchestrator_agent import register_orchestrator_agent
+from .browser_agent import register_browser_agent
 
 def register_all_chains():
     """Registrar todas las cadenas predefinidas"""
@@ -15,3 +16,4 @@ def register_all_chains():
     register_tool_agent()
     register_sap_agent()
     register_orchestrator_agent()
+    register_browser_agent()

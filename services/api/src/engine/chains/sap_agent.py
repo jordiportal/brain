@@ -1,11 +1,11 @@
 """
 SAP Agent - Agente con herramientas SAP OpenAPI
+Soporta múltiples proveedores LLM: Ollama, OpenAI, Anthropic, etc.
 """
 
 import json
 import re
 from typing import AsyncGenerator, Optional
-import httpx
 from datetime import datetime
 
 from ..models import (
@@ -14,6 +14,7 @@ from ..models import (
 )
 from ..registry import chain_registry
 from ...tools import tool_registry, openapi_toolkit
+from .llm_utils import call_llm, call_llm_stream
 
 
 async def get_sap_tools_description() -> str:
@@ -87,6 +88,8 @@ async def build_sap_agent(
     memory: list,
     execution_id: str = "",
     stream: bool = True,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
     **kwargs
 ):
     """Builder del agente SAP con herramientas OpenAPI"""
@@ -134,19 +137,12 @@ Ejemplos:
     
     messages.append({"role": "user", "content": query})
     
-    planner_response = ""
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{llm_url}/api/chat",
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": False,
-                "options": {"temperature": 0.2}
-            }
-        )
-        data = response.json()
-        planner_response = data.get("message", {}).get("content", "")
+    planner_response = await call_llm(
+        llm_url, model, messages,
+        temperature=0.2,
+        provider_type=provider_type,
+        api_key=api_key
+    )
     
     yield StreamEvent(
         event_type="node_end",
@@ -261,32 +257,19 @@ INSTRUCCIONES:
     
     # Streaming de respuesta final
     full_response = ""
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        async with client.stream(
-            "POST",
-            f"{llm_url}/api/chat",
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": True,
-                "options": {"temperature": config.temperature}
-            }
-        ) as response:
-            async for line in response.aiter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        content = data.get("message", {}).get("content", "")
-                        if content:
-                            full_response += content
-                            yield StreamEvent(
-                                event_type="token",
-                                execution_id=execution_id,
-                                node_id="synthesizer",
-                                content=content
-                            )
-                    except json.JSONDecodeError:
-                        continue
+    async for token in call_llm_stream(
+        llm_url, model, messages,
+        temperature=config.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    ):
+        full_response += token
+        yield StreamEvent(
+            event_type="token",
+            execution_id=execution_id,
+            node_id="synthesizer",
+            content=token
+        )
     
     yield StreamEvent(
         event_type="node_end",

@@ -86,10 +86,21 @@ export class ApiService {
   }
 
   // ===========================================
-  // Test LLM Connection
+  // LLM Provider
   // ===========================================
 
   testLlmConnection(provider: { type: string; baseUrl: string; apiKey?: string; model?: string }): Observable<any> {
     return this.http.post(`${this.API_URL}/llm/test`, provider);
+  }
+
+  /**
+   * Obtener modelos disponibles de un proveedor LLM
+   */
+  getLlmModels(provider: { providerUrl: string; providerType: string; apiKey?: string }): Observable<{ models: { name: string }[] }> {
+    return this.http.post<{ models: { name: string }[] }>(`${this.API_URL}/llm/models`, {
+      provider_url: provider.providerUrl,
+      provider_type: provider.providerType,
+      api_key: provider.apiKey
+    });
   }
 }

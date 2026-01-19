@@ -1,5 +1,6 @@
 """
 LLM Router - Endpoints para interacción con LLMs
+Soporta múltiples proveedores: Ollama, OpenAI, Anthropic, etc.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -12,6 +13,10 @@ import json
 router = APIRouter(prefix="/llm", tags=["LLM"])
 
 
+# ===========================================
+# Modelos de Request/Response
+# ===========================================
+
 class ChatMessage(BaseModel):
     role: str  # "user", "assistant", "system"
     content: str
@@ -19,10 +24,12 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     provider_url: str = "http://host.docker.internal:11434"
+    provider_type: str = "ollama"  # "ollama", "openai", "anthropic", "azure", "groq"
     model: str = "llama3.2"
     messages: List[ChatMessage]
     temperature: float = 0.7
     max_tokens: Optional[int] = None
+    api_key: Optional[str] = None  # Para proveedores que requieren API key
 
 
 class ChatResponse(BaseModel):
@@ -33,6 +40,8 @@ class ChatResponse(BaseModel):
 
 class TestConnectionRequest(BaseModel):
     provider_url: str
+    provider_type: str = "ollama"
+    api_key: Optional[str] = None
     model: Optional[str] = None
 
 
@@ -42,27 +51,332 @@ class TestConnectionResponse(BaseModel):
     models: Optional[List[str]] = None
 
 
+class ListModelsRequest(BaseModel):
+    provider_url: str
+    provider_type: str = "ollama"
+    api_key: Optional[str] = None
+
+
+# ===========================================
+# Funciones auxiliares por proveedor
+# ===========================================
+
+async def get_ollama_models(base_url: str) -> List[str]:
+    """Obtener modelos de Ollama"""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(f"{base_url}/api/tags")
+        if response.status_code == 200:
+            data = response.json()
+            return [m["name"] for m in data.get("models", [])]
+    return []
+
+
+async def get_openai_models(base_url: str, api_key: str) -> List[str]:
+    """Obtener modelos de OpenAI"""
+    # OpenAI API URL base es https://api.openai.com/v1
+    url = f"{base_url}/models"
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
+        if response.status_code == 200:
+            data = response.json()
+            # Filtrar solo modelos de chat
+            models = [m["id"] for m in data.get("data", [])]
+            # Ordenar y filtrar modelos más comunes de chat
+            chat_models = [m for m in models if any(x in m for x in ["gpt-4", "gpt-3.5", "o1", "o3"])]
+            return sorted(chat_models, reverse=True)
+    return []
+
+
+async def get_anthropic_models(api_key: str) -> List[str]:
+    """Obtener modelos de Anthropic (lista estática, no tienen endpoint de modelos)"""
+    return [
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307"
+    ]
+
+
+async def get_groq_models(api_key: str) -> List[str]:
+    """Obtener modelos de Groq"""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return [m["id"] for m in data.get("data", [])]
+    return []
+
+
+# ===========================================
+# Funciones de Chat por proveedor
+# ===========================================
+
+async def chat_ollama(
+    base_url: str,
+    model: str,
+    messages: List[dict],
+    temperature: float,
+    max_tokens: Optional[int] = None,
+    stream: bool = False
+) -> dict:
+    """Chat con Ollama"""
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{base_url}/api/chat",
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": stream,
+                "options": {
+                    "temperature": temperature,
+                    **({"num_predict": max_tokens} if max_tokens else {})
+                }
+            }
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "content": data.get("message", {}).get("content", ""),
+                "tokens": data.get("eval_count")
+            }
+        else:
+            raise Exception(f"Error Ollama: {response.text}")
+
+
+async def chat_openai(
+    base_url: str,
+    model: str,
+    messages: List[dict],
+    temperature: float,
+    max_tokens: Optional[int],
+    api_key: str,
+    stream: bool = False
+) -> dict:
+    """Chat con OpenAI API (compatible con OpenAI, Azure, Groq, etc.)"""
+    url = f"{base_url}/chat/completions"
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": stream
+    }
+    
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            choice = data.get("choices", [{}])[0]
+            usage = data.get("usage", {})
+            return {
+                "content": choice.get("message", {}).get("content", ""),
+                "tokens": usage.get("total_tokens")
+            }
+        else:
+            raise Exception(f"Error OpenAI API: {response.text}")
+
+
+async def chat_anthropic(
+    model: str,
+    messages: List[dict],
+    temperature: float,
+    max_tokens: Optional[int],
+    api_key: str
+) -> dict:
+    """Chat con Anthropic Claude API"""
+    # Separar system message del resto
+    system_content = ""
+    chat_messages = []
+    
+    for msg in messages:
+        if msg["role"] == "system":
+            system_content = msg["content"]
+        else:
+            chat_messages.append(msg)
+    
+    payload = {
+        "model": model,
+        "messages": chat_messages,
+        "max_tokens": max_tokens or 4096,
+        "temperature": temperature
+    }
+    
+    if system_content:
+        payload["system"] = system_content
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            content = data.get("content", [{}])[0].get("text", "")
+            usage = data.get("usage", {})
+            return {
+                "content": content,
+                "tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+            }
+        else:
+            raise Exception(f"Error Anthropic: {response.text}")
+
+
+# ===========================================
+# Streaming por proveedor
+# ===========================================
+
+async def stream_ollama_response(
+    provider_url: str,
+    model: str,
+    messages: List[dict],
+    temperature: float
+) -> AsyncGenerator[str, None]:
+    """Generador asíncrono para streaming de respuestas de Ollama"""
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream(
+            "POST",
+            f"{provider_url}/api/chat",
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": True,
+                "options": {"temperature": temperature}
+            }
+        ) as response:
+            async for line in response.aiter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        content = data.get("message", {}).get("content", "")
+                        if content:
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                        
+                        if data.get("done", False):
+                            yield f"data: {json.dumps({'done': True, 'total_tokens': data.get('eval_count', 0)})}\n\n"
+                    except json.JSONDecodeError:
+                        continue
+
+
+async def stream_openai_response(
+    base_url: str,
+    model: str,
+    messages: List[dict],
+    temperature: float,
+    api_key: str
+) -> AsyncGenerator[str, None]:
+    """Generador asíncrono para streaming de OpenAI API"""
+    url = f"{base_url}/chat/completions"
+    
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream(
+            "POST",
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": True
+            }
+        ) as response:
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                    except json.JSONDecodeError:
+                        continue
+
+
+# ===========================================
+# Endpoints
+# ===========================================
+
 @router.post("/test-connection", response_model=TestConnectionResponse)
 async def test_llm_connection(request: TestConnectionRequest):
     """Probar conexión con un proveedor LLM"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # Intentar obtener lista de modelos (Ollama)
-            response = await client.get(f"{request.provider_url}/api/tags")
-            
-            if response.status_code == 200:
-                data = response.json()
-                models = [m["name"] for m in data.get("models", [])]
-                return TestConnectionResponse(
-                    success=True,
-                    message=f"Conexión exitosa. {len(models)} modelos disponibles.",
-                    models=models
-                )
-            else:
+        models = []
+        provider_type = request.provider_type.lower()
+        
+        if provider_type == "ollama":
+            models = await get_ollama_models(request.provider_url)
+        elif provider_type == "openai":
+            if not request.api_key:
                 return TestConnectionResponse(
                     success=False,
-                    message=f"Error: HTTP {response.status_code}"
+                    message="API Key requerida para OpenAI"
                 )
+            models = await get_openai_models(request.provider_url, request.api_key)
+        elif provider_type == "anthropic":
+            if not request.api_key:
+                return TestConnectionResponse(
+                    success=False,
+                    message="API Key requerida para Anthropic"
+                )
+            models = await get_anthropic_models(request.api_key)
+        elif provider_type == "groq":
+            if not request.api_key:
+                return TestConnectionResponse(
+                    success=False,
+                    message="API Key requerida para Groq"
+                )
+            models = await get_groq_models(request.api_key)
+        else:
+            # Para proveedores custom, intentar como Ollama primero
+            try:
+                models = await get_ollama_models(request.provider_url)
+            except:
+                pass
+        
+        if models:
+            return TestConnectionResponse(
+                success=True,
+                message=f"Conexión exitosa. {len(models)} modelos disponibles.",
+                models=models
+            )
+        else:
+            return TestConnectionResponse(
+                success=False,
+                message="No se pudieron obtener los modelos. Verifica la configuración."
+            )
+            
     except httpx.TimeoutException:
         return TestConnectionResponse(
             success=False,
@@ -84,35 +398,55 @@ async def test_llm_connection(request: TestConnectionRequest):
 async def chat_with_llm(request: ChatRequest):
     """Enviar mensaje al LLM y obtener respuesta (sin streaming)"""
     try:
-        # Preparar mensajes para Ollama
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
+        provider_type = request.provider_type.lower()
         
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{request.provider_url}/api/chat",
-                json={
-                    "model": request.model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": request.temperature,
-                        **({"num_predict": request.max_tokens} if request.max_tokens else {})
-                    }
-                }
+        result = None
+        
+        if provider_type == "ollama":
+            result = await chat_ollama(
+                request.provider_url,
+                request.model,
+                messages,
+                request.temperature,
+                request.max_tokens
             )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return ChatResponse(
-                    content=data.get("message", {}).get("content", ""),
-                    model=request.model,
-                    tokens_used=data.get("eval_count")
-                )
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Error del LLM: {response.text}"
-                )
+        elif provider_type in ["openai", "groq", "azure"]:
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida")
+            result = await chat_openai(
+                request.provider_url,
+                request.model,
+                messages,
+                request.temperature,
+                request.max_tokens,
+                request.api_key
+            )
+        elif provider_type == "anthropic":
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida")
+            result = await chat_anthropic(
+                request.model,
+                messages,
+                request.temperature,
+                request.max_tokens,
+                request.api_key
+            )
+        else:
+            # Fallback a Ollama para proveedores custom
+            result = await chat_ollama(
+                request.provider_url,
+                request.model,
+                messages,
+                request.temperature,
+                request.max_tokens
+            )
+        
+        return ChatResponse(
+            content=result["content"],
+            model=request.model,
+            tokens_used=result.get("tokens")
+        )
                 
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Timeout: El LLM tardó demasiado en responder")
@@ -122,56 +456,34 @@ async def chat_with_llm(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def stream_ollama_response(
-    provider_url: str,
-    model: str,
-    messages: List[dict],
-    temperature: float
-) -> AsyncGenerator[str, None]:
-    """Generador asíncrono para streaming de respuestas de Ollama"""
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        async with client.stream(
-            "POST",
-            f"{provider_url}/api/chat",
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": True,
-                "options": {
-                    "temperature": temperature
-                }
-            }
-        ) as response:
-            async for line in response.aiter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        content = data.get("message", {}).get("content", "")
-                        if content:
-                            # Formato SSE
-                            yield f"data: {json.dumps({'content': content})}\n\n"
-                        
-                        # Si es el último mensaje, enviar done
-                        if data.get("done", False):
-                            yield f"data: {json.dumps({'done': True, 'total_tokens': data.get('eval_count', 0)})}\n\n"
-                    except json.JSONDecodeError:
-                        continue
-
-
 @router.post("/chat/stream")
 async def chat_with_llm_stream(request: ChatRequest):
     """Enviar mensaje al LLM y obtener respuesta con streaming (SSE)"""
     try:
-        # Preparar mensajes para Ollama
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
+        provider_type = request.provider_type.lower()
         
-        return StreamingResponse(
-            stream_ollama_response(
+        if provider_type in ["openai", "groq", "azure"]:
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida")
+            generator = stream_openai_response(
+                request.provider_url,
+                request.model,
+                messages,
+                request.temperature,
+                request.api_key
+            )
+        else:
+            # Ollama y custom
+            generator = stream_ollama_response(
                 request.provider_url,
                 request.model,
                 messages,
                 request.temperature
-            ),
+            )
+        
+        return StreamingResponse(
+            generator,
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -183,27 +495,49 @@ async def chat_with_llm_stream(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/models")
-async def list_models(provider_url: str = "http://host.docker.internal:11434"):
+@router.post("/models")
+async def list_models(request: ListModelsRequest):
     """Listar modelos disponibles en el proveedor"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{provider_url}/api/tags")
-            
-            if response.status_code == 200:
-                data = response.json()
-                return {
-                    "models": [
-                        {
-                            "name": m["name"],
-                            "size": m.get("size"),
-                            "modified_at": m.get("modified_at")
-                        }
-                        for m in data.get("models", [])
-                    ]
-                }
-            else:
-                raise HTTPException(status_code=response.status_code, detail="Error obteniendo modelos")
+        models = []
+        provider_type = request.provider_type.lower()
+        
+        if provider_type == "ollama":
+            models = await get_ollama_models(request.provider_url)
+        elif provider_type == "openai":
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida para OpenAI")
+            models = await get_openai_models(request.provider_url, request.api_key)
+        elif provider_type == "anthropic":
+            models = await get_anthropic_models(request.api_key or "")
+        elif provider_type == "groq":
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida para Groq")
+            models = await get_groq_models(request.api_key)
+        else:
+            # Intentar como Ollama
+            try:
+                models = await get_ollama_models(request.provider_url)
+            except:
+                pass
+        
+        return {"models": [{"name": m} for m in models]}
                 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Mantener endpoint GET para compatibilidad
+@router.get("/models")
+async def list_models_get(
+    provider_url: str = "http://host.docker.internal:11434",
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None
+):
+    """Listar modelos disponibles (GET para compatibilidad)"""
+    request = ListModelsRequest(
+        provider_url=provider_url,
+        provider_type=provider_type,
+        api_key=api_key
+    )
+    return await list_models(request)

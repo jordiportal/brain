@@ -123,7 +123,9 @@ class ChainExecutor:
                 input_data=request.input,
                 memory=memory,
                 execution_state=execution_state,
-                stream=False
+                stream=False,
+                provider_type=request.llm_provider_type,
+                api_key=request.api_key
             ):
                 # El resultado viene como un dict con _result
                 if isinstance(event, dict) and "_result" in event:
@@ -233,7 +235,9 @@ class ChainExecutor:
                 input_data=request.input,
                 memory=memory,
                 execution_id=execution_id,
-                stream=True
+                stream=True,
+                provider_type=request.llm_provider_type,
+                api_key=request.api_key
             ):
                 yield event
                 if event.event_type == "token" and event.content:
