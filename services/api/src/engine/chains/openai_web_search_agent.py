@@ -1,6 +1,7 @@
 """
 OpenAI Native Web Search Agent
 Agente que usa el web search nativo de OpenAI (solo para gpt-4o-mini, gpt-4o, gpt-4-turbo)
+Usa automáticamente la API key configurada en Strapi.
 """
 
 from typing import AsyncGenerator, Optional
@@ -20,6 +21,7 @@ from .native_web_search import (
     is_web_search_supported,
     get_web_search_info
 )
+from ...providers.llm_provider import get_active_llm_provider
 
 logger = structlog.get_logger()
 
@@ -66,13 +68,44 @@ async def build_openai_web_search_agent(
     """
     Builder del agente con web search nativo de OpenAI.
     
+    Usa automáticamente la configuración del LLM Provider activo en Strapi.
+    Si no se pasa api_key, la obtiene del provider activo.
+    
     Requiere:
-    - provider_type = "openai"
-    - api_key de OpenAI
-    - model que soporte web search (gpt-4o-mini, gpt-4o, gpt-4-turbo)
+    - Provider OpenAI configurado en Strapi O api_key manual
+    - Model que soporte web search (gpt-4o-mini, gpt-4o, gpt-4-turbo)
     """
     
     query = input_data.get("message", input_data.get("query", ""))
+    
+    # Intentar obtener configuración del provider activo si no se pasó API key
+    if not api_key or provider_type.lower() != "openai":
+        logger.info("Obteniendo configuración del LLM Provider activo desde Strapi")
+        provider = await get_active_llm_provider()
+        
+        if provider and provider.type.lower() == "openai":
+            api_key = provider.api_key
+            llm_url = provider.base_url
+            model = model or provider.default_model
+            provider_type = "openai"
+            logger.info(
+                f"Usando provider OpenAI desde Strapi: {provider.name}",
+                model=model,
+                base_url=llm_url
+            )
+        elif not api_key:
+            error_msg = (
+                "No se encontró configuración de OpenAI. "
+                "Configura un LLM Provider OpenAI en Strapi o pasa api_key manualmente."
+            )
+            logger.error(error_msg)
+            yield StreamEvent(
+                event_type="error",
+                execution_id=execution_id,
+                node_id="validation",
+                content=error_msg
+            )
+            return
     
     # Validaciones
     if provider_type.lower() != "openai":
@@ -87,7 +120,7 @@ async def build_openai_web_search_agent(
         return
     
     if not api_key:
-        error_msg = "API key de OpenAI requerida para web search nativo"
+        error_msg = "API key de OpenAI no disponible"
         logger.error(error_msg)
         yield StreamEvent(
             event_type="error",
@@ -252,7 +285,7 @@ def register_openai_web_search_agent():
     definition = ChainDefinition(
         id="openai_web_search",
         name="OpenAI Native Web Search",
-        description="Agente que usa el web search nativo de OpenAI (Bing). Solo funciona con gpt-4o-mini, gpt-4o, gpt-4-turbo. Requiere API key de OpenAI.",
+        description="Agente que usa el web search nativo de OpenAI (Bing). Funciona con gpt-4o-mini, gpt-4o, gpt-4-turbo. Usa automáticamente la API key del provider OpenAI configurado en Strapi.",
         type="agent",
         version="1.0.0",
         nodes=[
