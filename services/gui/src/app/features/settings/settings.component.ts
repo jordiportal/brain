@@ -102,8 +102,15 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
                     <div class="form-row">
                       <mat-form-field appearance="outline">
                         <mat-label>API Key</mat-label>
-                        <input matInput formControlName="apiKey" type="password" placeholder="sk-...">
-                        <mat-hint>Opcional para Ollama local</mat-hint>
+                        <input matInput formControlName="apiKey" type="password" 
+                               [placeholder]="editingLlm() ? '••••••••••••••••' : 'sk-...'">
+                        <mat-hint>
+                          @if (editingLlm()) {
+                            Dejar vacío para mantener la API key existente
+                          } @else {
+                            Opcional para Ollama local
+                          }
+                        </mat-hint>
                       </mat-form-field>
 
                       <button mat-stroked-button type="button" 
@@ -704,7 +711,13 @@ export class SettingsComponent implements OnInit {
     if (this.llmForm.invalid) return;
 
     this.savingLlm.set(true);
-    const data = this.llmForm.value;
+    const data = { ...this.llmForm.value };
+
+    // Si estamos editando y el campo apiKey está vacío, no lo incluimos
+    // para evitar sobrescribir la API key existente
+    if (this.editingLlm() && !data.apiKey) {
+      delete data.apiKey;
+    }
 
     const request = this.editingLlm()
       ? this.strapiService.updateLlmProvider(this.editingLlm()!.documentId, data)
