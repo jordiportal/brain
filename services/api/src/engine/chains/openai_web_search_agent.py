@@ -21,7 +21,7 @@ from .native_web_search import (
     is_web_search_supported,
     get_web_search_info
 )
-from ...providers.llm_provider import get_active_llm_provider
+from ...providers.llm_provider import get_provider_by_type
 
 logger = structlog.get_logger()
 
@@ -79,9 +79,35 @@ async def build_openai_web_search_agent(
     query = input_data.get("message", input_data.get("query", ""))
     
     # Intentar obtener configuración del provider activo si no se pasó API key
-    if not api_key or provider_type.lower() != "openai":
-        logger.info("Obteniendo configuración del LLM Provider activo desde Strapi")
-        provider = await get_active_llm_provider()
+    should_fetch_from_strapi = False
+    
+    if not api_key:
+        should_fetch_from_strapi = True
+    elif provider_type is None:
+        should_fetch_from_strapi = True
+    elif provider_type.lower() != "openai":
+        should_fetch_from_strapi = True
+    
+    logger.info(
+        "Verificando si obtener config de Strapi",
+        api_key_present=bool(api_key),
+        provider_type=provider_type,
+        should_fetch=should_fetch_from_strapi
+    )
+    
+    if should_fetch_from_strapi:
+        logger.info("Obteniendo configuración del provider OpenAI desde Strapi")
+        try:
+            # Buscar provider OpenAI específicamente
+            provider = await get_provider_by_type("openai")
+            
+            if provider:
+                logger.info(f"Provider OpenAI encontrado: {provider.name}")
+            else:
+                logger.warning("No se encontró provider OpenAI activo en Strapi")
+        except Exception as e:
+            logger.error(f"Error obteniendo provider OpenAI: {e}")
+            provider = None
         
         if provider and provider.type.lower() == "openai":
             api_key = provider.api_key
@@ -108,7 +134,7 @@ async def build_openai_web_search_agent(
             return
     
     # Validaciones
-    if provider_type.lower() != "openai":
+    if not provider_type or provider_type.lower() != "openai":
         error_msg = f"Este agente requiere OpenAI, recibido: {provider_type}"
         logger.error(error_msg)
         yield StreamEvent(
