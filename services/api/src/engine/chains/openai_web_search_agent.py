@@ -76,66 +76,53 @@ async def build_openai_web_search_agent(
     - Model que soporte web search (gpt-4o-mini, gpt-4o, gpt-4-turbo)
     """
     
-    query = input_data.get("message", input_data.get("query", ""))
-    
-    # Intentar obtener configuración del provider activo si no se pasó API key
-    should_fetch_from_strapi = False
-    
-    if not api_key:
-        should_fetch_from_strapi = True
-    elif provider_type is None:
-        should_fetch_from_strapi = True
-    elif provider_type.lower() != "openai":
-        should_fetch_from_strapi = True
-    
-    logger.info(
-        "Verificando si obtener config de Strapi",
-        api_key_present=bool(api_key),
-        provider_type=provider_type,
-        should_fetch=should_fetch_from_strapi
+    logger.warning(
+        "🔵 INICIO build_openai_web_search_agent",
+        model_recibido=model,
+        llm_url_recibido=llm_url,
+        provider_type_recibido=provider_type
     )
     
-    if should_fetch_from_strapi:
-        logger.info("Obteniendo configuración del provider OpenAI desde Strapi")
-        try:
-            # Buscar provider OpenAI específicamente
-            provider = await get_provider_by_type("openai")
-            
-            if provider:
-                logger.info(f"Provider OpenAI encontrado: {provider.name}")
-            else:
-                logger.warning("No se encontró provider OpenAI activo en Strapi")
-        except Exception as e:
-            logger.error(f"Error obteniendo provider OpenAI: {e}")
-            provider = None
+    query = input_data.get("message", input_data.get("query", ""))
+    
+    # SIEMPRE obtener configuración del provider OpenAI desde Strapi
+    # Este agente SOLO funciona con OpenAI, ignoramos cualquier otro provider
+    logger.warning(
+        "Obteniendo configuración del provider OpenAI desde Strapi",
+        received_provider_type=provider_type,
+        received_api_key_present=bool(api_key)
+    )
+    
+    try:
+        # Buscar provider OpenAI específicamente
+        provider = await get_provider_by_type("openai")
         
-        if provider and provider.type.lower() == "openai":
+        if provider:
+            # Sobrescribir SIEMPRE con los valores de OpenAI
             api_key = provider.api_key
             llm_url = provider.base_url
-            model = model or provider.default_model
+            # SIEMPRE usar el modelo del provider OpenAI, ignorar el que viene del executor
+            model = provider.default_model
             provider_type = "openai"
-            logger.info(
-                f"Usando provider OpenAI desde Strapi: {provider.name}",
+            logger.warning(
+                f"Provider OpenAI encontrado: {provider.name}",
                 model=model,
-                base_url=llm_url
+                base_url=llm_url,
+                modelo_original_descartado=model if model else "none"
             )
-        elif not api_key:
-            error_msg = (
-                "No se encontró configuración de OpenAI. "
-                "Configura un LLM Provider OpenAI en Strapi o pasa api_key manualmente."
-            )
-            logger.error(error_msg)
-            yield StreamEvent(
-                event_type="error",
-                execution_id=execution_id,
-                node_id="validation",
-                content=error_msg
-            )
-            return
+        else:
+            logger.warning("No se encontró provider OpenAI activo en Strapi")
+            provider = None
+    except Exception as e:
+        logger.error(f"Error obteniendo provider OpenAI: {e}")
+        provider = None
     
-    # Validaciones
-    if not provider_type or provider_type.lower() != "openai":
-        error_msg = f"Este agente requiere OpenAI, recibido: {provider_type}"
+    # Validación: debe haber provider OpenAI
+    if not provider or not api_key:
+        error_msg = (
+            "No se encontró configuración de OpenAI. "
+            "Configura un LLM Provider OpenAI activo en Strapi."
+        )
         logger.error(error_msg)
         yield StreamEvent(
             event_type="error",
@@ -145,16 +132,7 @@ async def build_openai_web_search_agent(
         )
         return
     
-    if not api_key:
-        error_msg = "API key de OpenAI no disponible"
-        logger.error(error_msg)
-        yield StreamEvent(
-            event_type="error",
-            execution_id=execution_id,
-            node_id="validation",
-            content=error_msg
-        )
-        return
+    # No necesitamos más validaciones de provider_type porque ya lo forzamos a openai
     
     if not is_web_search_supported(model):
         warning_msg = f"⚠️ Modelo {model} puede no soportar web search. Recomendados: gpt-4o-mini, gpt-4o, gpt-4-turbo"

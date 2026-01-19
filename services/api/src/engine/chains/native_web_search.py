@@ -88,8 +88,16 @@ async def call_llm_with_web_search(
             )
             
             if response.status_code != 200:
-                error_data = response.json() if response.headers.get("content-type") == "application/json" else response.text
-                logger.error(f"Error OpenAI API: {response.status_code}", error=error_data)
+                try:
+                    error_data = response.json() if "application/json" in response.headers.get("content-type", "") else response.text
+                except:
+                    error_data = response.text
+                logger.error(
+                    f"Error OpenAI API: {response.status_code}",
+                    error=error_data,
+                    model=model,
+                    base_url=base_url
+                )
                 raise Exception(f"Error OpenAI API: {response.status_code} - {error_data}")
             
             data = response.json()
