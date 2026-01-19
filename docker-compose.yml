@@ -58,7 +58,9 @@ services:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://192.168.7.101:11434}
       - STRAPI_URL=http://strapi:1337
       - STRAPI_API_TOKEN=${STRAPI_API_TOKEN:-}
-      # Browser config - usar headless local (más robusto)
+      # Browser config - conectar al browser-service via CDP
+      - BROWSER_VNC_HOST=browser
+      - BROWSER_CDP_PORT=9222
       - BROWSER_HEADLESS=true
       - DEBUG=${DEBUG:-true}
     volumes:
@@ -72,6 +74,8 @@ services:
         condition: service_healthy
       strapi:
         condition: service_started
+      browser:
+        condition: service_healthy
     networks:
       - brain-network
     extra_hosts:

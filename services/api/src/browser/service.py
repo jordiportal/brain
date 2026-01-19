@@ -13,6 +13,7 @@ import os
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 import structlog
+import httpx
 
 try:
     from playwright.async_api import async_playwright, Browser, Page, BrowserContext
@@ -28,6 +29,7 @@ logger = structlog.get_logger()
 # Configuración
 BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
 BROWSER_VNC_HOST = os.getenv("BROWSER_VNC_HOST", "browser")  # Host del servicio VNC
+BROWSER_CDP_PORT = os.getenv("BROWSER_CDP_PORT", "9222")  # Puerto CDP del browser-service
 
 
 @dataclass
@@ -50,6 +52,9 @@ class BrowserService:
     - Escribir texto
     - Tomar capturas de pantalla
     - Obtener contenido de la página
+    
+    Se conecta al navegador del browser-service via CDP para que
+    las acciones se vean en el visor VNC.
     """
     
     def __init__(self):
@@ -59,9 +64,38 @@ class BrowserService:
         self._default_session_id = "default"
         self._lock = asyncio.Lock()
         self._headless = BROWSER_HEADLESS
+        self._is_remote = False
+    
+    async def _get_remote_cdp_url(self) -> Optional[str]:
+        """Obtener la URL del WebSocket CDP del navegador remoto"""
+        if not BROWSER_VNC_HOST:
+            return None
+        
+        # Usamos el puerto 9223 que es el proxy socat que acepta conexiones externas
+        cdp_proxy_port = "9223"
+        
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # Chrome requiere que el Host header sea localhost
+                response = await client.get(
+                    f"http://{BROWSER_VNC_HOST}:{cdp_proxy_port}/json/version",
+                    headers={"Host": "localhost"}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    ws_url = data.get("webSocketDebuggerUrl", "")
+                    # Reemplazar localhost con el host:puerto del proxy
+                    ws_url = ws_url.replace("ws://localhost/", f"ws://{BROWSER_VNC_HOST}:{cdp_proxy_port}/")
+                    ws_url = ws_url.replace("ws://127.0.0.1/", f"ws://{BROWSER_VNC_HOST}:{cdp_proxy_port}/")
+                    logger.info(f"CDP WebSocket URL obtenida: {ws_url}")
+                    return ws_url
+        except Exception as e:
+            logger.warning(f"No se pudo obtener CDP URL del navegador remoto: {e}")
+        
+        return None
     
     async def initialize(self) -> bool:
-        """Inicializar Playwright con navegador local headless"""
+        """Inicializar Playwright - conectar al navegador remoto o crear uno local"""
         if not PLAYWRIGHT_AVAILABLE:
             logger.error("Playwright no está instalado")
             return False
@@ -73,9 +107,22 @@ class BrowserService:
             try:
                 self._playwright = await async_playwright().start()
                 
-                # Iniciar navegador local headless
+                # Intentar conectar al navegador remoto del browser-service
+                cdp_url = await self._get_remote_cdp_url()
+                if cdp_url:
+                    try:
+                        logger.info(f"Conectando al navegador remoto via CDP: {cdp_url}")
+                        self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
+                        self._is_remote = True
+                        logger.info("✓ Conectado al navegador remoto - Las acciones serán visibles en VNC")
+                        return True
+                    except Exception as e:
+                        logger.warning(f"No se pudo conectar al navegador remoto: {e}")
+                
+                # Fallback: iniciar navegador local headless
+                logger.info("Iniciando navegador local headless como fallback...")
                 self._browser = await self._playwright.chromium.launch(
-                    headless=self._headless,
+                    headless=True,  # Siempre headless en fallback
                     args=[
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
@@ -83,7 +130,8 @@ class BrowserService:
                         '--disable-gpu'
                     ]
                 )
-                logger.info("Navegador Chromium iniciado", headless=self._headless)
+                self._is_remote = False
+                logger.info("Navegador Chromium local iniciado (headless)")
                 return True
                 
             except Exception as e:
@@ -443,12 +491,13 @@ class BrowserService:
     
     def get_status(self) -> Dict[str, Any]:
         """Obtener estado del servicio de navegador"""
-        # VNC está disponible si el servicio browser-service está corriendo
-        vnc_available = BROWSER_VNC_HOST is not None and BROWSER_VNC_HOST != ""
+        # VNC está disponible si estamos conectados al navegador remoto
+        vnc_available = self._is_remote and BROWSER_VNC_HOST is not None
         
         return {
             "initialized": self._browser is not None,
-            "headless": self._headless,
+            "is_remote": self._is_remote,
+            "headless": self._headless if not self._is_remote else False,
             "active_sessions": len([s for s in self._sessions.values() if s.is_active]),
             "vnc_available": vnc_available,
             "vnc_host": BROWSER_VNC_HOST if vnc_available else None

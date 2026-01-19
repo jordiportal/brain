@@ -11,6 +11,7 @@ import { catchError, of, interval, Subscription } from 'rxjs';
 
 interface BrowserStatus {
   initialized: boolean;
+  is_remote: boolean;
   headless: boolean;
   active_sessions: number;
   vnc_available: boolean;
@@ -274,22 +275,39 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
       this.isLoading.set(true);
     }
     
-    // Verificar si el servicio VNC está disponible directamente
+    // Construir URL de noVNC
     const baseUrl = window.location.hostname;
-    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&reconnect=true`;
+    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=3000`;
     
-    // Intentar cargar el endpoint de estado de la API
+    // Verificar el estado del navegador en la API
     this.http.get<BrowserStatus>(`${this.apiUrl}/browser/status`)
       .pipe(catchError(() => of(null)))
       .subscribe(status => {
         this.isLoading.set(false);
         
-        if (status?.vnc_available) {
+        // Solo mostrar VNC si está conectado al navegador remoto
+        if (status?.is_remote && status?.vnc_available) {
           this.vncUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(vncUrlStr));
           this.isConnected.set(true);
           this.connectionChange.emit(true);
+        } else if (!status?.initialized) {
+          // Si no está inicializado, intentar inicializarlo
+          this.initializeBrowser();
         } else {
-          // Intentar conectar directamente al VNC aunque la API no lo reporte
+          // Navegador local headless - no hay VNC
+          this.isConnected.set(false);
+          this.connectionChange.emit(false);
+        }
+      });
+  }
+  
+  private initializeBrowser(): void {
+    this.http.post<BrowserStatus>(`${this.apiUrl}/browser/initialize`, {})
+      .pipe(catchError(() => of(null)))
+      .subscribe(status => {
+        if (status?.is_remote && status?.vnc_available) {
+          const baseUrl = window.location.hostname;
+          const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=3000`;
           this.vncUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(vncUrlStr));
           this.isConnected.set(true);
           this.connectionChange.emit(true);
