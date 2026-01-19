@@ -1,11 +1,15 @@
 """
 LLM Utilities - Funciones de utilidad para llamar a LLMs desde las cadenas.
 Soporta múltiples proveedores: Ollama, OpenAI, Anthropic, Groq, Azure.
+Incluye soporte para Web Search nativo de OpenAI.
 """
 
 import json
 from typing import List, Dict, AsyncGenerator, Optional
 import httpx
+import structlog
+
+logger = structlog.get_logger()
 
 
 async def call_llm(
@@ -15,7 +19,8 @@ async def call_llm(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     provider_type: str = "ollama",
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    enable_web_search: bool = False
 ) -> str:
     """
     Llamar al LLM y obtener respuesta.
@@ -29,6 +34,7 @@ async def call_llm(
         max_tokens: Máximo de tokens (opcional)
         provider_type: Tipo de proveedor ("ollama", "openai", "anthropic", "groq", "azure")
         api_key: API key para proveedores que lo requieren
+        enable_web_search: Habilitar búsqueda web nativa (solo OpenAI)
     
     Returns:
         Contenido de la respuesta del LLM
@@ -40,7 +46,10 @@ async def call_llm(
     elif provider in ["openai", "groq", "azure"]:
         if not api_key:
             raise ValueError(f"API key requerida para {provider}")
-        return await _call_openai_compatible(llm_url, model, messages, temperature, max_tokens, api_key)
+        return await _call_openai_compatible(
+            llm_url, model, messages, temperature, max_tokens, api_key, 
+            enable_web_search=(enable_web_search and provider == "openai")
+        )
     elif provider == "anthropic":
         if not api_key:
             raise ValueError("API key requerida para Anthropic")
@@ -56,7 +65,8 @@ async def call_llm_stream(
     messages: List[Dict],
     temperature: float = 0.7,
     provider_type: str = "ollama",
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    enable_web_search: bool = False
 ) -> AsyncGenerator[str, None]:
     """
     Llamar al LLM con streaming.
@@ -68,6 +78,7 @@ async def call_llm_stream(
         temperature: Temperatura para generación
         provider_type: Tipo de proveedor
         api_key: API key (si es necesario)
+        enable_web_search: Habilitar búsqueda web nativa (solo OpenAI)
     
     Yields:
         Tokens de la respuesta
@@ -80,7 +91,10 @@ async def call_llm_stream(
     elif provider in ["openai", "groq", "azure"]:
         if not api_key:
             raise ValueError(f"API key requerida para {provider}")
-        async for token in _stream_openai_compatible(llm_url, model, messages, temperature, api_key):
+        async for token in _stream_openai_compatible(
+            llm_url, model, messages, temperature, api_key,
+            enable_web_search=(enable_web_search and provider == "openai")
+        ):
             yield token
     elif provider == "anthropic":
         if not api_key:
@@ -128,7 +142,8 @@ async def _call_openai_compatible(
     messages: List[Dict],
     temperature: float,
     max_tokens: Optional[int],
-    api_key: str
+    api_key: str,
+    enable_web_search: bool = False
 ) -> str:
     """Llamar a API compatible con OpenAI (OpenAI, Groq, Azure, etc.)"""
     url = f"{base_url}/chat/completions"
@@ -142,6 +157,15 @@ async def _call_openai_compatible(
     
     if max_tokens:
         payload["max_tokens"] = max_tokens
+    
+    # Agregar web search si está habilitado y el modelo lo soporta
+    if enable_web_search:
+        from .native_web_search import is_web_search_supported
+        if is_web_search_supported(model):
+            payload["tools"] = [{"type": "web_search"}]
+            logger.info(f"Web search nativo habilitado para {model}")
+        else:
+            logger.warning(f"Web search no soportado por {model}, ignorando flag")
     
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
@@ -241,10 +265,25 @@ async def _stream_openai_compatible(
     model: str,
     messages: List[Dict],
     temperature: float,
-    api_key: str
+    api_key: str,
+    enable_web_search: bool = False
 ) -> AsyncGenerator[str, None]:
     """Streaming desde API compatible con OpenAI"""
     url = f"{base_url}/chat/completions"
+    
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True
+    }
+    
+    # Agregar web search si está habilitado
+    if enable_web_search:
+        from .native_web_search import is_web_search_supported
+        if is_web_search_supported(model):
+            payload["tools"] = [{"type": "web_search"}]
+            logger.info(f"Web search nativo habilitado para {model} (streaming)")
     
     async with httpx.AsyncClient(timeout=300.0) as client:
         async with client.stream(
@@ -254,12 +293,7 @@ async def _stream_openai_compatible(
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": True
-            }
+            json=payload
         ) as response:
             async for line in response.aiter_lines():
                 if line.startswith("data: "):

@@ -190,6 +190,29 @@ class ToolRegistry:
             handler=self._builtin_datetime
         )
         
+        # Web Search
+        self.register_builtin(
+            id="web_search",
+            name="web_search",
+            description="Busca información en la web usando DuckDuckGo. Útil para obtener información actualizada, noticias, datos, etc.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Consulta de búsqueda. Ej: 'clima en Madrid', 'últimas noticias Python', 'precio Bitcoin'"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Número máximo de resultados (por defecto 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            },
+            handler=self._builtin_web_search
+        )
+        
         self._builtin_registered = True
         logger.info("Tools builtin registradas")
     
@@ -238,6 +261,78 @@ class ToolRegistry:
             "time": now.strftime("%H:%M:%S"),
             "timestamp": now.timestamp()
         }
+    
+    def _builtin_web_search(self, query: str, max_results: int = 5) -> Dict[str, Any]:
+        """Búsqueda web con DuckDuckGo"""
+        import time
+        
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            logger.error("duckduckgo-search no está instalado")
+            return {
+                "error": "duckduckgo-search no está instalado. Ejecuta: pip install duckduckgo-search",
+                "query": query
+            }
+        
+        # Intentar hasta 3 veces con delay incremental
+        max_retries = 3
+        retry_delay = 1  # segundos
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Buscando en web: {query}", max_results=max_results, attempt=attempt + 1)
+                
+                results_list = []
+                with DDGS() as ddgs:
+                    # Búsqueda de texto con timeout
+                    search_results = ddgs.text(
+                        query, 
+                        max_results=max_results,
+                        region='wt-wt',  # World region
+                        safesearch='moderate',
+                        timelimit=None
+                    )
+                    
+                    for idx, result in enumerate(search_results):
+                        results_list.append({
+                            "position": idx + 1,
+                            "title": result.get("title", ""),
+                            "snippet": result.get("body", ""),
+                            "url": result.get("href", ""),
+                        })
+                
+                logger.info(f"Búsqueda completada: {len(results_list)} resultados", query=query)
+                
+                return {
+                    "success": True,
+                    "query": query,
+                    "results": results_list,
+                    "count": len(results_list)
+                }
+                
+            except Exception as e:
+                error_msg = str(e)
+                
+                # Si es rate limit y no es el último intento, esperar y reintentar
+                if "ratelimit" in error_msg.lower() and attempt < max_retries - 1:
+                    wait_time = retry_delay * (attempt + 1)
+                    logger.warning(
+                        f"Rate limit detectado, esperando {wait_time}s antes de reintentar",
+                        query=query,
+                        attempt=attempt + 1
+                    )
+                    time.sleep(wait_time)
+                    continue
+                
+                # Si llegamos aquí, es el último intento o un error diferente
+                logger.error(f"Error en búsqueda web: {e}", query=query, attempt=attempt + 1)
+                return {
+                    "error": str(e),
+                    "query": query,
+                    "success": False,
+                    "hint": "DuckDuckGo puede tener rate limiting temporal. Intenta de nuevo en 30 segundos."
+                }
 
 
 # Instancia global

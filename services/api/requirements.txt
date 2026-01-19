@@ -44,6 +44,9 @@ aiofiles==23.2.1
 # Browser automation
 playwright==1.49.1
 
+# Web Search
+duckduckgo-search==6.3.5
+
 # Logging y monitorización
 structlog==24.1.0
 

@@ -1,7 +1,7 @@
 """
-Browser Service - Servicio de navegación web usando Playwright
+Browser Service - Servicio de navegaci?n web usando Playwright
 
-Proporciona herramientas de navegación web para los agentes.
+Proporciona herramientas de navegaci?n web para los agentes.
 Soporta:
 - Navegador local (headless o headed)
 - Navegador remoto via CDP (Chrome DevTools Protocol)
@@ -26,7 +26,7 @@ except ImportError:
 
 logger = structlog.get_logger()
 
-# Configuración
+# Configuraci?n
 BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
 BROWSER_VNC_HOST = os.getenv("BROWSER_VNC_HOST", "browser")  # Host del servicio VNC
 BROWSER_CDP_PORT = os.getenv("BROWSER_CDP_PORT", "9222")  # Puerto CDP del browser-service
@@ -34,7 +34,7 @@ BROWSER_CDP_PORT = os.getenv("BROWSER_CDP_PORT", "9222")  # Puerto CDP del brows
 
 @dataclass
 class BrowserSession:
-    """Sesión de navegador"""
+    """Sesi?n de navegador"""
     id: str
     browser: Optional[Any] = None
     context: Optional[Any] = None
@@ -44,14 +44,14 @@ class BrowserSession:
 
 class BrowserService:
     """
-    Servicio de navegación web usando Playwright.
+    Servicio de navegaci?n web usando Playwright.
     
-    Proporciona métodos para:
+    Proporciona m?todos para:
     - Navegar a URLs
     - Hacer clic en elementos
     - Escribir texto
     - Tomar capturas de pantalla
-    - Obtener contenido de la página
+    - Obtener contenido de la p?gina
     
     Se conecta al navegador del browser-service via CDP para que
     las acciones se vean en el visor VNC.
@@ -97,19 +97,19 @@ class BrowserService:
     async def initialize(self, force: bool = False) -> bool:
         """Inicializar Playwright - conectar al navegador remoto o crear uno local"""
         if not PLAYWRIGHT_AVAILABLE:
-            logger.error("Playwright no está instalado")
+            logger.error("Playwright no est? instalado")
             return False
         
         async with self._lock:
             if self._browser and not force:
-                # Verificar que la conexión sigue activa
+                # Verificar que la conexi?n sigue activa
                 try:
                     if self._is_remote:
                         # Para remoto, verificar que hay contexts
                         _ = self._browser.contexts
                     return True
                 except Exception:
-                    logger.warning("Conexión al navegador perdida, reinicializando...")
+                    logger.warning("Conexi?n al navegador perdida, reinicializando...")
                     self._browser = None
             
             try:
@@ -122,7 +122,7 @@ class BrowserService:
                         logger.info(f"Conectando al navegador remoto via CDP: {cdp_url}")
                         self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
                         self._is_remote = True
-                        logger.info("✓ Conectado al navegador remoto - Las acciones serán visibles en VNC")
+                        logger.info("? Conectado al navegador remoto - Las acciones ser?n visibles en VNC")
                         return True
                     except Exception as e:
                         logger.warning(f"No se pudo conectar al navegador remoto: {e}")
@@ -147,7 +147,7 @@ class BrowserService:
                 return False
     
     async def _reconnect(self) -> bool:
-        """Reconectar al navegador si la conexión se perdió"""
+        """Reconectar al navegador si la conexi?n se perdi?"""
         logger.info("Intentando reconectar al navegador...")
         
         # Limpiar estado anterior
@@ -165,30 +165,30 @@ class BrowserService:
         return await self.initialize()
     
     async def get_or_create_session(self, session_id: str = None) -> Optional[BrowserSession]:
-        """Obtener o crear una sesión de navegador"""
+        """Obtener o crear una sesi?n de navegador"""
         session_id = session_id or self._default_session_id
         
         if session_id in self._sessions and self._sessions[session_id].is_active:
-            # Verificar que la página sigue siendo válida
+            # Verificar que la p?gina sigue siendo v?lida
             try:
                 session = self._sessions[session_id]
                 if session.page:
-                    # Intentar una operación simple para verificar conexión
+                    # Intentar una operaci?n simple para verificar conexi?n
                     await session.page.evaluate("1")
                     return session
             except Exception:
-                # La sesión no es válida, limpiarla
-                logger.warning(f"Sesión {session_id} inválida, recreando...")
+                # La sesi?n no es v?lida, limpiarla
+                logger.warning(f"Sesi?n {session_id} inv?lida, recreando...")
                 del self._sessions[session_id]
         
-        # Asegurar que el navegador está inicializado
+        # Asegurar que el navegador est? inicializado
         if not self._browser:
             initialized = await self.initialize()
             if not initialized:
                 return None
         
         try:
-            # Para navegador remoto, usar el context y página existentes
+            # Para navegador remoto, usar el context y p?gina existentes
             if self._is_remote:
                 contexts = self._browser.contexts
                 if contexts:
@@ -219,26 +219,26 @@ class BrowserService:
             )
             self._sessions[session_id] = session
             
-            logger.info(f"Sesión de navegador creada: {session_id}")
+            logger.info(f"Sesi?n de navegador creada: {session_id}")
             return session
             
         except Exception as e:
             error_msg = str(e)
-            # Si el error indica conexión perdida, intentar reconectar
+            # Si el error indica conexi?n perdida, intentar reconectar
             if "closed" in error_msg.lower() or "disconnected" in error_msg.lower():
-                logger.warning("Conexión al navegador perdida, reconectando...")
+                logger.warning("Conexi?n al navegador perdida, reconectando...")
                 if await self._reconnect():
-                    # Reintentar crear la sesión
+                    # Reintentar crear la sesi?n
                     return await self.get_or_create_session(session_id)
             
-            logger.error(f"Error creando sesión: {e}")
+            logger.error(f"Error creando sesi?n: {e}")
             return None
     
     async def navigate(
         self,
         url: str,
         session_id: str = None,
-        wait_until: str = "domcontentloaded"
+        wait_until: str = "networkidle"
     ) -> Dict[str, Any]:
         """Navegar a una URL"""
         session = await self.get_or_create_session(session_id)
@@ -246,7 +246,16 @@ class BrowserService:
             return {"success": False, "error": "No se pudo crear sesión de navegador"}
         
         try:
-            response = await session.page.goto(url, wait_until=wait_until, timeout=30000)
+            # Aumentar timeout y usar load para asegurar carga básica, luego networkidle
+            response = await session.page.goto(url, wait_until="load", timeout=60000)
+            
+            try:
+                await session.page.wait_for_load_state("networkidle", timeout=5000)
+            except:
+                pass
+            
+            # Esperar un momento extra para animaciones/popups
+            await asyncio.sleep(2)
             
             return {
                 "success": True,
@@ -263,16 +272,16 @@ class BrowserService:
         session_id: str = None,
         selector: str = "body"
     ) -> Dict[str, Any]:
-        """Obtener contenido de texto de la página"""
+        """Obtener contenido de texto de la p?gina"""
         session = await self.get_or_create_session(session_id)
         if not session or not session.page:
-            return {"success": False, "error": "No hay sesión activa"}
+            return {"success": False, "error": "No hay sesi?n activa"}
         
         try:
             # Obtener texto visible
             text = await session.page.inner_text(selector)
             
-            # Obtener título
+            # Obtener t?tulo
             title = await session.page.title()
             
             # Obtener URL actual
@@ -297,7 +306,7 @@ class BrowserService:
         """Tomar captura de pantalla"""
         session = await self.get_or_create_session(session_id)
         if not session or not session.page:
-            return {"success": False, "error": "No hay sesión activa"}
+            return {"success": False, "error": "No hay sesi?n activa"}
         
         try:
             screenshot_bytes = await session.page.screenshot(
@@ -323,20 +332,87 @@ class BrowserService:
         selector: str,
         session_id: str = None
     ) -> Dict[str, Any]:
-        """Hacer clic en un elemento"""
+        """Hacer clic en un elemento (busca en página principal e iframes)"""
         session = await self.get_or_create_session(session_id)
         if not session or not session.page:
             return {"success": False, "error": "No hay sesión activa"}
         
         try:
-            await session.page.click(selector, timeout=10000)
-            await session.page.wait_for_load_state("domcontentloaded")
+            # 0. Si el selector es texto puro (sin caracteres de selector CSS)
+            if not any(c in selector for c in ['#', '.', '[', '=', '>', ':']):
+                try:
+                    locators = [
+                        session.page.get_by_role("button", name=selector, exact=False),
+                        session.page.get_by_text(selector, exact=False),
+                        session.page.get_by_role("link", name=selector, exact=False)
+                    ]
+                    for loc in locators:
+                        if await loc.count() > 0:
+                            await loc.first.click(timeout=5000)
+                            # Usar networkidle después de clics importantes (como aceptar cookies)
+                            try:
+                                await session.page.wait_for_load_state("networkidle", timeout=5000)
+                            except:
+                                await session.page.wait_for_load_state("domcontentloaded", timeout=2000)
+                            return {
+                                "success": True,
+                                "clicked": f"element with text '{selector}'",
+                                "url": session.page.url,
+                                "frame": "main"
+                            }
+                except Exception:
+                    pass
+
+            # 1. Intentar en la página principal
+            try:
+                await session.page.click(selector, timeout=5000)
+                try:
+                    await session.page.wait_for_load_state("networkidle", timeout=5000)
+                except:
+                    await session.page.wait_for_load_state("domcontentloaded", timeout=2000)
+                return {
+                    "success": True,
+                    "clicked": selector,
+                    "url": session.page.url,
+                    "frame": "main"
+                }
+            except Exception:
+                pass
             
-            return {
-                "success": True,
-                "clicked": selector,
-                "url": session.page.url
-            }
+            # 2. Intentar en iframes
+            for frame in session.page.frames:
+                if frame == session.page.main_frame:
+                    continue
+                try:
+                    await frame.click(selector, timeout=3000)
+                    await session.page.wait_for_load_state("domcontentloaded")
+                    return {
+                        "success": True,
+                        "clicked": selector,
+                        "url": session.page.url,
+                        "frame": "iframe"
+                    }
+                except Exception:
+                    continue
+            
+            # 3. Si no funcion?, intentar con locator m?s flexible
+            try:
+                # Intentar buscar por texto contenido
+                if not selector.startswith(('.', '#', '[')) and ':' not in selector:
+                    # Parece texto plano, buscar bot?n con ese texto
+                    await session.page.get_by_role("button", name=selector).click(timeout=5000)
+                    await session.page.wait_for_load_state("domcontentloaded")
+                    return {
+                        "success": True,
+                        "clicked": f"button with text '{selector}'",
+                        "url": session.page.url,
+                        "frame": "main"
+                    }
+            except Exception:
+                pass
+            
+            return {"success": False, "error": f"No se encontr? elemento: {selector}"}
+            
         except Exception as e:
             logger.error(f"Error haciendo clic en {selector}: {e}")
             return {"success": False, "error": str(e)}
@@ -354,20 +430,116 @@ class BrowserService:
             return {"success": False, "error": "No hay sesión activa"}
         
         try:
-            await session.page.fill(selector, text, timeout=10000)
+            # 0. Si el selector parece una descripción de texto
+            if not any(c in selector for c in ['#', '.', '[', '=', '>', ':']):
+                try:
+                    locators = [
+                        session.page.get_by_placeholder(selector, exact=False),
+                        session.page.get_by_role("textbox", name=selector, exact=False),
+                        session.page.get_by_label(selector, exact=False)
+                    ]
+                    for loc in locators:
+                        if await loc.count() > 0:
+                            # Hacer clic antes de escribir para asegurar foco
+                            await loc.first.click(timeout=3000)
+                            await loc.first.fill(text, timeout=5000)
+                            if press_enter:
+                                await loc.first.press("Enter")
+                                try:
+                                    await session.page.wait_for_load_state("networkidle", timeout=5000)
+                                except:
+                                    await session.page.wait_for_load_state("domcontentloaded", timeout=2000)
+                            return {
+                                "success": True,
+                                "typed": text,
+                                "selector": f"element with text/label '{selector}'",
+                                "url": session.page.url
+                            }
+                except Exception:
+                    pass
+
+            # 1. Intentar con selector estándar
+            try:
+                # Asegurar que el elemento esté visible
+                await session.page.wait_for_selector(selector, state="visible", timeout=5000)
+                # Hacer clic para asegurar foco y visibilidad (especialmente tras banners de cookies)
+                await session.page.click(selector, timeout=3000)
+                await session.page.fill(selector, text, timeout=5000)
+                
+                if press_enter:
+                    await session.page.press(selector, "Enter")
+                    try:
+                        await session.page.wait_for_load_state("networkidle", timeout=5000)
+                    except:
+                        await session.page.wait_for_load_state("domcontentloaded", timeout=2000)
+                
+                return {
+                    "success": True,
+                    "typed": text,
+                    "selector": selector,
+                    "url": session.page.url
+                }
+            except Exception:
+                # Fallback final: clic forzado y simulación de teclado
+                try:
+                    await session.page.click(selector, timeout=3000, force=True)
+                    await session.page.keyboard.type(text)
+                    if press_enter:
+                        await session.page.keyboard.press("Enter")
+                        try:
+                            await session.page.wait_for_load_state("networkidle", timeout=5000)
+                        except:
+                            pass
+                    return {
+                        "success": True,
+                        "typed": text,
+                        "selector": f"{selector} (via forced click + keyboard)",
+                        "url": session.page.url
+                    }
+                except Exception as inner_e:
+                    return {"success": False, "error": f"Error tras múltiples intentos: {str(inner_e)}"}
+        except Exception as e:
+            logger.error(f"Error escribiendo en {selector}: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def scroll(
+        self,
+        direction: str = "down",
+        amount: int = 500,
+        session_id: str = None
+    ) -> Dict[str, Any]:
+        """Hacer scroll en la p?gina"""
+        session = await self.get_or_create_session(session_id)
+        if not session or not session.page:
+            return {"success": False, "error": "No hay sesi?n activa"}
+        
+        try:
+            if direction == "down":
+                await session.page.evaluate(f"window.scrollBy(0, {amount})")
+            elif direction == "up":
+                await session.page.evaluate(f"window.scrollBy(0, -{amount})")
+            elif direction == "top":
+                await session.page.evaluate("window.scrollTo(0, 0)")
+            elif direction == "bottom":
+                await session.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             
-            if press_enter:
-                await session.page.press(selector, "Enter")
-                await session.page.wait_for_load_state("domcontentloaded")
+            # Esperar un momento para que se cargue contenido din?mico
+            await asyncio.sleep(0.5)
+            
+            # Obtener posici?n actual
+            scroll_pos = await session.page.evaluate("window.scrollY")
+            scroll_height = await session.page.evaluate("document.body.scrollHeight")
             
             return {
                 "success": True,
-                "typed": text,
-                "selector": selector,
+                "direction": direction,
+                "amount": amount,
+                "scroll_position": scroll_pos,
+                "page_height": scroll_height,
                 "url": session.page.url
             }
         except Exception as e:
-            logger.error(f"Error escribiendo en {selector}: {e}")
+            logger.error(f"Error haciendo scroll: {e}")
             return {"success": False, "error": str(e)}
     
     async def get_elements(
@@ -376,43 +548,194 @@ class BrowserService:
         session_id: str = None,
         limit: int = 50
     ) -> Dict[str, Any]:
-        """Obtener elementos de la página"""
+        """Obtener elementos interactivos de la página, incluyendo iframes"""
         session = await self.get_or_create_session(session_id)
         if not session or not session.page:
             return {"success": False, "error": "No hay sesión activa"}
         
         try:
-            # Obtener elementos interactivos
-            elements = await session.page.query_selector_all(
-                "a, button, input, textarea, select, [role='button'], [onclick]"
-            )
-            
             result = []
+            # Selectores para elementos que suelen ser botones de cookies o importantes
+            cookie_hints = "button:has-text('Aceptar'), button:has-text('Accept'), button:has-text('Agree'), button:has-text('Permitir'), button:has-text('Entendido'), button:has-text('OK'), button:has-text('Acepto'), button:has-text('I agree'), button:has-text('Consentir')"
+            interactive_selector = f"a, button, input, textarea, select, [role='button'], [onclick], {cookie_hints}"
+            
+            # Asegurar que la página está cargada
+            try:
+                await session.page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+
+            # Detectar si estamos en un diálogo de cookies de Google específicamente
+            # para forzar su visibilidad o clic si es necesario
+            is_google_cookies = "consent.google.com" in session.page.url
+            
+            # Selectores de cookies específicos para priorizar
+            common_cookie_selectors = [
+                "#L2AGLb", # Google "Aceptar todo"
+                "button[aria-label*='Aceptar']",
+                "button[aria-label*='Accept']",
+                "#onetrust-accept-btn-handler", # OneTrust
+                "#gdpr-banner-accept",
+                "button[id*='accept']",
+                "button[class*='accept']"
+            ]
+            
+            # 1. Buscar en la página principal
+            elements = await session.page.query_selector_all(interactive_selector)
+            
+            # Intentar añadir selectores específicos al inicio
+            found_specials = []
+            for sel in common_cookie_selectors:
+                try:
+                    el = await session.page.query_selector(sel)
+                    if el:
+                        found_specials.append(el)
+                except:
+                    continue
+            
+            # Combinar y evitar duplicados (manteniendo orden de prioridad)
+            for el in reversed(found_specials):
+                if el not in elements:
+                    elements.insert(0, el)
+            
             for i, el in enumerate(elements[:limit]):
                 try:
+                    # Omitir si no es visible
+                    if not await el.is_visible():
+                        continue
+                        
                     tag = await el.evaluate("el => el.tagName.toLowerCase()")
                     text = await el.inner_text() if tag not in ['input', 'textarea'] else ""
                     placeholder = await el.get_attribute("placeholder") or ""
                     href = await el.get_attribute("href") or ""
                     el_type = await el.get_attribute("type") or ""
                     name = await el.get_attribute("name") or ""
+                    el_id = await el.get_attribute("id") or ""
+                    el_class = await el.get_attribute("class") or ""
+                    aria_label = await el.get_attribute("aria-label") or ""
+                    
+                    # Limpiar texto de estilos/clases CSS incrustados
+                    if text and text.startswith('.'):
+                        text = ""
                     
                     result.append({
-                        "index": i,
+                        "index": len(result),
                         "tag": tag,
                         "text": text[:100].strip() if text else "",
                         "placeholder": placeholder,
                         "href": href[:200] if href else "",
                         "type": el_type,
-                        "name": name
+                        "name": name,
+                        "id": el_id,
+                        "class": el_class[:100] if el_class else "",
+                        "aria-label": aria_label,
+                        "frame": "main"
                     })
                 except Exception:
                     continue
             
+            # 2. Buscar en iframes (importante para popups de cookies)
+            try:
+                frames = session.page.frames
+                for frame in frames:
+                    if frame == session.page.main_frame:
+                        continue
+                    try:
+                        # Solo buscar en frames que parezcan cargados
+                        frame_elements = await frame.query_selector_all(interactive_selector)
+                        for el in frame_elements[:30]:
+                            try:
+                                if not await el.is_visible():
+                                    continue
+                                    
+                                tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                                text = await el.inner_text() if tag not in ['input', 'textarea'] else ""
+                                el_id = await el.get_attribute("id") or ""
+                                el_class = await el.get_attribute("class") or ""
+                                aria_label = await el.get_attribute("aria-label") or ""
+                                
+                                # A?adir si tiene texto, id, o es un input
+                                if text.strip() or el_id or tag in ['input', 'textarea', 'button']:
+                                    result.append({
+                                        "index": len(result),
+                                        "tag": tag,
+                                        "text": text[:100].strip() if text else "",
+                                        "placeholder": await el.get_attribute("placeholder") or "",
+                                        "href": "",
+                                        "type": await el.get_attribute("type") or "",
+                                        "name": await el.get_attribute("name") or "",
+                                        "id": el_id,
+                                        "class": el_class[:100] if el_class else "",
+                                        "aria-label": aria_label,
+                                        "frame": "iframe"
+                                    })
+                            except Exception:
+                                continue
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            
             return {
                 "success": True,
-                "elements": result,
-                "total": len(elements),
+                "elements": result[:limit],
+                "total": len(result),
+                "url": session.page.url
+            }
+        except Exception as e:
+            logger.error(f"Error obteniendo elementos: {e}")
+            return {"success": False, "error": str(e)}
+            
+            # 2. Buscar en iframes (importante para popups de cookies)
+            try:
+                frames = session.page.frames
+                for frame in frames:
+                    if frame == session.page.main_frame:
+                        continue
+                    try:
+                        # Scroll dentro del iframe para ver todos los elementos
+                        try:
+                            await frame.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            await asyncio.sleep(0.2)
+                            await frame.evaluate("window.scrollTo(0, 0)")
+                        except Exception:
+                            pass
+                        
+                        frame_elements = await frame.query_selector_all(interactive_selector)
+                        for el in frame_elements[:30]:  # M?s elementos por iframe
+                            try:
+                                tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                                text = await el.inner_text() if tag not in ['input', 'textarea'] else ""
+                                el_id = await el.get_attribute("id") or ""
+                                el_class = await el.get_attribute("class") or ""
+                                aria_label = await el.get_attribute("aria-label") or ""
+                                
+                                # A?adir si tiene texto, id, o es un input
+                                if text.strip() or el_id or tag in ['input', 'textarea', 'button']:
+                                    result.append({
+                                        "index": len(result),
+                                        "tag": tag,
+                                        "text": text[:100].strip() if text else "",
+                                        "placeholder": await el.get_attribute("placeholder") or "",
+                                        "href": "",
+                                        "type": await el.get_attribute("type") or "",
+                                        "name": await el.get_attribute("name") or "",
+                                        "id": el_id,
+                                        "class": el_class[:100] if el_class else "",
+                                        "aria-label": aria_label,
+                                        "frame": "iframe"
+                                    })
+                            except Exception:
+                                continue
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            
+            return {
+                "success": True,
+                "elements": result[:limit],
+                "total": len(result),
                 "url": session.page.url
             }
         except Exception as e:
@@ -424,10 +747,10 @@ class BrowserService:
         script: str,
         session_id: str = None
     ) -> Dict[str, Any]:
-        """Ejecutar JavaScript en la página"""
+        """Ejecutar JavaScript en la p?gina"""
         session = await self.get_or_create_session(session_id)
         if not session or not session.page:
-            return {"success": False, "error": "No hay sesión activa"}
+            return {"success": False, "error": "No hay sesi?n activa"}
         
         try:
             result = await session.page.evaluate(script)
@@ -441,7 +764,7 @@ class BrowserService:
             return {"success": False, "error": str(e)}
     
     async def close_session(self, session_id: str = None):
-        """Cerrar una sesión de navegador"""
+        """Cerrar una sesi?n de navegador"""
         session_id = session_id or self._default_session_id
         
         if session_id in self._sessions:
@@ -451,9 +774,9 @@ class BrowserService:
                     await session.context.close()
                 session.is_active = False
                 del self._sessions[session_id]
-                logger.info(f"Sesión cerrada: {session_id}")
+                logger.info(f"Sesi?n cerrada: {session_id}")
             except Exception as e:
-                logger.error(f"Error cerrando sesión {session_id}: {e}")
+                logger.error(f"Error cerrando sesi?n {session_id}: {e}")
     
     async def shutdown(self):
         """Cerrar el servicio de navegador"""
@@ -480,7 +803,7 @@ class BrowserService:
         logger.info("Servicio de navegador cerrado")
     
     def get_tools_description(self) -> List[Dict[str, Any]]:
-        """Obtener descripción de herramientas para el LLM"""
+        """Obtener descripci?n de herramientas para el LLM"""
         return [
             {
                 "name": "browser_navigate",
@@ -495,7 +818,7 @@ class BrowserService:
             },
             {
                 "name": "browser_get_content",
-                "description": "Obtener el contenido de texto de la página actual",
+                "description": "Obtener el contenido de texto de la p?gina actual",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -505,7 +828,7 @@ class BrowserService:
             },
             {
                 "name": "browser_screenshot",
-                "description": "Tomar una captura de pantalla de la página",
+                "description": "Tomar una captura de pantalla de la p?gina",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -515,7 +838,7 @@ class BrowserService:
             },
             {
                 "name": "browser_click",
-                "description": "Hacer clic en un elemento de la página",
+                "description": "Hacer clic en un elemento de la p?gina",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -532,18 +855,29 @@ class BrowserService:
                     "properties": {
                         "selector": {"type": "string", "description": "Selector CSS del campo"},
                         "text": {"type": "string", "description": "Texto a escribir"},
-                        "press_enter": {"type": "boolean", "description": "Presionar Enter después", "default": False}
+                        "press_enter": {"type": "boolean", "description": "Presionar Enter despu?s", "default": False}
                     },
                     "required": ["selector", "text"]
                 }
             },
             {
                 "name": "browser_get_elements",
-                "description": "Obtener lista de elementos interactivos de la página",
+                "description": "Obtener lista de elementos interactivos de la p?gina",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "limit": {"type": "integer", "description": "Máximo de elementos", "default": 50}
+                        "limit": {"type": "integer", "description": "M?ximo de elementos", "default": 50}
+                    }
+                }
+            },
+            {
+                "name": "browser_scroll",
+                "description": "Hacer scroll en la p?gina para ver m?s contenido",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "direction": {"type": "string", "description": "Direcci?n: down, up, top, bottom", "default": "down"},
+                        "amount": {"type": "integer", "description": "P?xeles a desplazar (para down/up)", "default": 500}
                     }
                 }
             }
@@ -551,7 +885,7 @@ class BrowserService:
     
     def get_status(self) -> Dict[str, Any]:
         """Obtener estado del servicio de navegador"""
-        # VNC está disponible si estamos conectados al navegador remoto
+        # VNC est? disponible si estamos conectados al navegador remoto
         vnc_available = self._is_remote and BROWSER_VNC_HOST is not None
         
         return {

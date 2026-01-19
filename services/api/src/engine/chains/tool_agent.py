@@ -19,22 +19,26 @@ from ..models import (
 from ..registry import chain_registry
 
 
-# Herramientas disponibles por defecto
+# NOTA: Las herramientas ahora están centralizadas en tool_registry
+# Este archivo mantiene DEFAULT_TOOLS para compatibilidad con código legacy,
+# pero se recomienda usar tool_registry directamente.
+
+# Herramientas disponibles por defecto (LEGACY - usar tool_registry)
 DEFAULT_TOOLS = {
     "calculator": {
         "name": "calculator",
         "description": "Realiza cálculos matemáticos. Input: expresión matemática como string.",
-        "handler": lambda expr: str(eval(expr))  # Simplificado, en producción usar parser seguro
+        "handler": lambda expr: str(eval(expr))  # LEGACY: usar tool_registry.calculator
     },
     "current_time": {
         "name": "current_time",
         "description": "Obtiene la fecha y hora actual.",
-        "handler": lambda _: datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "handler": lambda _: datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # LEGACY
     },
-    "search_web": {
-        "name": "search_web",
-        "description": "Busca información en la web. Input: query de búsqueda.",
-        "handler": lambda query: f"[Resultados simulados para: {query}]"  # Placeholder
+    "web_search": {
+        "name": "web_search",
+        "description": "Busca información en la web usando DuckDuckGo.",
+        "handler": lambda query: {"info": "Usar tool_registry.web_search para búsquedas reales"}
     }
 }
 

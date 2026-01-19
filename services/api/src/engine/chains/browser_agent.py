@@ -44,6 +44,10 @@ BROWSER_AGENT_SYSTEM_PROMPT = """Eres un agente inteligente que puede navegar po
 6. **browser_get_elements** - Ver elementos interactivos de la página
    - Argumentos: {{}}
 
+7. **browser_scroll** - Hacer scroll para ver más contenido
+   - Argumentos: {{"direction": "down", "amount": 500}}
+   - Direcciones: "down", "up", "top", "bottom"
+
 ## FORMATO DE RESPUESTA
 SIEMPRE responde con este formato JSON cuando necesites usar una herramienta:
 ```json
@@ -73,26 +77,31 @@ Si ya tienes suficiente información para responder al usuario, usa:
 - `#id` - Por ID
 
 ## INSTRUCCIONES
-1. Analiza la tarea del usuario
-2. Navega a la página necesaria con browser_navigate
-3. Usa browser_get_elements para ver qué elementos hay
-4. Interactúa usando browser_click o browser_type
-5. Usa browser_get_content para leer información
-6. Cuando tengas la información, da FINAL_ANSWER
+1. Analiza la tarea del usuario.
+2. Navega a la página necesaria con browser_navigate.
+3. Usa browser_get_elements para ver qué elementos hay.
+4. **MANEJO DE COOKIES/POPUPS:** Si ves un diálogo de cookies o privacidad (botones como "Aceptar", "Acepto", "Agree", "Consent"), DEBES hacer clic en él antes de continuar.
+5. Interactúa usando browser_click o browser_type. Si un clic no funciona, busca el elemento de nuevo.
+6. Si necesitas ver más contenido, usa browser_scroll.
+7. Usa browser_get_content para leer información.
+8. Cuando tengas la información, da FINAL_ANSWER.
 
 ## EJEMPLO DE FLUJO
 Usuario: "Busca en Google información sobre Python"
 
 1. browser_navigate → {{"url": "https://www.google.com"}}
-2. browser_get_elements → ver elementos
+2. browser_get_elements → ver elementos disponibles
 3. browser_type → {{"selector": "input[name='q']", "text": "Python", "press_enter": true}}
-4. browser_get_content → leer resultados
-5. FINAL_ANSWER → resumir los resultados
+4. browser_scroll → {{"direction": "down"}} (si necesitas ver más)
+5. browser_get_content → leer resultados
+6. FINAL_ANSWER → resumir los resultados
 """
 
 
 def extract_action(response: str) -> Optional[Dict[str, Any]]:
     """Extrae la acción JSON de la respuesta del LLM"""
+    logger.debug("Extrayendo acción de la respuesta", response=response)
+    
     # Buscar bloques de código JSON
     json_pattern = r'```(?:json)?\s*(\{[\s\S]*?\})\s*```'
     matches = re.findall(json_pattern, response)
@@ -100,7 +109,9 @@ def extract_action(response: str) -> Optional[Dict[str, Any]]:
     if matches:
         for match in matches:
             try:
-                return json.loads(match)
+                # Limpiar posibles caracteres extraños o dobles llaves de prompts
+                cleaned_match = match.replace('{{', '{').replace('}}', '}')
+                return json.loads(cleaned_match)
             except json.JSONDecodeError:
                 continue
     
@@ -109,7 +120,9 @@ def extract_action(response: str) -> Optional[Dict[str, Any]]:
         start = response.find('{')
         end = response.rfind('}')
         if start != -1 and end != -1:
-            return json.loads(response[start:end+1])
+            json_str = response[start:end+1]
+            cleaned_json = json_str.replace('{{', '{').replace('}}', '}')
+            return json.loads(cleaned_json)
     except json.JSONDecodeError:
         pass
     
@@ -150,6 +163,12 @@ async def execute_browser_action(action: str, arguments: Dict[str, Any], session
             return await browser_service.get_elements(
                 session_id=session_id,
                 limit=arguments.get("limit", 50)
+            )
+        elif action == "browser_scroll":
+            return await browser_service.scroll(
+                direction=arguments.get("direction", "down"),
+                amount=arguments.get("amount", 500),
+                session_id=session_id
             )
         else:
             return {"success": False, "error": f"Acción desconocida: {action}"}
@@ -327,10 +346,24 @@ async def build_browser_agent(
                 text = result.get("text", "")[:1000]
                 result_text = f"📄 Contenido:\n{text}{'...' if result.get('truncated') else ''}"
             elif action == "browser_get_elements":
-                elements = result.get("elements", [])[:20]
+                elements = result.get("elements", [])[:25]
                 result_text = "🔍 Elementos encontrados:\n"
                 for el in elements:
-                    result_text += f"- [{el.get('tag')}] {el.get('text', el.get('placeholder', ''))[:50]}\n"
+                    # Mostrar más info: tag, texto, id, frame
+                    el_info = f"[{el.get('tag')}]"
+                    if el.get('id'):
+                        el_info += f" id='{el.get('id')}'"
+                    if el.get('text'):
+                        el_info += f" '{el.get('text')[:40]}'"
+                    elif el.get('placeholder'):
+                        el_info += f" placeholder='{el.get('placeholder')[:30]}'"
+                    elif el.get('aria-label'):
+                        el_info += f" aria-label='{el.get('aria-label')[:30]}'"
+                    if el.get('frame') == 'iframe':
+                        el_info += " (iframe)"
+                    result_text += f"- {el_info}\n"
+            elif action == "browser_scroll":
+                result_text = f"📜 Scroll {result.get('direction')} - Posición: {result.get('scroll_position')}/{result.get('page_height')}px"
             else:
                 result_text = f"✅ {json.dumps(result, ensure_ascii=False)[:500]}"
         else:
