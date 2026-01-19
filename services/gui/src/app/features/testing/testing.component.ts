@@ -706,7 +706,11 @@ export class TestingComponent implements OnInit {
 
     this.http.post<{ success: boolean; message: string; models?: string[] }>(
       `${this.API_URL}/llm/test-connection`,
-      { provider_url: this.selectedProvider.baseUrl }
+      { 
+        provider_url: this.selectedProvider.baseUrl,
+        provider_type: this.selectedProvider.type,
+        api_key: this.selectedProvider.apiKey
+      }
     ).subscribe({
       next: (response) => {
         this.connectionStatus.set(response);
@@ -779,6 +783,8 @@ export class TestingComponent implements OnInit {
         },
         body: JSON.stringify({
           provider_url: this.selectedProvider!.baseUrl,
+          provider_type: this.selectedProvider!.type,
+          api_key: this.selectedProvider!.apiKey,
           model: this.selectedModel,
           messages: apiMessages
         })
@@ -863,6 +869,8 @@ export class TestingComponent implements OnInit {
       `${this.API_URL}/llm/chat`,
       {
         provider_url: this.selectedProvider!.baseUrl,
+        provider_type: this.selectedProvider!.type,
+        api_key: this.selectedProvider!.apiKey,
         model: this.selectedModel,
         messages: apiMessages
       }
