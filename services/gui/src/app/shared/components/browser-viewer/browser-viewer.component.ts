@@ -258,9 +258,9 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.checkConnection();
     
-    // Comprobar estado cada 10 segundos
-    this.statusCheckInterval = interval(10000).subscribe(() => {
-      if (!this.isLoading()) {
+    // Comprobar estado cada 30 segundos (menos frecuente para evitar reconexiones)
+    this.statusCheckInterval = interval(30000).subscribe(() => {
+      if (!this.isLoading() && !this.isConnected()) {
         this.checkConnection(true);
       }
     });
@@ -271,13 +271,14 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
   }
   
   checkConnection(silent = false): void {
+    // Si ya está conectado, no hacer nada (evita reconexiones innecesarias)
+    if (this.isConnected() && silent) {
+      return;
+    }
+    
     if (!silent) {
       this.isLoading.set(true);
     }
-    
-    // Construir URL de noVNC con mejor calidad y resize remoto
-    const baseUrl = window.location.hostname;
-    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=remote&reconnect=true&reconnect_delay=3000&quality=6&compression=2`;
     
     // Verificar el estado del navegador en la API
     this.http.get<BrowserStatus>(`${this.apiUrl}/browser/status`)
@@ -287,7 +288,10 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
         
         // Solo mostrar VNC si está conectado al navegador remoto
         if (status?.is_remote && status?.vnc_available) {
-          this.vncUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(vncUrlStr));
+          // Solo actualizar URL si no estaba conectado antes
+          if (!this.isConnected()) {
+            this.setVncUrl();
+          }
           this.isConnected.set(true);
           this.connectionChange.emit(true);
         } else if (!status?.initialized) {
@@ -301,15 +305,20 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
       });
   }
   
+  private setVncUrl(): void {
+    const baseUrl = window.location.hostname;
+    // view_only=true para modo solo lectura (no interfiere con el agente)
+    // reconnect=true con delay largo para evitar reconexiones frecuentes
+    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&view_only=true&reconnect=true&reconnect_delay=10000&quality=6&compression=2`;
+    this.vncUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(vncUrlStr));
+  }
+  
   private initializeBrowser(): void {
     this.http.post<BrowserStatus>(`${this.apiUrl}/browser/initialize`, {})
       .pipe(catchError(() => of(null)))
       .subscribe(status => {
         if (status?.is_remote && status?.vnc_available) {
-          const baseUrl = window.location.hostname;
-          // Usar resize=remote para mejor visualización
-          const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=remote&reconnect=true&reconnect_delay=3000&quality=6&compression=2`;
-          this.vncUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(vncUrlStr));
+          this.setVncUrl();
           this.isConnected.set(true);
           this.connectionChange.emit(true);
         }
@@ -323,8 +332,15 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
   openInNewWindow(event: Event): void {
     event.stopPropagation();
     const baseUrl = window.location.hostname;
+    // En ventana separada permitimos interacción (sin view_only)
     const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&quality=9`;
     window.open(vncUrlStr, '_blank', 'width=1360,height=900');
+  }
+  
+  // Método público para forzar reconexión si es necesario
+  forceReconnect(): void {
+    this.isConnected.set(false);
+    this.checkConnection();
   }
   
   refresh(event: Event): void {
