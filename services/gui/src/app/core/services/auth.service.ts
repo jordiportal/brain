@@ -84,19 +84,30 @@ export class AuthService {
 
   /**
    * Verificar estado de autenticación
+   * Solo hace logout si el token es explícitamente inválido (401)
    */
   private checkAuthStatus(): void {
     const token = this.getToken();
     if (token) {
-      // Verificar que el token sigue siendo válido
+      // Si hay token, asumir autenticado hasta que se demuestre lo contrario
+      this.isAuthenticatedSignal.set(true);
+      
+      // Verificar que el token sigue siendo válido en background
       this.http.get<User>(`${this.STRAPI_URL}/api/users/me`).pipe(
         tap(user => {
           this.currentUserSignal.set(user);
-          this.isAuthenticatedSignal.set(true);
+          localStorage.setItem(this.USER_KEY, JSON.stringify(user));
         }),
-        catchError(() => {
-          this.logout();
-          return throwError(() => new Error('Token inválido'));
+        catchError((error) => {
+          // Solo hacer logout si es un error 401 (token inválido/expirado)
+          if (error.status === 401) {
+            console.warn('Token inválido o expirado, cerrando sesión');
+            this.logout();
+          } else {
+            // Para otros errores (red, servidor caído, etc.), mantener sesión
+            console.warn('Error verificando sesión, manteniendo token:', error.message);
+          }
+          return throwError(() => error);
         })
       ).subscribe();
     }
