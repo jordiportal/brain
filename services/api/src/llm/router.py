@@ -83,10 +83,10 @@ async def get_openai_models(base_url: str, api_key: str) -> List[str]:
         )
         if response.status_code == 200:
             data = response.json()
-            # Filtrar solo modelos de chat
+            # Filtrar solo modelos de chat (GPT y serie o)
             models = [m["id"] for m in data.get("data", [])]
-            # Ordenar y filtrar modelos más comunes de chat
-            chat_models = [m for m in models if any(x in m for x in ["gpt-4", "gpt-3.5", "o1", "o3"])]
+            # Incluir modelos GPT (3.5, 4, 4o, 5, etc.) y serie o (o1, o3, o4, etc.)
+            chat_models = [m for m in models if any(x in m for x in ["gpt-5", "gpt-4", "gpt-3.5", "o1-", "o3-", "o4-"])]
             return sorted(chat_models, reverse=True)
     return []
 
