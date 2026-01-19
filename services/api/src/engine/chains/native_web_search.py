@@ -21,14 +21,10 @@ async def call_llm_with_web_search(
     stream: bool = False
 ) -> Dict[str, Any]:
     """
-    Llamar a OpenAI con Web Search nativo habilitado.
+    Llamar a OpenAI Responses API con Web Search nativo habilitado.
     
-    Solo funciona con modelos que soportan web search:
-    - gpt-4o-mini (recomendado)
-    - gpt-4o
-    - gpt-4-turbo
-    
-    Docs: https://platform.openai.com/docs/guides/tools?tool-type=web-search
+    USA RESPONSES API (no Chat Completions API)
+    Docs: https://platform.openai.com/docs/guides/tools-web-search
     
     Args:
         model: Nombre del modelo (debe soportar web search)
@@ -36,44 +32,46 @@ async def call_llm_with_web_search(
         api_key: OpenAI API key
         temperature: Temperatura para generación
         max_tokens: Máximo de tokens (opcional)
-        base_url: URL base de la API (por defecto OpenAI oficial)
+        base_url: URL base de la API
         stream: Si usar streaming o no
     
     Returns:
         Dict con respuesta y metadatos de búsqueda
     """
     
-    # Validar modelo
-    supported_models = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
-    if not any(supported in model for supported in supported_models):
-        logger.warning(
-            f"Modelo {model} puede no soportar web search. "
-            f"Modelos recomendados: {', '.join(supported_models)}"
-        )
+    # Convertir messages a input (último mensaje del usuario)
+    user_message = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            user_message = msg.get("content", "")
+            break
     
-    url = f"{base_url}/chat/completions"
+    if not user_message:
+        user_message = messages[-1].get("content", "") if messages else ""
     
-    # Payload con web_search tool
+    # IMPORTANTE: Responses API usa /responses, no /chat/completions
+    url = f"{base_url}/responses"
+    
+    # Payload para Responses API
     payload = {
         "model": model,
-        "messages": messages,
+        "input": user_message,  # Responses API usa "input" no "messages"
         "temperature": temperature,
         "tools": [
             {
-                "type": "web_search"
+                "type": "web_search"  # En Responses API es "web_search" directamente
             }
-        ],
-        "stream": stream
+        ]
     }
     
     if max_tokens:
-        payload["max_tokens"] = max_tokens
+        payload["max_output_tokens"] = max_tokens  # Nota: es max_output_tokens, no max_tokens
     
-    logger.info(
-        "Llamando OpenAI con web search nativo",
+    logger.warning(
+        "Llamando OpenAI Responses API con web search",
         model=model,
-        messages_count=len(messages),
-        stream=stream
+        input_length=len(user_message),
+        url=url
     )
     
     try:
@@ -92,49 +90,56 @@ async def call_llm_with_web_search(
                     error_data = response.json() if "application/json" in response.headers.get("content-type", "") else response.text
                 except:
                     error_data = response.text
+                
+                error_msg = f"Error OpenAI API: {response.status_code}"
+                error_detail = str(error_data)
+                
                 logger.error(
-                    f"Error OpenAI API: {response.status_code}",
-                    error=error_data,
+                    error_msg,
+                    status=response.status_code,
+                    error_detail=error_detail[:500],
                     model=model,
                     base_url=base_url
                 )
-                raise Exception(f"Error OpenAI API: {response.status_code} - {error_data}")
+                
+                # Mostrar error completo en consola para debugging
+                print(f"\n{'='*80}")
+                print(f"ERROR OpenAI API {response.status_code}")
+                print(f"Model: {model}")
+                print(f"Base URL: {base_url}")
+                print(f"Error Detail: {error_detail}")
+                print(f"{'='*80}\n")
+                
+                raise Exception(f"{error_msg} - {error_detail}")
             
             data = response.json()
             
-            # Extraer respuesta y metadatos
-            choice = data.get("choices", [{}])[0]
-            message = choice.get("message", {})
-            content = message.get("content", "")
+            # Extraer respuesta del Responses API
+            # Formato: {"id": "...", "status": "completed", "output": {...}}
+            status = data.get("status")
+            output = data.get("output", {})
             
-            # Extraer información de búsquedas realizadas (si las hay)
-            tool_calls = message.get("tool_calls", [])
-            web_searches = []
+            # El contenido viene en output
+            content = ""
+            if isinstance(output, dict):
+                content = output.get("content", str(output))
+            else:
+                content = str(output)
             
-            for tool_call in tool_calls:
-                if tool_call.get("type") == "web_search":
-                    web_searches.append({
-                        "id": tool_call.get("id"),
-                        "query": tool_call.get("function", {}).get("arguments", {})
-                    })
-            
-            finish_reason = choice.get("finish_reason", "stop")
-            usage = data.get("usage", {})
-            
-            logger.info(
+            logger.warning(
                 "Web search completado",
                 model=model,
-                searches_performed=len(web_searches),
-                tokens_used=usage.get("total_tokens", 0)
+                status=status,
+                response_id=data.get("id")
             )
             
             return {
                 "success": True,
                 "content": content,
-                "web_searches": web_searches,
-                "finish_reason": finish_reason,
-                "usage": usage,
-                "model": model
+                "status": status,
+                "response_id": data.get("id"),
+                "model": model,
+                "raw_response": data
             }
             
     except Exception as e:
@@ -178,7 +183,7 @@ async def call_llm_with_web_search_stream(
         "temperature": temperature,
         "tools": [
             {
-                "type": "web_search"
+                "type": "web_search_preview"  # Correcto para OpenAI 2026
             }
         ],
         "stream": True
@@ -281,7 +286,9 @@ def is_web_search_supported(model: str) -> bool:
         "gpt-4o-mini",
         "gpt-4o",
         "gpt-4-turbo",
-        "gpt-4-turbo-preview"
+        "gpt-4-turbo-preview",
+        "gpt-4o-search-preview",  # Modelo específico para web search
+        "gpt-4o-mini-search-preview"  # Modelo mini para web search
     ]
     
     return any(supported in model.lower() for supported in supported_models)

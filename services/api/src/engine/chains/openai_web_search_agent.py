@@ -174,113 +174,68 @@ async def build_openai_web_search_agent(
     # Agregar query actual
     messages.append({"role": "user", "content": query})
     
-    logger.info(
-        "Ejecutando OpenAI Web Search Agent",
+    logger.warning(
+        "Ejecutando OpenAI Web Search Agent (Responses API)",
         model=model,
         query_length=len(query),
         with_memory=len(memory) > 0
     )
     
-    if stream:
-        # Modo streaming
-        full_response = ""
-        web_searches_performed = []
-        
-        async for event in call_llm_with_web_search_stream(
-            model=model,
-            messages=messages,
-            api_key=api_key,
-            temperature=config.temperature,
-            base_url=llm_url if "openai.com" not in llm_url else "https://api.openai.com/v1"
-        ):
-            event_type = event.get("type")
-            content = event.get("content", "")
-            metadata = event.get("metadata", {})
-            
-            if event_type == "token":
-                full_response += content
-                yield StreamEvent(
-                    event_type="token",
-                    execution_id=execution_id,
-                    node_id="web_search",
-                    content=content
-                )
-            
-            elif event_type == "web_search":
-                web_searches_performed.append(metadata)
-                yield StreamEvent(
-                    event_type="tool_call",
-                    execution_id=execution_id,
-                    node_id="web_search",
-                    node_name="🔍 Búsqueda Web",
-                    data=metadata
-                )
-            
-            elif event_type == "done":
-                yield StreamEvent(
-                    event_type="node_end",
-                    execution_id=execution_id,
-                    node_id="web_search",
-                    node_name="🌐 OpenAI Web Search",
-                    data={
-                        "response": full_response[:500],
-                        "web_searches_count": len(web_searches_performed),
-                        "web_searches": web_searches_performed,
-                        "model": model
-                    }
-                )
-            
-            elif event_type == "error":
-                yield StreamEvent(
-                    event_type="error",
-                    execution_id=execution_id,
-                    node_id="web_search",
-                    content=content
-                )
+    # Responses API no tiene buen streaming, usamos modo no-streaming
+    yield StreamEvent(
+        event_type="token",
+        execution_id=execution_id,
+        node_id="web_search",
+        content="🔍 Buscando en la web..."
+    )
     
-    else:
-        # Modo no-streaming
-        result = await call_llm_with_web_search(
-            model=model,
-            messages=messages,
-            api_key=api_key,
-            temperature=config.temperature,
-            base_url=llm_url if "openai.com" not in llm_url else "https://api.openai.com/v1",
-            stream=False
+    result = await call_llm_with_web_search(
+        model=model,
+        messages=messages,
+        api_key=api_key,
+        temperature=config.temperature,
+        base_url=llm_url if "openai.com" not in llm_url else "https://api.openai.com/v1",
+        stream=False
+    )
+    
+    if result.get("success"):
+        content = result.get("content", "")
+        
+        # Simular streaming enviando el contenido
+        yield StreamEvent(
+            event_type="token",
+            execution_id=execution_id,
+            node_id="web_search",
+            content=content
         )
         
-        if result.get("success"):
-            content = result.get("content", "")
-            web_searches = result.get("web_searches", [])
-            
-            yield StreamEvent(
-                event_type="node_end",
-                execution_id=execution_id,
-                node_id="web_search",
-                node_name="🌐 OpenAI Web Search",
-                data={
-                    "response": content,
-                    "web_searches_count": len(web_searches),
-                    "web_searches": web_searches,
-                    "usage": result.get("usage", {})
-                }
-            )
-            
-            # Resultado para modo no-streaming
-            yield {"_result": {
-                "response": content,
-                "web_searches": web_searches,
+        yield StreamEvent(
+            event_type="node_end",
+            execution_id=execution_id,
+            node_id="web_search",
+            node_name="🌐 OpenAI Web Search",
+            data={
+                "response": content[:500],
                 "model": model,
-                "usage": result.get("usage", {})
-            }}
-        else:
-            error_msg = result.get("error", "Error desconocido")
-            yield StreamEvent(
-                event_type="error",
-                execution_id=execution_id,
-                node_id="web_search",
-                content=error_msg
-            )
+                "status": result.get("status"),
+                "response_id": result.get("response_id")
+            }
+        )
+        
+        # Resultado para modo no-streaming
+        yield {"_result": {
+            "response": content,
+            "model": model,
+            "status": result.get("status")
+        }}
+    else:
+        error_msg = result.get("error", "Error desconocido")
+        yield StreamEvent(
+            event_type="error",
+            execution_id=execution_id,
+            node_id="web_search",
+            content=error_msg
+        )
 
 
 def register_openai_web_search_agent():
