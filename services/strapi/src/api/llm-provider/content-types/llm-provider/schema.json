@@ -28,8 +28,7 @@
       "required": true
     },
     "apiKey": {
-      "type": "string",
-      "private": true
+      "type": "string"
     },
     "defaultModel": {
       "type": "string"
