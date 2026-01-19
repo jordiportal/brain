@@ -152,11 +152,27 @@ class BrowserService:
                 return None
         
         try:
-            context = await self._browser.new_context(
-                viewport={'width': 1280, 'height': 720},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            )
-            page = await context.new_page()
+            # Para navegador remoto, usar el context y página existentes
+            if self._is_remote:
+                contexts = self._browser.contexts
+                if contexts:
+                    context = contexts[0]
+                    pages = context.pages
+                    if pages:
+                        page = pages[0]
+                    else:
+                        page = await context.new_page()
+                else:
+                    # Si no hay contexts, crear uno nuevo (raro para remoto)
+                    context = await self._browser.new_context()
+                    page = await context.new_page()
+            else:
+                # Para navegador local, crear un nuevo context
+                context = await self._browser.new_context(
+                    viewport={'width': 1600, 'height': 900},
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                )
+                page = await context.new_page()
             
             session = BrowserSession(
                 id=session_id,

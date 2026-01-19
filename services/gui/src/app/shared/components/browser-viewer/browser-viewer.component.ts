@@ -275,9 +275,9 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
       this.isLoading.set(true);
     }
     
-    // Construir URL de noVNC
+    // Construir URL de noVNC con mejor calidad y resize remoto
     const baseUrl = window.location.hostname;
-    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=3000`;
+    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=remote&reconnect=true&reconnect_delay=3000&quality=6&compression=2`;
     
     // Verificar el estado del navegador en la API
     this.http.get<BrowserStatus>(`${this.apiUrl}/browser/status`)
@@ -307,7 +307,8 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
       .subscribe(status => {
         if (status?.is_remote && status?.vnc_available) {
           const baseUrl = window.location.hostname;
-          const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=3000`;
+          // Usar resize=remote para mejor visualización
+          const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=remote&reconnect=true&reconnect_delay=3000&quality=6&compression=2`;
           this.vncUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(vncUrlStr));
           this.isConnected.set(true);
           this.connectionChange.emit(true);
@@ -322,8 +323,8 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
   openInNewWindow(event: Event): void {
     event.stopPropagation();
     const baseUrl = window.location.hostname;
-    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale`;
-    window.open(vncUrlStr, '_blank', 'width=1300,height=800');
+    const vncUrlStr = `http://${baseUrl}:${this.browserPort}/vnc.html?autoconnect=true&resize=scale&quality=9`;
+    window.open(vncUrlStr, '_blank', 'width=1360,height=900');
   }
   
   refresh(event: Event): void {

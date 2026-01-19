@@ -5,7 +5,10 @@ sleep 2
 
 echo "Starting Chromium with CDP on port 9222..."
 
-# Iniciar Chromium con CDP habilitado
+# Limpiar perfil anterior para evitar múltiples ventanas
+rm -rf /tmp/chrome-profile 2>/dev/null
+
+# Iniciar Chromium con CDP habilitado - maximizado
 exec /usr/bin/chromium \
     --no-sandbox \
     --disable-dev-shm-usage \
@@ -14,8 +17,7 @@ exec /usr/bin/chromium \
     --remote-debugging-port=9222 \
     --remote-debugging-address=0.0.0.0 \
     --remote-allow-origins=* \
-    --window-size=1280,720 \
-    --window-position=0,0 \
+    --start-maximized \
     --user-data-dir=/tmp/chrome-profile \
     --disable-background-networking \
     --disable-default-apps \
@@ -24,4 +26,5 @@ exec /usr/bin/chromium \
     --disable-translate \
     --no-first-run \
     --safebrowsing-disable-auto-update \
+    --disable-infobars \
     "about:blank"
