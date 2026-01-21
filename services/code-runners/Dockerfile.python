@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+# Instalar bibliotecas comunes
+RUN pip install --no-cache-dir \
+    numpy==1.26.3 \
+    pandas==2.1.4 \
+    requests==2.31.0 \
+    matplotlib==3.8.2
+
+# Usuario sin privilegios
+RUN useradd -m -u 1000 coderunner && \
+    mkdir /code && \
+    chown coderunner:coderunner /code
+
+USER coderunner
+WORKDIR /code
+
+# Script por defecto
+CMD ["python", "script.py"]

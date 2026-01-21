@@ -47,6 +47,10 @@ playwright==1.49.1
 # Web Search
 duckduckgo-search==6.3.5
 
+# Code Execution
+docker==7.0.0
+requests-unixsocket==0.3.0  # Para conectar al Docker socket
+
 # Logging y monitorización
 structlog==24.1.0
 

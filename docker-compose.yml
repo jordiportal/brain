@@ -62,9 +62,14 @@ services:
       - BROWSER_VNC_HOST=browser
       - BROWSER_CDP_PORT=9222
       - BROWSER_HEADLESS=true
+      # Code Execution config
+      - CODE_EXECUTION_TIMEOUT=30
+      - CODE_EXECUTION_MEMORY_LIMIT=512m
+      - CODE_EXECUTION_CPU_LIMIT=1.0
       - DEBUG=${DEBUG:-true}
     volumes:
       - ./services/api/src:/app/src:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # Acceso a Docker daemon para code execution
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
