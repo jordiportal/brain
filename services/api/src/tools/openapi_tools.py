@@ -190,6 +190,7 @@ class OpenAPIToolkit:
                     count = 0
                     
                     for item in data.get("data", []):
+                        # Extraer atributos (Strapi devuelve los datos directamente)
                         conn_id = item.get("documentId") or str(item.get("id"))
                         self.connections[conn_id] = {
                             "id": conn_id,
@@ -207,6 +208,7 @@ class OpenAPIToolkit:
                             "cachedSpec": item.get("cachedSpec")
                         }
                         count += 1
+                        logger.info(f"Conexión cargada: {item.get('name')} ({conn_id})")
                     
                     self._loaded = True
                     logger.info(f"Cargadas {count} conexiones OpenAPI desde Strapi")

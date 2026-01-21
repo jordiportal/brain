@@ -126,10 +126,16 @@ INSTRUCCIONES:
 REGLAS:
 - Si la petición es simple, usa un solo paso
 - Máximo 5 pasos
-- Para consultas SAP (pedidos, productos, clientes, saldos), usa "sap_agent"
+- Para consultas SAP (pedidos, productos, clientes, saldos, usuarios), usa "sap_agent"
 - Para búsqueda en documentos/conocimiento, usa "rag"
 - Para cálculos y herramientas básicas, usa "tool_agent"
+- Para procesamiento de datos, análisis, gráficos o código, usa "code_execution_agent"
 - Para conversación general, usa "conversational"
+
+PATRONES COMUNES DE MULTI-AGENTE:
+- "Analiza/estadísticas de datos SAP" → sap_agent + code_execution_agent
+- "Busca y resume documentos" → rag + conversational
+- "Obtén datos y genera gráfico" → sap_agent/tool_agent + code_execution_agent
 """
 
 
@@ -213,6 +219,35 @@ def extract_json(text: str) -> Optional[Dict]:
         return None
 
 
+def extract_json_from_response(response: str) -> Optional[Dict]:
+    """
+    Extraer datos JSON de una respuesta de agente.
+    Útil para pasar datos estructurados entre agentes.
+    """
+    # Intentar extraer bloques JSON del markdown
+    json_blocks = re.findall(r'```json\s*([\s\S]*?)\s*```', response)
+    
+    for block in json_blocks:
+        try:
+            data = json.loads(block.strip())
+            # Si tiene estructura de datos útiles, devolverlo
+            if isinstance(data, (dict, list)) and data:
+                return data
+        except json.JSONDecodeError:
+            continue
+    
+    # Buscar objetos JSON sueltos
+    try:
+        # Buscar el primer objeto JSON válido
+        match = re.search(r'\{[\s\S]*\}', response)
+        if match:
+            return json.loads(match.group())
+    except:
+        pass
+    
+    return None
+
+
 async def execute_sub_agent(
     agent_id: str,
     task: str,
@@ -222,11 +257,17 @@ async def execute_sub_agent(
     config: ChainConfig,
     execution_id: str,
     provider_type: str = "ollama",
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    previous_result: Optional[Dict[str, Any]] = None,
+    memory: Optional[list] = None
 ) -> Dict[str, Any]:
     """
     Ejecutar un sub-agente del registry y capturar su resultado.
     Pasa los parámetros del proveedor LLM al sub-agente.
+    
+    Args:
+        previous_result: Resultado estructurado del paso anterior (para pasar datos entre agentes)
+        memory: Memoria de la conversación a pasar al sub-agente
     """
     # Obtener el builder del agente
     builder = chain_registry.get_builder(agent_id)
@@ -241,10 +282,22 @@ async def execute_sub_agent(
     
     try:
         # Preparar input para el sub-agente
-        # Incluimos contexto de pasos anteriores si existe
         message = task
+        
+        # Si hay contexto de pasos anteriores, agregarlo
         if context and context != "Ninguna aún":
             message = f"{task}\n\nCONTEXTO PREVIO:\n{context}"
+        
+        # Si hay datos estructurados del paso anterior (para code_execution_agent)
+        if previous_result and agent_id == "code_execution_agent":
+            # Extraer datos JSON del resultado anterior
+            prev_response = previous_result.get("response", "")
+            
+            # Intentar extraer JSON del resultado anterior
+            json_data = extract_json_from_response(prev_response)
+            
+            if json_data:
+                message += f"\n\nDATOS DISPONIBLES (JSON):\n```json\n{json.dumps(json_data, indent=2, ensure_ascii=False)}\n```"
         
         sub_input = {
             "message": message,
@@ -256,13 +309,14 @@ async def execute_sub_agent(
         full_response = ""
         tools_used = []
         sources = []
+        raw_data = None  # Para capturar datos estructurados
         
         async for event in builder(
             config=definition.config,  # Usar config del agente
             llm_url=llm_url,
             model=model,
             input_data=sub_input,
-            memory=[],  # Cada sub-agente empieza sin memoria propia
+            memory=memory or [],  # Pasar memoria del orchestrator a sub-agente
             execution_id=f"{execution_id}_sub_{agent_id}",
             stream=False,  # No streaming para sub-agentes
             provider_type=provider_type,
@@ -274,6 +328,13 @@ async def execute_sub_agent(
                 full_response = result.get("response", "")
                 tools_used = result.get("tools_used", [])
                 sources = result.get("sources", [])
+                
+                # Capturar datos raw para pasar a siguiente agente
+                if "tool_results" in result and result["tool_results"]:
+                    tool_result = result["tool_results"][0]
+                    if "result" in tool_result and "data" in tool_result["result"]:
+                        raw_data = tool_result["result"]["data"]
+                
                 break
             
             # Si es StreamEvent con tokens, acumular
@@ -294,7 +355,8 @@ async def execute_sub_agent(
             "response": full_response,
             "tools_used": tools_used,
             "sources": sources,
-            "agent_name": definition.name
+            "agent_name": definition.name,
+            "raw_data": raw_data  # Datos estructurados para siguiente agente
         }
         
     except Exception as e:
@@ -375,9 +437,14 @@ async def build_orchestrator_agent(
     
     planner_prompt = get_planner_prompt(query)
     planner_messages = [
-        {"role": "system", "content": planner_prompt},
-        {"role": "user", "content": "Crea el plan de ejecución."}
+        {"role": "system", "content": planner_prompt}
     ]
+    
+    # Agregar memoria si existe (conversación previa)
+    if memory:
+        planner_messages.extend(memory[-10:])  # Últimos 10 mensajes
+    
+    planner_messages.append({"role": "user", "content": "Crea el plan de ejecución."})
     
     plan_response = await call_llm(llm_url, model, planner_messages, temperature=0.2, provider_type=provider_type, api_key=api_key)
     plan_data = extract_json(plan_response)
@@ -465,6 +532,9 @@ async def build_orchestrator_agent(
         # Preparar contexto de pasos anteriores
         prev_context = json.dumps(ctx.observations[-2:], ensure_ascii=False, default=str) if ctx.observations else ""
         
+        # Obtener resultado del paso anterior para pasar datos estructurados
+        previous_result = ctx.observations[-1] if ctx.observations else None
+        
         # Ejecutar el sub-agente
         action_result = await execute_sub_agent(
             agent_id=step.agent,
@@ -475,7 +545,9 @@ async def build_orchestrator_agent(
             config=config,
             execution_id=execution_id,
             provider_type=provider_type,
-            api_key=api_key
+            api_key=api_key,
+            previous_result=previous_result,  # Pasar resultado anterior
+            memory=memory  # Pasar memoria del orchestrator
         )
         
         if action_result.get("success"):
@@ -565,9 +637,14 @@ async def build_orchestrator_agent(
                 "agente": o["agent"],
                 "observación": o["observation"]
             } for o in ctx.observations], ensure_ascii=False, default=str)
-        )},
-        {"role": "user", "content": "Genera la respuesta final."}
+        )}
     ]
+    
+    # Agregar memoria al sintetizador para mantener contexto
+    if memory:
+        synth_messages.extend(memory[-10:])  # Últimos 10 mensajes
+    
+    synth_messages.append({"role": "user", "content": "Genera la respuesta final."})
     
     full_response = ""
     async for token in call_llm_stream(llm_url, model, synth_messages, temperature=config.temperature, provider_type=provider_type, api_key=api_key):

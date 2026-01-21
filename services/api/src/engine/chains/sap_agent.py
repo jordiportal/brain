@@ -19,20 +19,22 @@ from .llm_utils import call_llm, call_llm_stream
 
 async def get_sap_tools_description() -> str:
     """Obtener descripción de herramientas SAP para el prompt"""
-    # Asegurar que las herramientas están cargadas
-    if not openapi_toolkit.tools:
-        await openapi_toolkit.load_all_tools()
-    
-    # Filtrar herramientas SAP
-    sap_tools = [t for t in openapi_toolkit.tools.values() 
+    # Obtener herramientas del tool_registry (no del openapi_toolkit)
+    sap_tools = [t for t in tool_registry.tools.values() 
                  if t.id.startswith("sap_btp_gateway")]
     
+    if not sap_tools:
+        # Si no hay herramientas, intentar cargarlas
+        await tool_registry.load_openapi_tools()
+        sap_tools = [t for t in tool_registry.tools.values() 
+                     if t.id.startswith("sap_btp_gateway")]
+    
     descriptions = []
-    for tool in sap_tools[:30]:  # Limitar para no sobrecargar el prompt
+    for tool in sap_tools[:50]:  # Aumentar límite para ver más
         params_str = ""
-        if tool.parameters:
+        if tool.openapi_tool and tool.openapi_tool.parameters:
             params = [f"{p.get('name')}({p.get('in', 'query')})" 
-                     for p in tool.parameters[:3]]
+                     for p in tool.openapi_tool.parameters[:3]]
             if params:
                 params_str = f" - Params: {', '.join(params)}"
         
@@ -43,11 +45,7 @@ async def get_sap_tools_description() -> str:
 
 async def execute_sap_tool(tool_id: str, parameters: dict) -> dict:
     """Ejecutar una herramienta SAP"""
-    tool = openapi_toolkit.get_tool(tool_id)
-    if not tool:
-        return {"error": f"Herramienta no encontrada: {tool_id}"}
-    
-    return await tool.execute(**parameters)
+    return await tool_registry.execute(tool_id, **parameters)
 
 
 def extract_tool_call(response: str) -> Optional[dict]:
@@ -200,11 +198,16 @@ Ejemplos:
         # Formatear resultados para el sintetizador
         tool_data = tool_results[0].get("result", {}).get("data", {})
         
+        # Serializar datos con límite ampliado (15K chars ≈ 3.7K tokens)
+        json_data = json.dumps(tool_data, indent=2, ensure_ascii=False, default=str)
+        data_truncated = len(json_data) > 15000
+        json_preview = json_data[:15000]
+        
         synth_prompt = f"""Genera una respuesta clara y útil basándote en los datos de SAP obtenidos.
 
 DATOS DE SAP:
 ```json
-{json.dumps(tool_data, indent=2, ensure_ascii=False, default=str)[:4000]}
+{json_preview}
 ```
 
 PREGUNTA ORIGINAL: {query}
@@ -213,7 +216,7 @@ INSTRUCCIONES:
 - Formatea los datos de forma legible
 - Si hay listas de items, usa tablas markdown
 - Destaca los campos más relevantes
-- Si los datos están truncados, indícalo
+- {'⚠️ IMPORTANTE: Los datos están TRUNCADOS. Indica al usuario que hay más registros disponibles.' if data_truncated else 'Los datos están completos.'}
 - Responde en español"""
 
         messages = [

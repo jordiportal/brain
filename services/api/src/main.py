@@ -14,6 +14,7 @@ from src.engine.router import router as chains_router
 from src.engine.chains import register_all_chains
 from src.rag.router import router as rag_router
 from src.tools.router import router as tools_router
+from src.tools.tool_registry import tool_registry
 from src.mcp.router import router as mcp_router
 from src.mcp.client import mcp_client
 from src.browser.service import browser_service
@@ -46,6 +47,17 @@ async def lifespan(app: FastAPI):
     # Registrar cadenas predefinidas
     register_all_chains()
     logger.info("Cadenas predefinidas registradas")
+    
+    # Cargar herramientas built-in
+    tool_registry.register_builtin_tools()
+    logger.info("Herramientas built-in registradas")
+    
+    # Cargar herramientas OpenAPI desde Strapi
+    try:
+        openapi_count = await tool_registry.load_openapi_tools()
+        logger.info(f"Herramientas OpenAPI cargadas: {openapi_count}")
+    except Exception as e:
+        logger.warning(f"No se pudieron cargar herramientas OpenAPI: {e}")
     
     # Cargar conexiones MCP desde Strapi
     try:
@@ -122,9 +134,14 @@ async def readiness_check():
     mcp_connections = mcp_client.list_connections()
     mcp_connected = sum(1 for c in mcp_connections if c.get("is_connected"))
     
+    tools_count = len(tool_registry.tools)
+    openapi_tools_count = len([t for t in tool_registry.tools.values() if t.type.value == "openapi"])
+    
     return {
         "status": "ready",
         "chains_registered": len(chain_registry.list_chain_ids()),
+        "tools_total": tools_count,
+        "tools_openapi": openapi_tools_count,
         "mcp_connections": len(mcp_connections),
         "mcp_connected": mcp_connected,
         "database": "connected",  # TODO: verificar real
