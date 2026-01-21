@@ -12,7 +12,7 @@ Capacidades:
 
 import json
 import asyncio
-from typing import AsyncGenerator, Optional, Dict, Any, tuple
+from typing import AsyncGenerator, Optional, Dict, Any
 from datetime import datetime
 
 from ..models import (

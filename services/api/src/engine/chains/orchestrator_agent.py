@@ -8,6 +8,7 @@ Soporta múltiples proveedores LLM: Ollama, OpenAI, Anthropic, etc.
 """
 
 import json
+import re
 from typing import AsyncGenerator, Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
