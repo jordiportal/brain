@@ -1,10 +1,9 @@
 """
-RAG Chain - Retrieval Augmented Generation
+RAG Chain - Retrieval Augmented Generation (REFACTORIZADO con estándar)
 """
 
 import json
 from typing import AsyncGenerator, Optional, List, Dict
-import httpx
 from datetime import datetime
 
 from ..models import (
@@ -19,54 +18,13 @@ from ..models import (
 from ..registry import chain_registry
 from src.rag.searcher import RAGSearcher
 from src.providers import get_active_llm_provider
+from .llm_utils import call_llm, call_llm_stream
+from .agent_helpers import build_llm_messages  # ✅ Usar helper compartido
 
 
-# Definición de la cadena RAG
-RAG_CHAIN = ChainDefinition(
-    id="rag",
-    name="RAG Chain",
-    description="Cadena de Retrieval Augmented Generation. Busca en documentos y genera respuestas basadas en el contexto.",
-    type="rag",
-    version="1.0.0",
-    nodes=[
-        NodeDefinition(
-            id="input",
-            type=NodeType.INPUT,
-            name="Query del usuario"
-        ),
-        NodeDefinition(
-            id="retrieval",
-            type=NodeType.RAG,
-            name="Búsqueda en documentos",
-            collection="default",
-            top_k=5
-        ),
-        NodeDefinition(
-            id="llm",
-            type=NodeType.LLM,
-            name="Generación de respuesta",
-            system_prompt="""Eres un asistente que responde preguntas basándose en el contexto proporcionado.
-            
-INSTRUCCIONES:
-- Usa SOLO la información del contexto para responder
-- Si el contexto no contiene información relevante, indícalo claramente
-- Cita las fuentes cuando sea posible
-- Sé preciso y conciso"""
-        ),
-        NodeDefinition(
-            id="output",
-            type=NodeType.OUTPUT,
-            name="Respuesta con fuentes"
-        )
-    ],
-    config=ChainConfig(
-        use_memory=False,
-        rag_collection="default",
-        rag_top_k=5,
-        temperature=0.3  # Más determinista para RAG
-    )
-)
-
+# ============================================
+# Funciones RAG específicas
+# ============================================
 
 async def search_documents(
     query: str,
@@ -75,7 +33,10 @@ async def search_documents(
     embedding_base_url: str = None,
     embedding_model: str = None
 ) -> List[Dict]:
-    """Buscar documentos similares en pgvector usando RAGSearcher"""
+    """
+    Buscar documentos similares en pgvector usando RAGSearcher.
+    Esta función es específica del dominio RAG, no va en helpers.
+    """
     try:
         # Obtener configuración de Strapi si no se proporciona
         if not embedding_base_url or not embedding_model:
@@ -98,10 +59,9 @@ async def search_documents(
         results = await searcher.search(
             query=query,
             top_k=top_k,
-            min_score=0.3  # Threshold más bajo para no perder resultados
+            min_score=0.3
         )
         
-        # Convertir al formato esperado
         return [
             {
                 "content": r["content"],
@@ -111,12 +71,97 @@ async def search_documents(
             for r in results
         ]
     except Exception as e:
-        # Si hay error (ej: tabla no existe), retornar lista vacía
         import structlog
         logger = structlog.get_logger()
         logger.warning(f"Error en búsqueda RAG: {e}")
         return []
 
+
+def extract_source_from_metadata(metadata) -> str:
+    """Helper para extraer source de metadata (puede ser dict o JSON string)"""
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except:
+            return 'desconocida'
+    
+    if isinstance(metadata, dict):
+        return metadata.get('source', 'desconocida')
+    
+    return 'desconocida'
+
+
+def build_context_from_documents(documents: List[Dict]) -> str:
+    """Construir texto de contexto a partir de documentos recuperados"""
+    context_parts = []
+    for doc in documents:
+        source = extract_source_from_metadata(doc.get('metadata', {}))
+        content = doc.get('content', '')
+        context_parts.append(f"[Fuente: {source}]\n{content}")
+    
+    return "\n\n".join(context_parts)
+
+
+# ============================================
+# Definición del Agente (con prompts editables)
+# ============================================
+
+RAG_CHAIN_DEFINITION = ChainDefinition(
+    id="rag",
+    name="RAG Chain",
+    description="Cadena de Retrieval Augmented Generation. Busca en documentos y genera respuestas basadas en el contexto.",
+    type="rag",
+    version="2.0.0",  # ✅ Versión actualizada
+    nodes=[
+        NodeDefinition(
+            id="input",
+            type=NodeType.INPUT,
+            name="Query del usuario"
+        ),
+        NodeDefinition(
+            id="retrieval",
+            type=NodeType.RAG,
+            name="Búsqueda en documentos",
+            collection="default",
+            top_k=5
+        ),
+        NodeDefinition(
+            id="llm",
+            type=NodeType.LLM,
+            name="Generación de respuesta",
+            # ✅ System prompt editable
+            system_prompt="""Eres un asistente que responde preguntas basándose en el contexto proporcionado.
+
+INSTRUCCIONES:
+- Usa SOLO la información del contexto para responder
+- Si el contexto no contiene información relevante, indícalo claramente
+- Cita las fuentes cuando sea posible
+- Sé preciso y conciso""",
+            # ✅ Template con variables
+            prompt_template="""CONTEXTO:
+{{context}}
+
+PREGUNTA: {{user_query}}""",
+            temperature=0.3
+        ),
+        NodeDefinition(
+            id="output",
+            type=NodeType.OUTPUT,
+            name="Respuesta con fuentes"
+        )
+    ],
+    config=ChainConfig(
+        use_memory=False,
+        rag_collection="default",
+        rag_top_k=5,
+        temperature=0.3
+    )
+)
+
+
+# ============================================
+# Builder Function (Lógica del Agente)
+# ============================================
 
 async def build_rag_chain(
     config: ChainConfig,
@@ -126,209 +171,128 @@ async def build_rag_chain(
     memory: list,
     execution_id: str = "",
     execution_state: Optional[ExecutionState] = None,
-    stream: bool = False,
+    stream: bool = True,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
     **kwargs
-):
-    """Builder de la cadena RAG"""
+) -> AsyncGenerator[StreamEvent, None]:
+    """
+    Builder de la RAG Chain.
+    
+    FASES:
+    1. Retrieval: Buscar documentos similares en vectorstore
+    2. Generation: Generar respuesta basada en contexto
+    
+    NODOS:
+    - input (INPUT): Query del usuario
+    - retrieval (RAG): Búsqueda semántica en documentos
+    - llm (LLM): Generación de respuesta con contexto
+    - output (OUTPUT): Respuesta con fuentes
+    
+    MEMORY: No (cada consulta es independiente)
+    TOOLS: None (usa RAG vectorstore)
+    """
     
     query = input_data.get("query", input_data.get("message", ""))
     collection = config.rag_collection or "default"
     top_k = config.rag_top_k or 5
     
-    if stream:
-        # Paso 1: Búsqueda
+    # ✅ Obtener nodo LLM con prompt editable
+    llm_node = RAG_CHAIN_DEFINITION.get_node("llm")
+    if not llm_node:
+        raise ValueError("Nodo LLM no encontrado en RAG Chain")
+    
+    # ========== FASE 1: RETRIEVAL ==========
+    yield StreamEvent(
+        event_type="node_start",
+        execution_id=execution_id,
+        node_id="retrieval",
+        node_name="Búsqueda en documentos",
+        data={"query": query, "collection": collection, "top_k": top_k}
+    )
+    
+    documents = await search_documents(
+        query, collection, top_k,
+        embedding_base_url=llm_url
+    )
+    
+    yield StreamEvent(
+        event_type="node_end",
+        execution_id=execution_id,
+        node_id="retrieval",
+        node_name="Búsqueda en documentos",
+        data={"documents_found": len(documents)}
+    )
+    
+    # ========== FASE 2: GENERATION ==========
+    yield StreamEvent(
+        event_type="node_start",
+        execution_id=execution_id,
+        node_id="llm",
+        node_name="Generación de respuesta",
+        data={"model": model}
+    )
+    
+    # Construir contexto de documentos
+    context = build_context_from_documents(documents)
+    
+    # ✅ Construir mensajes con helper estándar
+    system_prompt = config.system_prompt or llm_node.system_prompt
+    messages = build_llm_messages(
+        system_prompt=system_prompt,
+        template=llm_node.prompt_template,
+        variables={
+            "context": context,
+            "user_query": query
+        },
+        memory=None,  # RAG no usa memoria conversacional
+        max_memory=0
+    )
+    
+    # Streaming de respuesta
+    full_content = ""
+    async for token in call_llm_stream(
+        llm_url, model, messages,
+        temperature=llm_node.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    ):
+        full_content += token
         yield StreamEvent(
-            event_type="node_start",
-            execution_id=execution_id,
-            node_id="retrieval",
-            node_name="Búsqueda en documentos",
-            data={"query": query, "collection": collection, "top_k": top_k}
-        )
-        
-        # Usar la misma URL del LLM para embeddings (es el mismo servidor Ollama)
-        documents = await search_documents(
-            query, collection, top_k,
-            embedding_base_url=llm_url
-        )
-        
-        yield StreamEvent(
-            event_type="node_end",
-            execution_id=execution_id,
-            node_id="retrieval",
-            node_name="Búsqueda en documentos",
-            data={"documents_found": len(documents)}
-        )
-        
-        # Construir contexto (metadata puede ser string JSON o dict)
-        def get_source(doc):
-            metadata = doc.get('metadata', {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except:
-                    metadata = {}
-            return metadata.get('source', 'desconocida') if isinstance(metadata, dict) else 'desconocida'
-        
-        context = "\n\n".join([
-            f"[Fuente: {get_source(doc)}]\n{doc['content']}"
-            for doc in documents
-        ])
-        
-        # Paso 2: Generación
-        yield StreamEvent(
-            event_type="node_start",
-            execution_id=execution_id,
-            node_id="llm",
-            node_name="Generación de respuesta",
-            data={"model": model}
-        )
-        
-        system_prompt = config.system_prompt or RAG_CHAIN.nodes[2].system_prompt
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"CONTEXTO:\n{context}\n\nPREGUNTA: {query}"}
-        ]
-        
-        full_content = ""
-        tokens = 0
-        
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{llm_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {"temperature": config.temperature}
-                }
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            content = data.get("message", {}).get("content", "")
-                            if content:
-                                full_content += content
-                                yield StreamEvent(
-                                    event_type="token",
-                                    execution_id=execution_id,
-                                    node_id="llm",
-                                    content=content
-                                )
-                            if data.get("done"):
-                                tokens = data.get("eval_count", 0)
-                        except json.JSONDecodeError:
-                            continue
-        
-        yield StreamEvent(
-            event_type="node_end",
+            event_type="token",
             execution_id=execution_id,
             node_id="llm",
-            node_name="Generación de respuesta",
-            data={
-                "tokens": tokens,
-                "sources": [get_source(d) for d in documents]
-            }
+            content=token
         )
     
-    else:
-        # Sin streaming
-        start_time = datetime.utcnow()
-        
-        # Búsqueda (usar misma URL del LLM para embeddings)
-        documents = await search_documents(
-            query, collection, top_k,
-            embedding_base_url=llm_url
-        )
-        
-        retrieval_time = datetime.utcnow()
-        
-        if execution_state:
-            execution_state.steps.append(ExecutionStep(
-                step_number=1,
-                node_id="retrieval",
-                node_name="Búsqueda en documentos",
-                node_type=NodeType.RAG,
-                started_at=start_time,
-                completed_at=retrieval_time,
-                duration_ms=int((retrieval_time - start_time).total_seconds() * 1000),
-                input_data={"query": query},
-                output_data={"documents_found": len(documents)}
-            ))
-        
-        # Construir contexto (metadata puede ser string JSON o dict)
-        def get_source_ns(doc):
-            metadata = doc.get('metadata', {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except:
-                    metadata = {}
-            return metadata.get('source', 'desconocida') if isinstance(metadata, dict) else 'desconocida'
-        
-        context = "\n\n".join([
-            f"[Fuente: {get_source_ns(doc)}]\n{doc['content']}"
-            for doc in documents
-        ])
-        
-        system_prompt = config.system_prompt or RAG_CHAIN.nodes[2].system_prompt
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"CONTEXTO:\n{context}\n\nPREGUNTA: {query}"}
-        ]
-        
-        # Generación
-        llm_start = datetime.utcnow()
-        
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(
-                f"{llm_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {"temperature": config.temperature}
-                }
-            )
-            
-            data = response.json()
-            content = data.get("message", {}).get("content", "")
-            tokens = data.get("eval_count", 0)
-        
-        llm_end = datetime.utcnow()
-        
-        if execution_state:
-            execution_state.steps.append(ExecutionStep(
-                step_number=2,
-                node_id="llm",
-                node_name="Generación de respuesta",
-                node_type=NodeType.LLM,
-                started_at=llm_start,
-                completed_at=llm_end,
-                duration_ms=int((llm_end - llm_start).total_seconds() * 1000),
-                input_data={"messages": messages},
-                output_data={"response": content},
-                tokens_used=tokens
-            ))
-            execution_state.total_tokens = tokens
-        
-        sources = [get_source_ns(d) for d in documents]
-        
+    sources = [extract_source_from_metadata(d.get('metadata', {})) for d in documents]
+    
+    yield StreamEvent(
+        event_type="node_end",
+        execution_id=execution_id,
+        node_id="llm",
+        node_name="Generación de respuesta",
+        data={"sources": sources}
+    )
+    
+    # Para modo no-streaming
+    if not stream:
         yield {"_result": {
-            "response": content,
+            "response": full_content,
             "sources": sources,
-            "documents_found": len(documents),
-            "tokens": tokens
+            "documents_found": len(documents)
         }}
 
 
+# ============================================
+# Registro del Agente
+# ============================================
+
 def register_rag_chain():
-    """Registrar la cadena RAG"""
+    """Registrar la RAG Chain en el registry"""
+    
     chain_registry.register(
         chain_id="rag",
-        definition=RAG_CHAIN,
+        definition=RAG_CHAIN_DEFINITION,
         builder=build_rag_chain
     )

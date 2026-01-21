@@ -1,10 +1,9 @@
 """
-Tool Agent - Agente con herramientas
+Tool Agent - Agente con herramientas (REFACTORIZADO con estándar)
 """
 
 import json
-from typing import AsyncGenerator, Optional, Callable
-import httpx
+from typing import AsyncGenerator, Optional
 from datetime import datetime
 
 from ..models import (
@@ -12,44 +11,61 @@ from ..models import (
     ChainConfig,
     NodeDefinition,
     NodeType,
-    ExecutionState,
-    ExecutionStep,
     StreamEvent
 )
 from ..registry import chain_registry
+from ...tools import tool_registry
+from .llm_utils import call_llm, call_llm_stream
+from .agent_helpers import (  # ✅ Usar helpers compartidos
+    extract_json,
+    build_llm_messages
+)
 
 
-# NOTA: Las herramientas ahora están centralizadas en tool_registry
-# Este archivo mantiene DEFAULT_TOOLS para compatibilidad con código legacy,
-# pero se recomienda usar tool_registry directamente.
+# ============================================
+# Funciones de herramientas
+# ============================================
 
-# Herramientas disponibles por defecto (LEGACY - usar tool_registry)
-DEFAULT_TOOLS = {
-    "calculator": {
-        "name": "calculator",
-        "description": "Realiza cálculos matemáticos. Input: expresión matemática como string.",
-        "handler": lambda expr: str(eval(expr))  # LEGACY: usar tool_registry.calculator
-    },
-    "current_time": {
-        "name": "current_time",
-        "description": "Obtiene la fecha y hora actual.",
-        "handler": lambda _: datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # LEGACY
-    },
-    "web_search": {
-        "name": "web_search",
-        "description": "Busca información en la web usando DuckDuckGo.",
-        "handler": lambda query: {"info": "Usar tool_registry.web_search para búsquedas reales"}
-    }
-}
+async def get_available_tools_description() -> str:
+    """
+    Obtener descripción de herramientas disponibles.
+    Usa tool_registry para tener acceso a todas las herramientas.
+    """
+    # Obtener herramientas builtin (no OpenAPI para Tool Agent)
+    builtin_tools = [t for t in tool_registry.tools.values() 
+                     if t.type.value == "builtin"]
+    
+    if not builtin_tools:
+        tool_registry.register_builtin_tools()
+        builtin_tools = [t for t in tool_registry.tools.values() 
+                        if t.type.value == "builtin"]
+    
+    descriptions = []
+    for tool in builtin_tools[:20]:  # Limitar a 20 herramientas
+        descriptions.append(f"- {tool.id}: {tool.description}")
+    
+    return "\n".join(descriptions)
 
 
-# Definición de la cadena
-TOOL_AGENT = ChainDefinition(
+async def execute_tool(tool_id: str, tool_input: str) -> str:
+    """Ejecutar una herramienta via tool_registry"""
+    try:
+        result = await tool_registry.execute(tool_id, input=tool_input)
+        return str(result.get("result", result))
+    except Exception as e:
+        return f"Error ejecutando {tool_id}: {str(e)}"
+
+
+# ============================================
+# Definición del Agente (con prompts editables)
+# ============================================
+
+TOOL_AGENT_DEFINITION = ChainDefinition(
     id="tool_agent",
     name="Tool Agent",
     description="Agente que puede usar herramientas para resolver tareas. Decide qué herramientas usar basándose en la pregunta.",
     type="tools",
-    version="1.0.0",
+    version="2.0.0",  # ✅ Versión actualizada
     nodes=[
         NodeDefinition(
             id="input",
@@ -60,19 +76,22 @@ TOOL_AGENT = ChainDefinition(
             id="planner",
             type=NodeType.LLM,
             name="Planificador",
+            # ✅ System prompt editable
             system_prompt="""Eres un agente que decide qué herramientas usar para responder preguntas.
 
 HERRAMIENTAS DISPONIBLES:
-{tools}
+{{tools_description}}
 
 INSTRUCCIONES:
 1. Analiza la pregunta del usuario
 2. Decide si necesitas usar alguna herramienta
 3. Si necesitas una herramienta, responde en formato JSON:
-   {{"tool": "nombre_herramienta", "input": "input para la herramienta"}}
+   {"tool": "nombre_herramienta", "input": "input para la herramienta"}
 4. Si no necesitas herramientas, responde directamente
 
-Responde SOLO con el JSON de la herramienta o con tu respuesta directa."""
+Responde SOLO con el JSON de la herramienta o con tu respuesta directa.""",
+            prompt_template="{{user_query}}",
+            temperature=0.3
         ),
         NodeDefinition(
             id="tool_executor",
@@ -83,13 +102,17 @@ Responde SOLO con el JSON de la herramienta o con tu respuesta directa."""
             id="synthesizer",
             type=NodeType.LLM,
             name="Sintetizador",
+            # ✅ System prompt editable
             system_prompt="""Genera una respuesta final basándote en los resultados de las herramientas.
-            
-Resultados de herramientas: {tool_results}
 
-Pregunta original: {original_question}
+RESULTADOS DE HERRAMIENTAS:
+{{tool_results}}
 
-Proporciona una respuesta clara y útil."""
+PREGUNTA ORIGINAL: {{user_query}}
+
+Proporciona una respuesta clara y útil.""",
+            prompt_template="Genera la respuesta final.",
+            temperature=0.7
         ),
         NodeDefinition(
             id="output",
@@ -105,26 +128,9 @@ Proporciona una respuesta clara y útil."""
 )
 
 
-def get_tools_description(tools: dict) -> str:
-    """Generar descripción de herramientas para el prompt"""
-    descriptions = []
-    for name, tool in tools.items():
-        descriptions.append(f"- {name}: {tool['description']}")
-    return "\n".join(descriptions)
-
-
-async def execute_tool(tool_name: str, tool_input: str, tools: dict) -> str:
-    """Ejecutar una herramienta"""
-    if tool_name not in tools:
-        return f"Error: Herramienta '{tool_name}' no encontrada"
-    
-    try:
-        handler = tools[tool_name]["handler"]
-        result = handler(tool_input)
-        return str(result)
-    except Exception as e:
-        return f"Error ejecutando {tool_name}: {str(e)}"
-
+# ============================================
+# Builder Function (Lógica del Agente)
+# ============================================
 
 async def build_tool_agent(
     config: ChainConfig,
@@ -133,120 +139,136 @@ async def build_tool_agent(
     input_data: dict,
     memory: list,
     execution_id: str = "",
-    execution_state: Optional[ExecutionState] = None,
-    stream: bool = False,
-    tools: dict = None,
+    stream: bool = True,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None,
     **kwargs
-):
-    """Builder del agente con herramientas"""
+) -> AsyncGenerator[StreamEvent, None]:
+    """
+    Builder del Tool Agent con herramientas builtin.
     
-    if tools is None:
-        tools = DEFAULT_TOOLS
+    FASES:
+    1. Planning: Analizar query y decidir herramienta
+    2. Tool Execution: Ejecutar herramienta si es necesario
+    3. Synthesis: Formatear resultados en respuesta útil
+    
+    NODOS:
+    - input (INPUT): Tarea del usuario
+    - planner (LLM): Decide qué herramienta usar
+    - tool_executor (TOOL): Ejecuta herramienta
+    - synthesizer (LLM): Genera respuesta formateada
+    - output (OUTPUT): Respuesta final
+    
+    MEMORY: Yes (últimos 10 mensajes)
+    TOOLS: Builtin (calculator, current_time, web_search, etc.)
+    """
     
     query = input_data.get("message", input_data.get("query", ""))
-    tools_description = get_tools_description(tools)
     
-    if stream:
-        # Paso 1: Planificación
+    # Cargar descripción de herramientas
+    tools_description = await get_available_tools_description()
+    
+    # ✅ Obtener nodos con prompts editables
+    planner_node = TOOL_AGENT_DEFINITION.get_node("planner")
+    synthesizer_node = TOOL_AGENT_DEFINITION.get_node("synthesizer")
+    
+    if not planner_node or not synthesizer_node:
+        raise ValueError("Nodos del Tool Agent no encontrados")
+    
+    # ========== FASE 1: PLANNING ==========
+    yield StreamEvent(
+        event_type="node_start",
+        execution_id=execution_id,
+        node_id="planner",
+        node_name="Planificador",
+        data={"analyzing": query}
+    )
+    
+    # ✅ Construir mensajes con helper estándar
+    planner_prompt = planner_node.system_prompt.replace("{{tools_description}}", tools_description)
+    planner_messages = build_llm_messages(
+        system_prompt=planner_prompt,
+        template=planner_node.prompt_template,
+        variables={"user_query": query},
+        memory=memory,
+        max_memory=config.max_memory_messages
+    )
+    
+    planner_response = await call_llm(
+        llm_url, model, planner_messages,
+        temperature=planner_node.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    )
+    
+    yield StreamEvent(
+        event_type="node_end",
+        execution_id=execution_id,
+        node_id="planner",
+        node_name="Planificador",
+        data={"decision": planner_response[:100]}
+    )
+    
+    # ========== FASE 2: TOOL EXECUTION ==========
+    tool_results = []
+    tool_call = extract_json(planner_response)  # ✅ Usar helper compartido
+    
+    if tool_call and "tool" in tool_call:
+        tool_id = tool_call.get("tool", "")
+        tool_input = tool_call.get("input", "")
+        
         yield StreamEvent(
             event_type="node_start",
             execution_id=execution_id,
-            node_id="planner",
-            node_name="Planificador",
-            data={"analyzing": query}
+            node_id="tool_executor",
+            node_name=f"Ejecutando: {tool_id}",
+            data={"tool": tool_id, "input": tool_input}
         )
         
-        planner_prompt = TOOL_AGENT.nodes[1].system_prompt.format(tools=tools_description)
-        
-        messages = [
-            {"role": "system", "content": planner_prompt},
-            {"role": "user", "content": query}
-        ]
-        
-        planner_response = ""
-        
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{llm_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {"temperature": 0.3}
-                }
-            )
-            data = response.json()
-            planner_response = data.get("message", {}).get("content", "")
+        result = await execute_tool(tool_id, tool_input)
+        tool_results.append({
+            "tool": tool_id,
+            "input": tool_input,
+            "result": result
+        })
         
         yield StreamEvent(
             event_type="node_end",
             execution_id=execution_id,
-            node_id="planner",
-            node_name="Planificador",
-            data={"decision": planner_response[:100]}
+            node_id="tool_executor",
+            node_name=f"Ejecutando: {tool_id}",
+            data={"result": result[:200]}
         )
+    
+    # ========== FASE 3: SYNTHESIS ==========
+    yield StreamEvent(
+        event_type="node_start",
+        execution_id=execution_id,
+        node_id="synthesizer",
+        node_name="Sintetizador",
+        data={"generating": True}
+    )
+    
+    if tool_results:
+        # Formatear resultados de herramientas
+        results_json = json.dumps(tool_results, indent=2, ensure_ascii=False)
         
-        # Intentar parsear como JSON de herramienta
-        tool_results = []
-        try:
-            tool_call = json.loads(planner_response)
-            if "tool" in tool_call:
-                # Ejecutar herramienta
-                yield StreamEvent(
-                    event_type="node_start",
-                    execution_id=execution_id,
-                    node_id="tool_executor",
-                    node_name=f"Ejecutando: {tool_call['tool']}",
-                    data={"tool": tool_call["tool"], "input": tool_call.get("input", "")}
-                )
-                
-                result = await execute_tool(
-                    tool_call["tool"],
-                    tool_call.get("input", ""),
-                    tools
-                )
-                tool_results.append({
-                    "tool": tool_call["tool"],
-                    "result": result
-                })
-                
-                yield StreamEvent(
-                    event_type="node_end",
-                    execution_id=execution_id,
-                    node_id="tool_executor",
-                    node_name=f"Ejecutando: {tool_call['tool']}",
-                    data={"result": result}
-                )
-        except json.JSONDecodeError:
-            # No es JSON, es respuesta directa
-            pass
+        # ✅ Construir mensajes con helper y reemplazar variables
+        synth_prompt = synthesizer_node.system_prompt
+        synth_prompt = synth_prompt.replace("{{tool_results}}", results_json)
+        synth_prompt = synth_prompt.replace("{{user_query}}", query)
         
-        # Paso 3: Sintetizar respuesta
-        yield StreamEvent(
-            event_type="node_start",
-            execution_id=execution_id,
-            node_id="synthesizer",
-            node_name="Sintetizador",
-            data={"generating": True}
+        synth_messages = build_llm_messages(
+            system_prompt=synth_prompt,
+            template=synthesizer_node.prompt_template,
+            variables={},
+            memory=None  # No incluir memoria en synthesis
         )
-        
-        if tool_results:
-            synth_prompt = TOOL_AGENT.nodes[3].system_prompt.format(
-                tool_results=json.dumps(tool_results, ensure_ascii=False),
-                original_question=query
-            )
-            messages = [
-                {"role": "system", "content": synth_prompt},
-                {"role": "user", "content": "Genera la respuesta final."}
-            ]
-        else:
-            # Usar respuesta del planificador directamente
-            messages = [
-                {"role": "system", "content": "Eres un asistente útil."},
-                {"role": "user", "content": query}
-            ]
-            if planner_response and not planner_response.startswith("{"):
-                # Ya tenemos respuesta directa
+    else:
+        # Sin herramientas: respuesta directa del planner
+        if not planner_response.strip().startswith("{"):
+            # Es una respuesta conversacional directa
+            if stream:
                 for char in planner_response:
                     yield StreamEvent(
                         event_type="token",
@@ -254,126 +276,76 @@ async def build_tool_agent(
                         node_id="synthesizer",
                         content=char
                     )
-                yield StreamEvent(
-                    event_type="node_end",
-                    execution_id=execution_id,
-                    node_id="synthesizer",
-                    node_name="Sintetizador",
-                    data={"response": planner_response}
-                )
-                return
+            
+            yield StreamEvent(
+                event_type="node_end",
+                execution_id=execution_id,
+                node_id="synthesizer",
+                node_name="Sintetizador",
+                data={"response": planner_response}
+            )
+            
+            if not stream:
+                yield {"_result": {
+                    "response": planner_response,
+                    "tools_used": [],
+                    "tool_results": []
+                }}
+            return
         
-        # Streaming de respuesta final
-        full_response = ""
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{llm_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {"temperature": config.temperature}
-                }
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            content = data.get("message", {}).get("content", "")
-                            if content:
-                                full_response += content
-                                yield StreamEvent(
-                                    event_type="token",
-                                    execution_id=execution_id,
-                                    node_id="synthesizer",
-                                    content=content
-                                )
-                        except json.JSONDecodeError:
-                            continue
-        
-        yield StreamEvent(
-            event_type="node_end",
-            execution_id=execution_id,
-            node_id="synthesizer",
-            node_name="Sintetizador",
-            data={"response": full_response, "tools_used": [t["tool"] for t in tool_results]}
+        # Fallback: respuesta simple
+        synth_messages = build_llm_messages(
+            system_prompt="Eres un asistente útil.",
+            template="{{user_query}}",
+            variables={"user_query": query},
+            memory=None
         )
     
-    else:
-        # Sin streaming - implementación simplificada
-        planner_prompt = TOOL_AGENT.nodes[1].system_prompt.format(tools=tools_description)
-        
-        messages = [
-            {"role": "system", "content": planner_prompt},
-            {"role": "user", "content": query}
-        ]
-        
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{llm_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {"temperature": 0.3}
-                }
-            )
-            data = response.json()
-            planner_response = data.get("message", {}).get("content", "")
-        
-        tool_results = []
-        try:
-            tool_call = json.loads(planner_response)
-            if "tool" in tool_call:
-                result = await execute_tool(
-                    tool_call["tool"],
-                    tool_call.get("input", ""),
-                    tools
-                )
-                tool_results.append({
-                    "tool": tool_call["tool"],
-                    "result": result
-                })
-        except json.JSONDecodeError:
-            pass
-        
-        if tool_results:
-            synth_prompt = TOOL_AGENT.nodes[3].system_prompt.format(
-                tool_results=json.dumps(tool_results, ensure_ascii=False),
-                original_question=query
-            )
-            messages = [
-                {"role": "system", "content": synth_prompt},
-                {"role": "user", "content": "Genera la respuesta final."}
-            ]
-            
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(
-                    f"{llm_url}/api/chat",
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "stream": False,
-                        "options": {"temperature": config.temperature}
-                    }
-                )
-                data = response.json()
-                final_response = data.get("message", {}).get("content", "")
-        else:
-            final_response = planner_response
-        
+    # Streaming de respuesta final
+    full_response = ""
+    async for token in call_llm_stream(
+        llm_url, model, synth_messages,
+        temperature=synthesizer_node.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    ):
+        full_response += token
+        yield StreamEvent(
+            event_type="token",
+            execution_id=execution_id,
+            node_id="synthesizer",
+            content=token
+        )
+    
+    yield StreamEvent(
+        event_type="node_end",
+        execution_id=execution_id,
+        node_id="synthesizer",
+        node_name="Sintetizador",
+        data={
+            "response": full_response[:500],
+            "tools_used": [t["tool"] for t in tool_results]
+        }
+    )
+    
+    # Para modo no-streaming
+    if not stream:
         yield {"_result": {
-            "response": final_response,
+            "response": full_response,
             "tools_used": [t["tool"] for t in tool_results],
             "tool_results": tool_results
         }}
 
 
+# ============================================
+# Registro del Agente
+# ============================================
+
 def register_tool_agent():
-    """Registrar el agente con herramientas"""
+    """Registrar el Tool Agent en el registry"""
+    
     chain_registry.register(
         chain_id="tool_agent",
-        definition=TOOL_AGENT,
+        definition=TOOL_AGENT_DEFINITION,
         builder=build_tool_agent
     )

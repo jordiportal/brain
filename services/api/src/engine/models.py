@@ -41,6 +41,7 @@ class NodeDefinition(BaseModel):
     # Para nodos LLM
     model: Optional[str] = None
     system_prompt: Optional[str] = None
+    prompt_template: Optional[str] = None  # ✅ NUEVO: Template con {{variables}}
     temperature: float = 0.7
     
     # Para nodos Tool
@@ -101,6 +102,21 @@ class ChainDefinition(BaseModel):
     # Metadatos
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    def get_node(self, node_id: str) -> Optional[NodeDefinition]:
+        """
+        Helper para obtener un nodo por ID.
+        
+        Args:
+            node_id: ID del nodo a buscar
+            
+        Returns:
+            NodeDefinition o None si no se encuentra
+        """
+        for node in self.nodes:
+            if node.id == node_id:
+                return node
+        return None
 
 
 class ExecutionStep(BaseModel):
