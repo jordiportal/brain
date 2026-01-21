@@ -213,6 +213,33 @@ class ToolRegistry:
             handler=self._builtin_web_search
         )
         
+        # Nano Banana (Google Gemini Image Generation)
+        # Nota: El handler se define como método async más abajo
+        nano_banana_tool = ToolDefinition(
+            id="nano_banana",
+            name="nano_banana",
+            description="Genera imágenes usando Google Gemini (Nano Banana). Crea imágenes realistas, artísticas, o ilustraciones basadas en descripciones de texto. Soporta hasta 1024px de resolución.",
+            type=ToolType.BUILTIN,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Descripción detallada de la imagen a generar. Ej: 'un gato astronauta flotando en el espacio', 'paisaje montañoso al atardecer', 'logo minimalista para una empresa de tecnología'"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Modelo a usar: 'gemini-1.5-flash-image' (rápido, 1024px) o 'gemini-3-pro-image-preview' (alta calidad, 4K). Por defecto gemini-1.5-flash-image",
+                        "default": "gemini-1.5-flash-image",
+                        "enum": ["gemini-1.5-flash-image", "gemini-3-pro-image-preview"]
+                    }
+                },
+                "required": ["prompt"]
+            },
+            handler=lambda **kwargs: self._builtin_nano_banana(**kwargs)
+        )
+        self.register(nano_banana_tool)
+        
         self._builtin_registered = True
         logger.info("Tools builtin registradas")
     
@@ -333,6 +360,117 @@ class ToolRegistry:
                     "success": False,
                     "hint": "DuckDuckGo puede tener rate limiting temporal. Intenta de nuevo en 30 segundos."
                 }
+    
+    async def _builtin_nano_banana(self, prompt: str, model: str = "gemini-1.5-flash-image") -> Dict[str, Any]:
+        """
+        Genera imágenes con Google Nano Banana (Gemini Image).
+        
+        Devuelve la imagen en base64 para que el agente pueda mostrarla.
+        """
+        import httpx
+        import base64
+        import os
+        
+        # Obtener API key desde el provider Gemini en BD
+        try:
+            from src.providers.llm_provider import get_provider_by_type
+            provider = await get_provider_by_type("gemini")
+            if not provider or not provider.api_key:
+                return {
+                    "error": "No se encontró configuración de Google Gemini con API key",
+                    "hint": "Configura un provider Gemini activo con API key en Strapi"
+                }
+            api_key = provider.api_key
+            base_url = provider.base_url
+        except Exception as e:
+            logger.error(f"Error obteniendo provider Gemini: {e}")
+            return {
+                "error": f"Error obteniendo configuración: {str(e)}"
+            }
+        
+        try:
+            logger.info(f"Generando imagen con Nano Banana: {prompt[:100]}", model=model)
+            
+            # Endpoint de Gemini para generación de imágenes
+            url = f"{base_url}/models/{model}:generateContent?key={api_key}"
+            
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": f"Generate an image: {prompt}"
+                            }
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 1.0,
+                    "topK": 40,
+                    "topP": 0.95,
+                }
+            }
+            
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json=payload
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"Error Gemini API: {response.text}")
+                    return {
+                        "error": f"Error API: {response.status_code}",
+                        "details": response.text[:500]
+                    }
+                
+                data = response.json()
+                
+                # Extraer la imagen generada
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    return {
+                        "error": "No se generó ninguna imagen",
+                        "response": data
+                    }
+                
+                content_parts = candidates[0].get("content", {}).get("parts", [])
+                
+                # Buscar la parte que contiene la imagen
+                image_data = None
+                for part in content_parts:
+                    if "inlineData" in part:
+                        image_data = part["inlineData"]["data"]
+                        mime_type = part["inlineData"]["mimeType"]
+                        break
+                
+                if not image_data:
+                    return {
+                        "error": "No se encontró imagen en la respuesta",
+                        "response_preview": str(data)[:500]
+                    }
+                
+                logger.info(f"Imagen generada exitosamente", size=len(image_data), mime=mime_type)
+                
+                return {
+                    "success": True,
+                    "prompt": prompt,
+                    "model": model,
+                    "image_base64": image_data,
+                    "mime_type": mime_type,
+                    "markdown": f"![{prompt}](data:{mime_type};base64,{image_data})",
+                    "info": f"Imagen generada con {model}. Tamaño: ~{len(image_data) // 1024}KB"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error generando imagen: {e}")
+            return {
+                "error": str(e),
+                "prompt": prompt,
+                "success": False
+            }
 
 
 # Instancia global

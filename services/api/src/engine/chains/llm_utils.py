@@ -1,6 +1,6 @@
 """
 LLM Utilities - Funciones de utilidad para llamar a LLMs desde las cadenas.
-Soporta múltiples proveedores: Ollama, OpenAI, Anthropic, Groq, Azure.
+Soporta múltiples proveedores: Ollama, OpenAI, Anthropic, Gemini, Groq, Azure.
 Incluye soporte para Web Search nativo de OpenAI.
 """
 
@@ -32,7 +32,7 @@ async def call_llm(
         messages: Lista de mensajes [{"role": "user", "content": "..."}]
         temperature: Temperatura para generación
         max_tokens: Máximo de tokens (opcional)
-        provider_type: Tipo de proveedor ("ollama", "openai", "anthropic", "groq", "azure")
+        provider_type: Tipo de proveedor ("ollama", "openai", "anthropic", "gemini", "groq", "azure")
         api_key: API key para proveedores que lo requieren
         enable_web_search: Habilitar búsqueda web nativa (solo OpenAI)
     
@@ -54,6 +54,10 @@ async def call_llm(
         if not api_key:
             raise ValueError("API key requerida para Anthropic")
         return await _call_anthropic(model, messages, temperature, max_tokens, api_key)
+    elif provider == "gemini":
+        if not api_key:
+            raise ValueError("API key requerida para Gemini")
+        return await _call_gemini(llm_url, model, messages, temperature, max_tokens, api_key)
     else:
         # Fallback a Ollama para proveedores desconocidos
         return await _call_ollama(llm_url, model, messages, temperature, max_tokens)
@@ -100,6 +104,11 @@ async def call_llm_stream(
         if not api_key:
             raise ValueError("API key requerida para Anthropic")
         async for token in _stream_anthropic(model, messages, temperature, api_key):
+            yield token
+    elif provider == "gemini":
+        if not api_key:
+            raise ValueError("API key requerida para Gemini")
+        async for token in _stream_gemini(llm_url, model, messages, temperature, api_key):
             yield token
     else:
         # Fallback a Ollama
@@ -363,5 +372,155 @@ async def _stream_anthropic(
                                 yield text
                         elif event_type == "message_stop":
                             break
+                    except json.JSONDecodeError:
+                        continue
+
+
+async def _call_gemini(
+    base_url: str,
+    model: str,
+    messages: List[Dict],
+    temperature: float,
+    max_tokens: Optional[int],
+    api_key: str
+) -> str:
+    """
+    Llamar a Google Gemini API.
+    
+    La API de Gemini usa un formato diferente:
+    - URL: {base_url}/models/{model}:generateContent?key={api_key}
+    - Format: {"contents": [{"role": "user", "parts": [{"text": "..."}]}]}
+    """
+    # Convertir mensajes de OpenAI format a Gemini format
+    gemini_contents = []
+    system_instruction = None
+    
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        
+        if role == "system":
+            # Gemini usa systemInstruction separado
+            system_instruction = content
+        elif role == "user":
+            gemini_contents.append({
+                "role": "user",
+                "parts": [{"text": content}]
+            })
+        elif role == "assistant":
+            gemini_contents.append({
+                "role": "model",  # Gemini usa "model" en lugar de "assistant"
+                "parts": [{"text": content}]
+            })
+    
+    payload = {
+        "contents": gemini_contents,
+        "generationConfig": {
+            "temperature": temperature,
+            "topK": 40,
+            "topP": 0.95,
+        }
+    }
+    
+    if max_tokens:
+        payload["generationConfig"]["maxOutputTokens"] = max_tokens
+    
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+    
+    url = f"{base_url}/models/{model}:generateContent?key={api_key}"
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error Gemini API: {response.text}")
+        
+        data = response.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return ""
+        
+        content_parts = candidates[0].get("content", {}).get("parts", [])
+        if not content_parts:
+            return ""
+        
+        return content_parts[0].get("text", "")
+
+
+async def _stream_gemini(
+    base_url: str,
+    model: str,
+    messages: List[Dict],
+    temperature: float,
+    api_key: str
+) -> AsyncGenerator[str, None]:
+    """
+    Streaming desde Google Gemini API.
+    
+    URL: {base_url}/models/{model}:streamGenerateContent?key={api_key}
+    """
+    # Convertir mensajes a formato Gemini
+    gemini_contents = []
+    system_instruction = None
+    
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        
+        if role == "system":
+            system_instruction = content
+        elif role == "user":
+            gemini_contents.append({
+                "role": "user",
+                "parts": [{"text": content}]
+            })
+        elif role == "assistant":
+            gemini_contents.append({
+                "role": "model",
+                "parts": [{"text": content}]
+            })
+    
+    payload = {
+        "contents": gemini_contents,
+        "generationConfig": {
+            "temperature": temperature,
+            "topK": 40,
+            "topP": 0.95,
+        }
+    }
+    
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+    
+    url = f"{base_url}/models/{model}:streamGenerateContent?key={api_key}"
+    
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream(
+            "POST",
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload
+        ) as response:
+            async for line in response.aiter_lines():
+                if line.strip():
+                    try:
+                        # Gemini devuelve múltiples JSON objects separados por newlines
+                        data = json.loads(line)
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            content_parts = candidates[0].get("content", {}).get("parts", [])
+                            if content_parts:
+                                text = content_parts[0].get("text", "")
+                                if text:
+                                    yield text
                     except json.JSONDecodeError:
                         continue
