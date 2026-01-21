@@ -1,10 +1,11 @@
 """
-OpenAI Native Web Search Agent
+OpenAI Native Web Search Agent (REFACTORIZADO con estándar)
 Agente que usa el web search nativo de OpenAI (solo para gpt-4o-mini, gpt-4o, gpt-4-turbo)
 Usa automáticamente la API key configurada en Strapi.
 """
 
 from typing import AsyncGenerator, Optional
+from datetime import datetime
 import structlog
 
 from ..models import (
@@ -17,17 +18,36 @@ from ..models import (
 from ..registry import chain_registry
 from .native_web_search import (
     call_llm_with_web_search,
-    call_llm_with_web_search_stream,
-    is_web_search_supported,
-    get_web_search_info
+    is_web_search_supported
 )
 from ...providers.llm_provider import get_provider_by_type
+from .agent_helpers import build_llm_messages  # ✅ Usar helper compartido
 
 logger = structlog.get_logger()
 
 
-# System prompt optimizado para web search
-OPENAI_WEB_SEARCH_SYSTEM_PROMPT = """Eres un asistente inteligente con acceso a búsqueda web en tiempo real.
+# ============================================
+# Definición del Agente (con prompts editables)
+# ============================================
+
+OPENAI_WEB_SEARCH_DEFINITION = ChainDefinition(
+    id="openai_web_search",
+    name="OpenAI Native Web Search",
+    description="Agente que usa el web search nativo de OpenAI (Bing). Funciona con gpt-4o-mini, gpt-4o, gpt-4-turbo. Usa automáticamente la API key del provider OpenAI configurado en Strapi.",
+    type="agent",
+    version="2.0.0",  # ✅ Versión actualizada
+    nodes=[
+        NodeDefinition(
+            id="input",
+            type=NodeType.INPUT,
+            name="Query"
+        ),
+        NodeDefinition(
+            id="web_search",
+            type=NodeType.LLM,
+            name="Web Search Nativo",
+            # ✅ System prompt editable con variable
+            system_prompt="""Eres un asistente inteligente con acceso a búsqueda web en tiempo real.
 
 CAPACIDADES:
 - Tienes acceso directo a búsqueda web usando Bing
@@ -49,9 +69,28 @@ IMPORTANTE:
 - No inventes información
 - Si no estás seguro, admítelo
 - Prioriza fuentes confiables
-- Fecha actual para contexto: {current_date}
-"""
+- Fecha actual para contexto: {{current_date}}""",
+            # ✅ Template con variable
+            prompt_template="{{user_query}}",
+            temperature=0.7
+        ),
+        NodeDefinition(
+            id="output",
+            type=NodeType.OUTPUT,
+            name="Respuesta"
+        )
+    ],
+    config=ChainConfig(
+        temperature=0.7,
+        use_memory=True,
+        max_memory_messages=10
+    )
+)
 
+
+# ============================================
+# Builder Function (Lógica del Agente)
+# ============================================
 
 async def build_openai_web_search_agent(
     config: ChainConfig,
@@ -64,51 +103,60 @@ async def build_openai_web_search_agent(
     provider_type: str = "openai",
     api_key: Optional[str] = None,
     **kwargs
-):
+) -> AsyncGenerator[StreamEvent, None]:
     """
     Builder del agente con web search nativo de OpenAI.
     
-    Usa automáticamente la configuración del LLM Provider activo en Strapi.
-    Si no se pasa api_key, la obtiene del provider activo.
+    FASES:
+    1. Configuration: Obtener provider OpenAI desde Strapi
+    2. Web Search: Búsqueda web con OpenAI Responses API
     
-    Requiere:
-    - Provider OpenAI configurado en Strapi O api_key manual
-    - Model que soporte web search (gpt-4o-mini, gpt-4o, gpt-4-turbo)
+    NODOS:
+    - input (INPUT): Query del usuario
+    - web_search (LLM): Búsqueda con OpenAI + Bing
+    - output (OUTPUT): Respuesta con información actualizada
+    
+    MEMORY: Yes (últimos 10 mensajes)
+    TOOLS: OpenAI Web Search (Bing nativo)
+    
+    REQUIREMENTS:
+    - Provider OpenAI configurado en Strapi
+    - Modelo compatible: gpt-4o-mini, gpt-4o, gpt-4-turbo
     """
     
     logger.warning(
         "🔵 INICIO build_openai_web_search_agent",
         model_recibido=model,
-        llm_url_recibido=llm_url,
         provider_type_recibido=provider_type
     )
     
     query = input_data.get("message", input_data.get("query", ""))
     
+    # ✅ Obtener nodo con prompt editable
+    web_search_node = OPENAI_WEB_SEARCH_DEFINITION.get_node("web_search")
+    if not web_search_node:
+        raise ValueError("Nodo web_search no encontrado")
+    
+    # ========== FASE 1: CONFIGURATION ==========
     # SIEMPRE obtener configuración del provider OpenAI desde Strapi
-    # Este agente SOLO funciona con OpenAI, ignoramos cualquier otro provider
     logger.warning(
         "Obteniendo configuración del provider OpenAI desde Strapi",
-        received_provider_type=provider_type,
-        received_api_key_present=bool(api_key)
+        received_provider_type=provider_type
     )
     
     try:
-        # Buscar provider OpenAI específicamente
         provider = await get_provider_by_type("openai")
         
         if provider:
-            # Sobrescribir SIEMPRE con los valores de OpenAI
+            # Sobrescribir con valores de OpenAI
             api_key = provider.api_key
             llm_url = provider.base_url
-            # SIEMPRE usar el modelo del provider OpenAI, ignorar el que viene del executor
             model = provider.default_model
             provider_type = "openai"
             logger.warning(
                 f"Provider OpenAI encontrado: {provider.name}",
                 model=model,
-                base_url=llm_url,
-                modelo_original_descartado=model if model else "none"
+                base_url=llm_url
             )
         else:
             logger.warning("No se encontró provider OpenAI activo en Strapi")
@@ -132,8 +180,7 @@ async def build_openai_web_search_agent(
         )
         return
     
-    # No necesitamos más validaciones de provider_type porque ya lo forzamos a openai
-    
+    # Validar modelo compatible
     if not is_web_search_supported(model):
         warning_msg = f"⚠️ Modelo {model} puede no soportar web search. Recomendados: gpt-4o-mini, gpt-4o, gpt-4-turbo"
         logger.warning(warning_msg)
@@ -144,7 +191,7 @@ async def build_openai_web_search_agent(
             content=warning_msg
         )
     
-    # Inicio
+    # ========== FASE 2: WEB SEARCH ==========
     yield StreamEvent(
         event_type="node_start",
         execution_id=execution_id,
@@ -157,22 +204,17 @@ async def build_openai_web_search_agent(
         }
     )
     
-    # Preparar mensajes
-    from datetime import datetime
+    # ✅ Construir mensajes con helper estándar
     current_date = datetime.now().strftime("%Y-%m-%d")
+    system_prompt = web_search_node.system_prompt.replace("{{current_date}}", current_date)
     
-    system_prompt = OPENAI_WEB_SEARCH_SYSTEM_PROMPT.format(current_date=current_date)
-    
-    messages = [
-        {"role": "system", "content": system_prompt}
-    ]
-    
-    # Agregar memoria (últimos N mensajes)
-    if memory:
-        messages.extend(memory[-config.max_memory_messages:] if config.use_memory else [])
-    
-    # Agregar query actual
-    messages.append({"role": "user", "content": query})
+    messages = build_llm_messages(
+        system_prompt=system_prompt,
+        template=web_search_node.prompt_template,
+        variables={"user_query": query},
+        memory=memory,
+        max_memory=config.max_memory_messages if config.use_memory else 0
+    )
     
     logger.warning(
         "Ejecutando OpenAI Web Search Agent (Responses API)",
@@ -181,7 +223,7 @@ async def build_openai_web_search_agent(
         with_memory=len(memory) > 0
     )
     
-    # Responses API no tiene buen streaming, usamos modo no-streaming
+    # Indicador de búsqueda
     yield StreamEvent(
         event_type="token",
         execution_id=execution_id,
@@ -189,11 +231,12 @@ async def build_openai_web_search_agent(
         content="🔍 Buscando en la web..."
     )
     
+    # Llamada a OpenAI Responses API con web search
     result = await call_llm_with_web_search(
         model=model,
         messages=messages,
         api_key=api_key,
-        temperature=config.temperature,
+        temperature=web_search_node.temperature,
         base_url=llm_url if "openai.com" not in llm_url else "https://api.openai.com/v1",
         stream=False
     )
@@ -223,11 +266,12 @@ async def build_openai_web_search_agent(
         )
         
         # Resultado para modo no-streaming
-        yield {"_result": {
-            "response": content,
-            "model": model,
-            "status": result.get("status")
-        }}
+        if not stream:
+            yield {"_result": {
+                "response": content,
+                "model": model,
+                "status": result.get("status")
+            }}
     else:
         error_msg = result.get("error", "Error desconocido")
         yield StreamEvent(
@@ -238,36 +282,17 @@ async def build_openai_web_search_agent(
         )
 
 
+# ============================================
+# Registro del Agente
+# ============================================
+
 def register_openai_web_search_agent():
     """Registrar el agente de web search nativo de OpenAI"""
     
-    definition = ChainDefinition(
-        id="openai_web_search",
-        name="OpenAI Native Web Search",
-        description="Agente que usa el web search nativo de OpenAI (Bing). Funciona con gpt-4o-mini, gpt-4o, gpt-4-turbo. Usa automáticamente la API key del provider OpenAI configurado en Strapi.",
-        type="agent",
-        version="1.0.0",
-        nodes=[
-            NodeDefinition(id="input", type=NodeType.INPUT, name="Query"),
-            NodeDefinition(
-                id="web_search",
-                type=NodeType.LLM,
-                name="Web Search Nativo",
-                system_prompt=OPENAI_WEB_SEARCH_SYSTEM_PROMPT
-            ),
-            NodeDefinition(id="output", type=NodeType.OUTPUT, name="Respuesta")
-        ],
-        config=ChainConfig(
-            temperature=0.7,
-            use_memory=True,
-            max_memory_messages=10
-        )
-    )
-    
     chain_registry.register(
         chain_id="openai_web_search",
-        definition=definition,
+        definition=OPENAI_WEB_SEARCH_DEFINITION,
         builder=build_openai_web_search_agent
     )
     
-    logger.info("OpenAI Web Search Agent registrado")
+    logger.info("OpenAI Web Search Agent registrado (v2.0.0)")

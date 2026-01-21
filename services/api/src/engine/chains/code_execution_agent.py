@@ -1,17 +1,18 @@
 """
-Code Execution Agent - Agente que genera y ejecuta código
+Code Execution Agent - REFACTORIZADO con estándar
+Agente que genera y ejecuta código Python o JavaScript en contenedores Docker aislados.
 
-Este agente puede:
+Capacidades:
 1. Analizar peticiones del usuario
 2. Generar código Python o JavaScript
-3. Ejecutarlo en contenedores Docker aislados
+3. Ejecutarlo en contenedores Docker
 4. Corregir errores y reintentar (máx 3 intentos)
-5. Presentar resultados al usuario
+5. Presentar resultados con imágenes base64
 """
 
 import json
 import asyncio
-from typing import AsyncGenerator, Optional, Dict, Any
+from typing import AsyncGenerator, Optional, Dict, Any, tuple
 from datetime import datetime
 
 from ..models import (
@@ -24,17 +25,65 @@ from ..models import (
 from ..registry import chain_registry
 from .llm_utils import call_llm
 from ...code_executor import get_code_executor, Language, ExecutionStatus
+from .agent_helpers import (  # ✅ Usar helpers compartidos
+    extract_json,
+    clean_code_block,
+    build_llm_messages
+)
 
 import structlog
 
 logger = structlog.get_logger()
 
 
-# ===========================================
-# System Prompts
-# ===========================================
+# ============================================
+# Funciones específicas del Code Executor
+# ============================================
 
-PLANNER_PROMPT = """Eres un asistente de programación experto que analiza peticiones de usuarios.
+def process_execution_output(stdout: str) -> tuple[str, list[str]]:
+    """
+    Procesa el stdout para extraer imágenes en base64.
+    
+    Returns:
+        (texto_limpio, lista_de_imagenes_base64)
+    """
+    images = []
+    text_lines = []
+    
+    for line in stdout.split('\n'):
+        if line.startswith('IMAGE_BASE64:'):
+            base64_data = line.replace('IMAGE_BASE64:', '').strip()
+            if base64_data:
+                images.append(base64_data)
+        else:
+            text_lines.append(line)
+    
+    clean_text = '\n'.join(text_lines).strip()
+    return clean_text, images
+
+
+# ============================================
+# Definición del Agente (con prompts editables)
+# ============================================
+
+CODE_EXECUTION_DEFINITION = ChainDefinition(
+    id="code_execution",
+    name="Code Execution Agent",
+    description="Agente que genera código Python o JavaScript y lo ejecuta en contenedores Docker aislados. Puede corregir errores automáticamente.",
+    type="agent",
+    version="2.0.0",  # ✅ Versión actualizada
+    nodes=[
+        NodeDefinition(
+            id="input",
+            type=NodeType.INPUT,
+            name="Petición"
+        ),
+        NodeDefinition(
+            id="planner",
+            type=NodeType.LLM,
+            name="Planificador",
+            # ✅ System prompt editable
+            system_prompt="""Eres un asistente de programación experto que analiza peticiones de usuarios.
 
 Tu trabajo es decidir si la petición requiere escribir y ejecutar código.
 
@@ -49,31 +98,32 @@ Python: numpy, pandas, matplotlib, requests
 JavaScript/Node.js: axios, lodash, moment
 
 RESPONDE EN JSON:
-{{
+{
   "needs_code": true/false,
   "language": "python" o "javascript",
   "task_description": "descripción clara de la tarea",
   "libraries_needed": ["lib1", "lib2"],
   "complexity": "simple|medium|complex"
-}}
+}
 
 Si no necesita código, responde:
-{{
+{
   "needs_code": false,
   "direct_response": "tu respuesta directa al usuario"
-}}
-"""
+}""",
+            prompt_template="Petición del usuario: {{user_query}}",
+            temperature=0.2
+        ),
+        NodeDefinition(
+            id="code_generator",
+            type=NodeType.LLM,
+            name="Generador de Código",
+            # ✅ System prompt editable con variables
+            system_prompt="""Eres un programador experto en {{language}}.
 
+TAREA: {{task_description}}
 
-def get_code_generator_prompt(language: str, task: str, libraries: list) -> str:
-    """Genera el prompt para el generador de código"""
-    libs_str = ", ".join(libraries) if libraries else "ninguna específica"
-    
-    return f"""Eres un programador experto en {language}.
-
-TAREA: {task}
-
-BIBLIOTECAS DISPONIBLES: {libs_str}
+BIBLIOTECAS DISPONIBLES: {{libraries}}
 
 REGLAS IMPORTANTES:
 1. Escribe código limpio, bien comentado y eficiente
@@ -89,7 +139,7 @@ Si la tarea requiere generar una imagen, gráfica o visualización:
 - USA matplotlib con backend 'Agg' (sin display)
 - GUARDA la imagen en un BytesIO buffer
 - CONVIERTE a base64 y imprímela con un marcador especial
-- Formato: print("IMAGE_BASE64:{{data_base64}}")
+- Formato: print("IMAGE_BASE64:{data_base64}")
 
 Ejemplo para Python con matplotlib:
 ```
@@ -110,36 +160,47 @@ buffer.seek(0)
 image_base64 = base64.b64encode(buffer.read()).decode('utf-8')
 plt.close()
 
-print(f"IMAGE_BASE64:{{image_base64}}")
+print(f"IMAGE_BASE64:{image_base64}")
 ```
 
 FORMATO DE RESPUESTA:
 Genera SOLO el código, sin markdown, sin explicaciones antes o después.
 El código debe empezar directamente (no uses ```python o ```javascript).
 
-CÓDIGO:"""
-
-
-ERROR_HANDLER_PROMPT = """El código que generaste falló con el siguiente error:
+CÓDIGO:""",
+            prompt_template="Genera el código ahora.",
+            temperature=0.3
+        ),
+        NodeDefinition(
+            id="executor",
+            type=NodeType.TOOL,
+            name="Ejecutor Docker"
+        ),
+        NodeDefinition(
+            id="error_handler",
+            type=NodeType.LLM,
+            name="Corrector de Errores",
+            # ✅ System prompt editable
+            system_prompt="""El código que generaste falló con el siguiente error:
 
 CÓDIGO ORIGINAL:
 ```
-{code}
+{{original_code}}
 ```
 
 ERROR:
 ```
-{error}
+{{error_message}}
 ```
 
 STDOUT:
 ```
-{stdout}
+{{stdout}}
 ```
 
 STDERR:
 ```
-{stderr}
+{{stderr}}
 ```
 
 Por favor, analiza el error y genera una VERSIÓN CORREGIDA del código.
@@ -152,17 +213,23 @@ REGLAS:
 
 Genera SOLO el código corregido, sin explicaciones.
 
-CÓDIGO CORREGIDO:"""
+CÓDIGO CORREGIDO:""",
+            prompt_template="Genera el código corregido.",
+            temperature=0.3
+        ),
+        NodeDefinition(
+            id="synthesizer",
+            type=NodeType.LLM,
+            name="Sintetizador",
+            # ✅ System prompt editable
+            system_prompt="""Eres un asistente que presenta resultados de ejecución de código al usuario.
 
-
-SYNTHESIZER_PROMPT = """Eres un asistente que presenta resultados de ejecución de código al usuario.
-
-PETICIÓN ORIGINAL: {query}
-LENGUAJE USADO: {language}
-INTENTOS: {attempts}
+PETICIÓN ORIGINAL: {{user_query}}
+LENGUAJE USADO: {{language}}
+INTENTOS: {{attempts}}
 
 RESULTADO DE LA EJECUCIÓN:
-{execution_result}
+{{execution_result}}
 
 Tu trabajo es:
 1. Explicar qué hizo el código
@@ -173,86 +240,30 @@ Tu trabajo es:
 IMPORTANTE - DETECCIÓN DE IMÁGENES:
 Si el stdout contiene "IMAGE_BASE64:", significa que el código generó una imagen.
 - Extrae el código base64 después del marcador
-- Muestra la imagen usando markdown: ![Resultado](data:image/png;base64,{{base64_data}})
+- Muestra la imagen usando markdown: ![Resultado](data:image/png;base64,{base64_data})
 - Explica qué representa la imagen
 
-Genera una respuesta clara y útil para el usuario."""
+Genera una respuesta clara y útil para el usuario.""",
+            prompt_template="Presenta los resultados al usuario.",
+            temperature=0.7
+        ),
+        NodeDefinition(
+            id="output",
+            type=NodeType.OUTPUT,
+            name="Respuesta"
+        )
+    ],
+    config=ChainConfig(
+        temperature=0.5,
+        use_memory=True,
+        max_memory_messages=10
+    )
+)
 
 
-# ===========================================
-# Helper Functions
-# ===========================================
-
-def extract_json(text: str) -> Optional[Dict[str, Any]]:
-    """Extrae JSON de una respuesta del LLM"""
-    try:
-        # Buscar bloques JSON en el texto
-        start = text.find('{')
-        if start == -1:
-            return None
-        
-        # Encontrar el cierre correspondiente
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == '{':
-                depth += 1
-            elif text[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    json_str = text[start:i+1]
-                    return json.loads(json_str)
-        
-        return None
-    except Exception as e:
-        logger.error(f"Error extrayendo JSON: {e}")
-        return None
-
-
-def clean_code(code: str) -> str:
-    """Limpia el código eliminando markdown y espacios extra"""
-    # Eliminar bloques de markdown
-    code = code.strip()
-    
-    # Si empieza con ```python o ```javascript, eliminar
-    if code.startswith('```'):
-        lines = code.split('\n')
-        if len(lines) > 1:
-            # Eliminar primera línea (```python)
-            lines = lines[1:]
-            # Eliminar última línea si es ```
-            if lines and lines[-1].strip() == '```':
-                lines = lines[:-1]
-            code = '\n'.join(lines)
-    
-    return code.strip()
-
-
-def process_execution_output(stdout: str) -> tuple[str, list[str]]:
-    """
-    Procesa el stdout para extraer imágenes en base64.
-    
-    Returns:
-        (texto_limpio, lista_de_imagenes_base64)
-    """
-    images = []
-    text_lines = []
-    
-    for line in stdout.split('\n'):
-        if line.startswith('IMAGE_BASE64:'):
-            # Extraer base64
-            base64_data = line.replace('IMAGE_BASE64:', '').strip()
-            if base64_data:
-                images.append(base64_data)
-        else:
-            text_lines.append(line)
-    
-    clean_text = '\n'.join(text_lines).strip()
-    return clean_text, images
-
-
-# ===========================================
-# Agent Builder
-# ===========================================
+# ============================================
+# Builder Function (Lógica del Agente)
+# ============================================
 
 async def build_code_execution_agent(
     config: ChainConfig,
@@ -269,16 +280,37 @@ async def build_code_execution_agent(
     """
     Builder del agente de ejecución de código.
     
-    Flujo:
-    1. Planificación: ¿Necesita código? ¿Qué lenguaje?
-    2. Generación: LLM genera el código
-    3. Ejecución: Ejecutar en contenedor Docker
-    4. Retry: Si falla, intentar corregir (máx 3 veces)
-    5. Síntesis: Presentar resultados
+    FASES:
+    1. Planning: Analizar si necesita código y qué lenguaje
+    2. Code Generation: Generar código con LLM
+    3. Execution: Ejecutar en Docker con retry (máx 3)
+    4. Error Handling: Corregir código si falla
+    5. Synthesis: Presentar resultados con imágenes
+    
+    NODOS:
+    - input (INPUT): Petición del usuario
+    - planner (LLM): Decide lenguaje y task
+    - code_generator (LLM): Genera código
+    - executor (TOOL): Ejecuta en Docker
+    - error_handler (LLM): Corrige errores
+    - synthesizer (LLM): Presenta resultados
+    - output (OUTPUT): Respuesta final
+    
+    MEMORY: Yes (últimos 10 mensajes)
+    TOOLS: Docker code execution (Python/JavaScript)
     """
     
     query = input_data.get("message", input_data.get("query", ""))
     max_retries = input_data.get("max_retries", 3)
+    
+    # ✅ Obtener nodos con prompts editables
+    planner_node = CODE_EXECUTION_DEFINITION.get_node("planner")
+    code_gen_node = CODE_EXECUTION_DEFINITION.get_node("code_generator")
+    error_handler_node = CODE_EXECUTION_DEFINITION.get_node("error_handler")
+    synth_node = CODE_EXECUTION_DEFINITION.get_node("synthesizer")
+    
+    if not all([planner_node, code_gen_node, error_handler_node, synth_node]):
+        raise ValueError("Nodos del Code Execution Agent no encontrados")
     
     # ========== FASE 1: PLANIFICACIÓN ==========
     yield StreamEvent(
@@ -289,19 +321,22 @@ async def build_code_execution_agent(
         data={"query": query}
     )
     
-    planner_messages = [
-        {"role": "system", "content": PLANNER_PROMPT},
-        {"role": "user", "content": f"Petición del usuario: {query}"}
-    ]
+    # ✅ Usar helper para construir mensajes
+    planner_messages = build_llm_messages(
+        system_prompt=planner_node.system_prompt,
+        template=planner_node.prompt_template,
+        variables={"user_query": query},
+        memory=None
+    )
     
     plan_response = await call_llm(
         llm_url, model, planner_messages,
-        temperature=0.2,
+        temperature=planner_node.temperature,
         provider_type=provider_type,
         api_key=api_key
     )
     
-    plan_data = extract_json(plan_response)
+    plan_data = extract_json(plan_response)  # ✅ Usar helper compartido
     
     if not plan_data:
         yield StreamEvent(
@@ -335,6 +370,7 @@ async def build_code_execution_agent(
     language = plan_data.get("language", "python")
     task = plan_data.get("task_description", query)
     libraries = plan_data.get("libraries_needed", [])
+    libs_str = ", ".join(libraries) if libraries else "ninguna específica"
     
     yield StreamEvent(
         event_type="node_start",
@@ -344,20 +380,27 @@ async def build_code_execution_agent(
         data={"language": language, "task": task}
     )
     
-    code_prompt = get_code_generator_prompt(language, task, libraries)
-    code_messages = [
-        {"role": "system", "content": code_prompt},
-        {"role": "user", "content": "Genera el código ahora."}
-    ]
+    # ✅ Reemplazar variables en system prompt
+    code_gen_prompt = code_gen_node.system_prompt
+    code_gen_prompt = code_gen_prompt.replace("{{language}}", language)
+    code_gen_prompt = code_gen_prompt.replace("{{task_description}}", task)
+    code_gen_prompt = code_gen_prompt.replace("{{libraries}}", libs_str)
+    
+    code_messages = build_llm_messages(
+        system_prompt=code_gen_prompt,
+        template=code_gen_node.prompt_template,
+        variables={},
+        memory=None
+    )
     
     generated_code = await call_llm(
         llm_url, model, code_messages,
-        temperature=0.3,
+        temperature=code_gen_node.temperature,
         provider_type=provider_type,
         api_key=api_key
     )
     
-    generated_code = clean_code(generated_code)
+    generated_code = clean_code_block(generated_code, language)  # ✅ Usar helper
     
     yield StreamEvent(
         event_type="node_end",
@@ -409,7 +452,6 @@ async def build_code_execution_agent(
             )
             return
         
-        # Enviar resultado de ejecución
         yield StreamEvent(
             event_type="node_end",
             execution_id=execution_id,
@@ -427,7 +469,7 @@ async def build_code_execution_agent(
         if execution_result.success:
             break
         
-        # Si falló y quedan intentos, intentar corregir
+        # ========== FASE 4: ERROR HANDLING ==========
         if attempt < max_retries:
             yield StreamEvent(
                 event_type="node_start",
@@ -437,26 +479,28 @@ async def build_code_execution_agent(
                 data={"error": execution_result.error_message}
             )
             
-            error_prompt = ERROR_HANDLER_PROMPT.format(
-                code=current_code,
-                error=execution_result.error_message or "Error desconocido",
-                stdout=execution_result.stdout,
-                stderr=execution_result.stderr
-            )
+            # ✅ Reemplazar variables en error handler prompt
+            error_prompt = error_handler_node.system_prompt
+            error_prompt = error_prompt.replace("{{original_code}}", current_code)
+            error_prompt = error_prompt.replace("{{error_message}}", execution_result.error_message or "Error desconocido")
+            error_prompt = error_prompt.replace("{{stdout}}", execution_result.stdout)
+            error_prompt = error_prompt.replace("{{stderr}}", execution_result.stderr)
             
-            error_messages = [
-                {"role": "system", "content": error_prompt},
-                {"role": "user", "content": "Genera el código corregido."}
-            ]
+            error_messages = build_llm_messages(
+                system_prompt=error_prompt,
+                template=error_handler_node.prompt_template,
+                variables={},
+                memory=None
+            )
             
             corrected_code = await call_llm(
                 llm_url, model, error_messages,
-                temperature=0.3,
+                temperature=error_handler_node.temperature,
                 provider_type=provider_type,
                 api_key=api_key
             )
             
-            current_code = clean_code(corrected_code)
+            current_code = clean_code_block(corrected_code, language)  # ✅ Usar helper
             
             yield StreamEvent(
                 event_type="node_end",
@@ -466,7 +510,7 @@ async def build_code_execution_agent(
                 data={"corrected": True}
             )
     
-    # ========== FASE 4: SÍNTESIS ==========
+    # ========== FASE 5: SÍNTESIS ==========
     yield StreamEvent(
         event_type="node_start",
         execution_id=execution_id,
@@ -477,32 +521,33 @@ async def build_code_execution_agent(
     # Procesar stdout para extraer imágenes
     clean_text, images = process_execution_output(execution_result.stdout if execution_result else "")
     
-    # Actualizar execution_result con texto limpio
     result_dict = execution_result.to_dict() if execution_result else {}
     if clean_text != execution_result.stdout:
         result_dict["stdout"] = clean_text
         result_dict["images_count"] = len(images)
     
-    synthesis_prompt = SYNTHESIZER_PROMPT.format(
-        query=query,
-        language=language,
-        attempts=attempt,
-        execution_result=json.dumps(result_dict, indent=2, ensure_ascii=False)
-    )
+    # ✅ Reemplazar variables en synthesizer prompt
+    synth_prompt = synth_node.system_prompt
+    synth_prompt = synth_prompt.replace("{{user_query}}", query)
+    synth_prompt = synth_prompt.replace("{{language}}", language)
+    synth_prompt = synth_prompt.replace("{{attempts}}", str(attempt))
+    synth_prompt = synth_prompt.replace("{{execution_result}}", json.dumps(result_dict, indent=2, ensure_ascii=False))
     
-    synthesis_messages = [
-        {"role": "system", "content": synthesis_prompt},
-        {"role": "user", "content": "Presenta los resultados al usuario."}
-    ]
+    synthesis_messages = build_llm_messages(
+        system_prompt=synth_prompt,
+        template=synth_node.prompt_template,
+        variables={},
+        memory=None
+    )
     
     final_response = await call_llm(
         llm_url, model, synthesis_messages,
-        temperature=0.7,
+        temperature=synth_node.temperature,
         provider_type=provider_type,
         api_key=api_key
     )
     
-    # Si hay imágenes, agregarlas al final de la respuesta
+    # Si hay imágenes, agregarlas
     if images:
         final_response += "\n\n## 🖼️ Imagen Generada\n\n"
         for i, img_base64 in enumerate(images, 1):
@@ -529,39 +574,17 @@ async def build_code_execution_agent(
     )
 
 
-# ===========================================
+# ============================================
 # Registro del Agente
-# ===========================================
+# ============================================
 
 def register_code_execution_agent():
     """Registrar el agente de ejecución de código"""
     
-    definition = ChainDefinition(
-        id="code_execution",
-        name="Code Execution Agent",
-        description="Agente que genera código Python o JavaScript y lo ejecuta en contenedores Docker aislados. Puede corregir errores automáticamente.",
-        type="agent",
-        version="1.0.0",
-        nodes=[
-            NodeDefinition(id="input", type=NodeType.INPUT, name="Petición"),
-            NodeDefinition(id="planner", type=NodeType.LLM, name="Planificador"),
-            NodeDefinition(id="code_generator", type=NodeType.LLM, name="Generador de Código"),
-            NodeDefinition(id="executor", type=NodeType.TOOL, name="Ejecutor"),
-            NodeDefinition(id="error_handler", type=NodeType.LLM, name="Corrector de Errores"),
-            NodeDefinition(id="synthesizer", type=NodeType.LLM, name="Sintetizador"),
-            NodeDefinition(id="output", type=NodeType.OUTPUT, name="Respuesta")
-        ],
-        config=ChainConfig(
-            temperature=0.5,
-            use_memory=True,
-            max_memory_messages=10
-        )
-    )
-    
     chain_registry.register(
         chain_id="code_execution",
-        definition=definition,
+        definition=CODE_EXECUTION_DEFINITION,
         builder=build_code_execution_agent
     )
     
-    logger.info("Code Execution Agent registrado")
+    logger.info("Code Execution Agent registrado (v2.0.0)")

@@ -1,22 +1,37 @@
 """
-Orchestrator Agent - Agente orquestador con patrón ReAct (Reason + Act)
+Orchestrator Agent - REFACTORIZADO con estándar
+Agente orquestador con patrón ReAct (Reason + Act).
 
 Descompone tareas complejas en pasos, piensa antes de actuar,
-y delega a agentes especializados REGISTRADOS en el chain_registry.
+y delega a agentes especializados registrados en el chain_registry.
 Soporta múltiples proveedores LLM: Ollama, OpenAI, Anthropic, etc.
 """
 
 import json
-import re
 from typing import AsyncGenerator, Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
 
-from ..models import ChainConfig, StreamEvent, ChainInvokeRequest
+from ..models import (
+    ChainDefinition,
+    ChainConfig,
+    NodeDefinition,
+    NodeType,
+    StreamEvent,
+    ChainInvokeRequest
+)
 from ..registry import chain_registry
 from .llm_utils import call_llm, call_llm_stream
+from .agent_helpers import (  # ✅ Usar helpers compartidos
+    extract_json,
+    build_llm_messages
+)
 
+
+# ============================================
+# Modelos de Datos del Orchestrator
+# ============================================
 
 class StepStatus(str, Enum):
     PENDING = "pending"
@@ -50,7 +65,7 @@ class ExecutionContext:
 
 
 # ============================================
-# Funciones para obtener agentes del Registry
+# Funciones específicas del Orchestrator
 # ============================================
 
 def get_available_agents() -> Dict[str, Dict[str, str]]:
@@ -60,7 +75,6 @@ def get_available_agents() -> Dict[str, Dict[str, str]]:
     """
     agents = {}
     for chain_id in chain_registry.list_chain_ids():
-        # Excluir el orquestador de la lista
         if chain_id == "orchestrator":
             continue
         
@@ -76,9 +90,7 @@ def get_available_agents() -> Dict[str, Dict[str, str]]:
 
 
 def get_agents_description_for_prompt() -> str:
-    """
-    Generar descripción de agentes para el prompt del planificador.
-    """
+    """Generar descripción de agentes para el prompt del planificador"""
     agents = get_available_agents()
     
     if not agents:
@@ -91,146 +103,16 @@ def get_agents_description_for_prompt() -> str:
     return "\n".join(lines)
 
 
-# ============================================
-# Prompts del Orquestador
-# ============================================
-
-def get_planner_prompt(query: str) -> str:
-    """Generar el prompt del planificador con agentes dinámicos"""
-    agents_desc = get_agents_description_for_prompt()
-    
-    return f"""Eres un planificador experto. Tu tarea es analizar la petición del usuario y crear un plan de pasos concretos.
-
-AGENTES DISPONIBLES:
-{agents_desc}
-
-PETICIÓN DEL USUARIO:
-{query}
-
-INSTRUCCIONES:
-1. Analiza qué información necesita el usuario
-2. Descompón la tarea en pasos simples y concretos
-3. Asigna el agente apropiado a cada paso (usa el ID exacto del agente)
-4. Responde SOLO con JSON en este formato:
-
-```json
-{{
-  "analysis": "Breve análisis de la petición",
-  "plan": [
-    {{"step": 1, "description": "Descripción del paso", "agent": "agent_id"}},
-    {{"step": 2, "description": "Descripción del paso", "agent": "agent_id"}}
-  ]
-}}
-```
-
-REGLAS:
-- Si la petición es simple, usa un solo paso
-- Máximo 5 pasos
-- Para consultas SAP (pedidos, productos, clientes, saldos, usuarios), usa "sap_agent"
-- Para búsqueda en documentos/conocimiento, usa "rag"
-- Para cálculos y herramientas básicas, usa "tool_agent"
-- Para procesamiento de datos, análisis, gráficos o código, usa "code_execution_agent"
-- Para conversación general, usa "conversational"
-
-PATRONES COMUNES DE MULTI-AGENTE:
-- "Analiza/estadísticas de datos SAP" → sap_agent + code_execution_agent
-- "Busca y resume documentos" → rag + conversational
-- "Obtén datos y genera gráfico" → sap_agent/tool_agent + code_execution_agent
-"""
-
-
-THINKER_PROMPT = """Eres un agente que piensa cuidadosamente antes de actuar.
-
-CONTEXTO:
-- Petición original: {original_query}
-- Plan actual: {plan}
-- Paso actual: {current_step}
-- Observaciones anteriores: {observations}
-
-INSTRUCCIONES:
-Piensa en voz alta sobre:
-1. Qué información tienes hasta ahora
-2. Qué necesitas hacer en este paso
-3. Cómo vas a proceder
-
-Responde con tu razonamiento en 2-3 oraciones."""
-
-
-OBSERVER_PROMPT = """Analiza el resultado de la acción ejecutada.
-
-PASO EJECUTADO: {step_description}
-AGENTE USADO: {agent_id}
-RESULTADO OBTENIDO:
-```
-{result}
-```
-
-INSTRUCCIONES:
-1. Resume los datos clave obtenidos (máximo 3 puntos)
-2. Indica si el paso fue exitoso
-3. Menciona información relevante para los siguientes pasos
-
-Responde de forma concisa."""
-
-
-SYNTHESIZER_PROMPT = """Genera la respuesta final para el usuario basándote en toda la información recopilada.
-
-PETICIÓN ORIGINAL:
-{original_query}
-
-PLAN EJECUTADO:
-{plan}
-
-OBSERVACIONES DE CADA PASO:
-{observations}
-
-INSTRUCCIONES:
-- Responde directamente a la petición del usuario
-- Usa los datos obtenidos para dar una respuesta completa
-- Si hay tablas o listas, formatea con markdown
-- Si hubo errores, menciónalos
-- Sé conciso pero completo
-- Responde en español"""
-
-
-# ============================================
-# Funciones auxiliares
-# ============================================
-
-def extract_json(text: str) -> Optional[Dict]:
-    """Extraer JSON de un texto"""
-    patterns = [
-        r'```json\s*([\s\S]*?)\s*```',
-        r'```\s*([\s\S]*?)\s*```',
-        r'\{[\s\S]*\}'
-    ]
-    
-    for pattern in patterns:
-        matches = re.findall(pattern, text)
-        for match in matches:
-            try:
-                return json.loads(match.strip())
-            except json.JSONDecodeError:
-                continue
-    
-    try:
-        return json.loads(text.strip())
-    except:
-        return None
-
-
 def extract_json_from_response(response: str) -> Optional[Dict]:
     """
     Extraer datos JSON de una respuesta de agente.
     Útil para pasar datos estructurados entre agentes.
     """
-    # Intentar extraer bloques JSON del markdown
     json_blocks = re.findall(r'```json\s*([\s\S]*?)\s*```', response)
     
     for block in json_blocks:
         try:
             data = json.loads(block.strip())
-            # Si tiene estructura de datos útiles, devolverlo
             if isinstance(data, (dict, list)) and data:
                 return data
         except json.JSONDecodeError:
@@ -238,8 +120,8 @@ def extract_json_from_response(response: str) -> Optional[Dict]:
     
     # Buscar objetos JSON sueltos
     try:
-        # Buscar el primer objeto JSON válido
-        match = re.search(r'\{[\s\S]*\}', response)
+        import re as re_module
+        match = re_module.search(r'\{[\s\S]*\}', response)
         if match:
             return json.loads(match.group())
     except:
@@ -269,7 +151,6 @@ async def execute_sub_agent(
         previous_result: Resultado estructurado del paso anterior (para pasar datos entre agentes)
         memory: Memoria de la conversación a pasar al sub-agente
     """
-    # Obtener el builder del agente
     builder = chain_registry.get_builder(agent_id)
     definition = chain_registry.get(agent_id)
     
@@ -284,16 +165,12 @@ async def execute_sub_agent(
         # Preparar input para el sub-agente
         message = task
         
-        # Si hay contexto de pasos anteriores, agregarlo
         if context and context != "Ninguna aún":
             message = f"{task}\n\nCONTEXTO PREVIO:\n{context}"
         
         # Si hay datos estructurados del paso anterior (para code_execution_agent)
         if previous_result and agent_id == "code_execution_agent":
-            # Extraer datos JSON del resultado anterior
             prev_response = previous_result.get("response", "")
-            
-            # Intentar extraer JSON del resultado anterior
             json_data = extract_json_from_response(prev_response)
             
             if json_data:
@@ -309,20 +186,19 @@ async def execute_sub_agent(
         full_response = ""
         tools_used = []
         sources = []
-        raw_data = None  # Para capturar datos estructurados
+        raw_data = None
         
         async for event in builder(
-            config=definition.config,  # Usar config del agente
+            config=definition.config,
             llm_url=llm_url,
             model=model,
             input_data=sub_input,
-            memory=memory or [],  # Pasar memoria del orchestrator a sub-agente
+            memory=memory or [],
             execution_id=f"{execution_id}_sub_{agent_id}",
-            stream=False,  # No streaming para sub-agentes
+            stream=False,
             provider_type=provider_type,
             api_key=api_key
         ):
-            # Capturar resultado final
             if isinstance(event, dict) and "_result" in event:
                 result = event["_result"]
                 full_response = result.get("response", "")
@@ -337,12 +213,10 @@ async def execute_sub_agent(
                 
                 break
             
-            # Si es StreamEvent con tokens, acumular
             if hasattr(event, 'event_type'):
                 if event.event_type == "token" and event.content:
                     full_response += event.content
                 elif event.event_type == "node_end" and event.data:
-                    # Capturar respuesta de eventos de fin
                     if "response" in event.data:
                         full_response = event.data["response"]
                     if "tools_used" in event.data:
@@ -356,7 +230,7 @@ async def execute_sub_agent(
             "tools_used": tools_used,
             "sources": sources,
             "agent_name": definition.name,
-            "raw_data": raw_data  # Datos estructurados para siguiente agente
+            "raw_data": raw_data
         }
         
     except Exception as e:
@@ -368,12 +242,9 @@ async def execute_sub_agent(
 
 
 def select_default_agent(query: str) -> str:
-    """
-    Seleccionar agente por defecto basado en keywords.
-    """
+    """Seleccionar agente por defecto basado en keywords"""
     query_lower = query.lower()
     
-    # Keywords para cada agente
     sap_keywords = ["sap", "pedido", "venta", "producto", "cliente", "saldo", "banco", "factura", "stock", "inventario"]
     rag_keywords = ["documento", "buscar", "encontrar", "información sobre", "qué dice", "manual", "guía"]
     tool_keywords = ["calcular", "hora", "fecha", "buscar en web", "suma", "resta", "matemátic"]
@@ -389,7 +260,159 @@ def select_default_agent(query: str) -> str:
 
 
 # ============================================
-# Builder del Orquestador
+# Definición del Agente (con prompts editables)
+# ============================================
+
+ORCHESTRATOR_DEFINITION = ChainDefinition(
+    id="orchestrator",
+    name="Orchestrator Agent",
+    description="Agente orquestador que descompone tareas complejas en pasos y delega a agentes especializados del registry (SAP Agent, RAG, Tool Agent, Conversational).",
+    type="agent",
+    version="3.0.0",  # ✅ Versión actualizada con estándar
+    nodes=[
+        NodeDefinition(
+            id="input",
+            type=NodeType.INPUT,
+            name="Petición"
+        ),
+        NodeDefinition(
+            id="planner",
+            type=NodeType.LLM,
+            name="Planificador",
+            # ✅ System prompt editable con variables
+            system_prompt="""Eres un planificador experto. Tu tarea es analizar la petición del usuario y crear un plan de pasos concretos.
+
+AGENTES DISPONIBLES:
+{{agents_description}}
+
+PETICIÓN DEL USUARIO:
+{{user_query}}
+
+INSTRUCCIONES:
+1. Analiza qué información necesita el usuario
+2. Descompón la tarea en pasos simples y concretos
+3. Asigna el agente apropiado a cada paso (usa el ID exacto del agente)
+4. Responde SOLO con JSON en este formato:
+
+```json
+{
+  "analysis": "Breve análisis de la petición",
+  "plan": [
+    {"step": 1, "description": "Descripción del paso", "agent": "agent_id"},
+    {"step": 2, "description": "Descripción del paso", "agent": "agent_id"}
+  ]
+}
+```
+
+REGLAS:
+- Si la petición es simple, usa un solo paso
+- Máximo 5 pasos
+- Para consultas SAP (pedidos, productos, clientes, saldos, usuarios), usa "sap_agent"
+- Para búsqueda en documentos/conocimiento, usa "rag"
+- Para cálculos y herramientas básicas, usa "tool_agent"
+- Para procesamiento de datos, análisis, gráficos o código, usa "code_execution_agent"
+- Para conversación general, usa "conversational"
+
+PATRONES COMUNES DE MULTI-AGENTE:
+- "Analiza/estadísticas de datos SAP" → sap_agent + code_execution_agent
+- "Busca y resume documentos" → rag + conversational
+- "Obtén datos y genera gráfico" → sap_agent/tool_agent + code_execution_agent""",
+            prompt_template="Crea el plan de ejecución.",
+            temperature=0.2
+        ),
+        NodeDefinition(
+            id="thinker",
+            type=NodeType.LLM,
+            name="Pensador ReAct",
+            # ✅ System prompt editable
+            system_prompt="""Eres un agente que piensa cuidadosamente antes de actuar.
+
+CONTEXTO:
+- Petición original: {{original_query}}
+- Plan actual: {{plan}}
+- Paso actual: {{current_step}}
+- Observaciones anteriores: {{observations}}
+
+INSTRUCCIONES:
+Piensa en voz alta sobre:
+1. Qué información tienes hasta ahora
+2. Qué necesitas hacer en este paso
+3. Cómo vas a proceder
+
+Responde con tu razonamiento en 2-3 oraciones.""",
+            prompt_template="¿Qué piensas sobre este paso?",
+            temperature=0.3
+        ),
+        NodeDefinition(
+            id="react_loop",
+            type=NodeType.TOOL,
+            name="Bucle ReAct (Delegación)"
+        ),
+        NodeDefinition(
+            id="observer",
+            type=NodeType.LLM,
+            name="Observador",
+            # ✅ System prompt editable
+            system_prompt="""Analiza el resultado de la acción ejecutada.
+
+PASO EJECUTADO: {{step_description}}
+AGENTE USADO: {{agent_id}}
+RESULTADO OBTENIDO:
+```
+{{result}}
+```
+
+INSTRUCCIONES:
+1. Resume los datos clave obtenidos (máximo 3 puntos)
+2. Indica si el paso fue exitoso
+3. Menciona información relevante para los siguientes pasos
+
+Responde de forma concisa.""",
+            prompt_template="Analiza el resultado.",
+            temperature=0.3
+        ),
+        NodeDefinition(
+            id="synthesizer",
+            type=NodeType.LLM,
+            name="Sintetizador",
+            # ✅ System prompt editable
+            system_prompt="""Genera la respuesta final para el usuario basándote en toda la información recopilada.
+
+PETICIÓN ORIGINAL:
+{{original_query}}
+
+PLAN EJECUTADO:
+{{plan}}
+
+OBSERVACIONES DE CADA PASO:
+{{observations}}
+
+INSTRUCCIONES:
+- Responde directamente a la petición del usuario
+- Usa los datos obtenidos para dar una respuesta completa
+- Si hay tablas o listas, formatea con markdown
+- Si hubo errores, menciónalos
+- Sé conciso pero completo
+- Responde en español""",
+            prompt_template="Genera la respuesta final.",
+            temperature=0.5
+        ),
+        NodeDefinition(
+            id="output",
+            type=NodeType.OUTPUT,
+            name="Respuesta"
+        )
+    ],
+    config=ChainConfig(
+        temperature=0.5,
+        use_memory=True,
+        max_memory_messages=20
+    )
+)
+
+
+# ============================================
+# Builder Function (Lógica del Agente)
 # ============================================
 
 async def build_orchestrator_agent(
@@ -403,12 +426,29 @@ async def build_orchestrator_agent(
     provider_type: str = "ollama",
     api_key: Optional[str] = None,
     **kwargs
-):
+) -> AsyncGenerator[StreamEvent, None]:
     """
     Builder del agente orquestador con patrón ReAct.
     
-    Delega la ejecución a agentes registrados en el chain_registry.
-    Soporta múltiples proveedores LLM.
+    FASES:
+    1. Planning: Analizar query y crear plan de pasos
+    2. ReAct Loop: Para cada paso:
+       - Think: Razonar sobre el paso
+       - Act: Delegar a sub-agente
+       - Observe: Analizar resultado
+    3. Synthesis: Generar respuesta final
+    
+    NODOS:
+    - input (INPUT): Petición del usuario
+    - planner (LLM): Crea plan de ejecución
+    - thinker (LLM): Razona antes de cada paso
+    - react_loop (TOOL): Delega a sub-agentes
+    - observer (LLM): Analiza resultado de cada paso
+    - synthesizer (LLM): Genera respuesta final
+    - output (OUTPUT): Respuesta completa
+    
+    MEMORY: Yes (hasta 20 mensajes) - Compartida con sub-agentes
+    TOOLS: Todos los agentes registrados en chain_registry
     """
     
     query = input_data.get("message", input_data.get("query", ""))
@@ -419,8 +459,17 @@ async def build_orchestrator_agent(
         max_iterations=max_iterations
     )
     
-    # Log de agentes disponibles
+    # ✅ Obtener nodos con prompts editables
+    planner_node = ORCHESTRATOR_DEFINITION.get_node("planner")
+    thinker_node = ORCHESTRATOR_DEFINITION.get_node("thinker")
+    observer_node = ORCHESTRATOR_DEFINITION.get_node("observer")
+    synth_node = ORCHESTRATOR_DEFINITION.get_node("synthesizer")
+    
+    if not all([planner_node, thinker_node, observer_node, synth_node]):
+        raise ValueError("Nodos del Orchestrator no encontrados")
+    
     available_agents = get_available_agents()
+    agents_desc = get_agents_description_for_prompt()
     
     # ========== FASE 1: PLANIFICACIÓN ==========
     yield StreamEvent(
@@ -435,24 +484,32 @@ async def build_orchestrator_agent(
         }
     )
     
-    planner_prompt = get_planner_prompt(query)
-    planner_messages = [
-        {"role": "system", "content": planner_prompt}
-    ]
+    # ✅ Reemplazar variables en planner prompt
+    planner_prompt = planner_node.system_prompt
+    planner_prompt = planner_prompt.replace("{{agents_description}}", agents_desc)
+    planner_prompt = planner_prompt.replace("{{user_query}}", query)
     
-    # Agregar memoria si existe (conversación previa)
-    if memory:
-        planner_messages.extend(memory[-10:])  # Últimos 10 mensajes
+    # ✅ Usar helper para construir mensajes
+    planner_messages = build_llm_messages(
+        system_prompt=planner_prompt,
+        template=planner_node.prompt_template,
+        variables={},
+        memory=memory,
+        max_memory=10
+    )
     
-    planner_messages.append({"role": "user", "content": "Crea el plan de ejecución."})
+    plan_response = await call_llm(
+        llm_url, model, planner_messages,
+        temperature=planner_node.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    )
     
-    plan_response = await call_llm(llm_url, model, planner_messages, temperature=0.2, provider_type=provider_type, api_key=api_key)
-    plan_data = extract_json(plan_response)
+    plan_data = extract_json(plan_response)  # ✅ Usar helper compartido
     
     if plan_data and "plan" in plan_data:
         for step in plan_data["plan"]:
             agent_id = step.get("agent", "conversational")
-            # Validar que el agente existe
             if agent_id not in available_agents and agent_id != "conversational":
                 agent_id = select_default_agent(step.get("description", ""))
             
@@ -463,7 +520,7 @@ async def build_orchestrator_agent(
             ))
         analysis = plan_data.get("analysis", "")
     else:
-        # Plan por defecto si no se pudo parsear
+        # Plan por defecto
         default_agent = select_default_agent(query)
         ctx.plan.append(PlanStep(
             id=1,
@@ -498,17 +555,26 @@ async def build_orchestrator_agent(
             data={"step": step.id, "description": step.description, "agent": step.agent}
         )
         
-        think_messages = [
-            {"role": "system", "content": THINKER_PROMPT.format(
-                original_query=ctx.original_query,
-                plan=json.dumps([{"step": s.id, "desc": s.description, "agent": s.agent, "status": s.status.value} for s in ctx.plan], ensure_ascii=False),
-                current_step=f"Paso {step.id}: {step.description} (usando agente: {step.agent})",
-                observations=json.dumps(ctx.observations[-3:], ensure_ascii=False, default=str) if ctx.observations else "Ninguna aún"
-            )},
-            {"role": "user", "content": "¿Qué piensas sobre este paso?"}
-        ]
+        # ✅ Reemplazar variables en thinker prompt
+        think_prompt = thinker_node.system_prompt
+        think_prompt = think_prompt.replace("{{original_query}}", ctx.original_query)
+        think_prompt = think_prompt.replace("{{plan}}", json.dumps([{"step": s.id, "desc": s.description, "agent": s.agent, "status": s.status.value} for s in ctx.plan], ensure_ascii=False))
+        think_prompt = think_prompt.replace("{{current_step}}", f"Paso {step.id}: {step.description} (usando agente: {step.agent})")
+        think_prompt = think_prompt.replace("{{observations}}", json.dumps(ctx.observations[-3:], ensure_ascii=False, default=str) if ctx.observations else "Ninguna aún")
         
-        thinking = await call_llm(llm_url, model, think_messages, temperature=0.3, provider_type=provider_type, api_key=api_key)
+        think_messages = build_llm_messages(
+            system_prompt=think_prompt,
+            template=thinker_node.prompt_template,
+            variables={},
+            memory=None
+        )
+        
+        thinking = await call_llm(
+            llm_url, model, think_messages,
+            temperature=thinker_node.temperature,
+            provider_type=provider_type,
+            api_key=api_key
+        )
         
         yield StreamEvent(
             event_type="node_end",
@@ -529,13 +595,9 @@ async def build_orchestrator_agent(
             data={"agent": step.agent, "task": step.description}
         )
         
-        # Preparar contexto de pasos anteriores
         prev_context = json.dumps(ctx.observations[-2:], ensure_ascii=False, default=str) if ctx.observations else ""
-        
-        # Obtener resultado del paso anterior para pasar datos estructurados
         previous_result = ctx.observations[-1] if ctx.observations else None
         
-        # Ejecutar el sub-agente
         action_result = await execute_sub_agent(
             agent_id=step.agent,
             task=step.description,
@@ -546,8 +608,8 @@ async def build_orchestrator_agent(
             execution_id=execution_id,
             provider_type=provider_type,
             api_key=api_key,
-            previous_result=previous_result,  # Pasar resultado anterior
-            memory=memory  # Pasar memoria del orchestrator
+            previous_result=previous_result,
+            memory=memory
         )
         
         if action_result.get("success"):
@@ -580,16 +642,25 @@ async def build_orchestrator_agent(
             data={}
         )
         
-        observe_messages = [
-            {"role": "system", "content": OBSERVER_PROMPT.format(
-                step_description=step.description,
-                agent_id=step.agent,
-                result=json.dumps(action_result, ensure_ascii=False, default=str)[:3000]
-            )},
-            {"role": "user", "content": "Analiza el resultado."}
-        ]
+        # ✅ Reemplazar variables en observer prompt
+        observe_prompt = observer_node.system_prompt
+        observe_prompt = observe_prompt.replace("{{step_description}}", step.description)
+        observe_prompt = observe_prompt.replace("{{agent_id}}", step.agent)
+        observe_prompt = observe_prompt.replace("{{result}}", json.dumps(action_result, ensure_ascii=False, default=str)[:3000])
         
-        observation = await call_llm(llm_url, model, observe_messages, temperature=0.3, provider_type=provider_type, api_key=api_key)
+        observe_messages = build_llm_messages(
+            system_prompt=observe_prompt,
+            template=observer_node.prompt_template,
+            variables={},
+            memory=None
+        )
+        
+        observation = await call_llm(
+            llm_url, model, observe_messages,
+            temperature=observer_node.temperature,
+            provider_type=provider_type,
+            api_key=api_key
+        )
         
         ctx.observations.append({
             "step": step.id,
@@ -607,7 +678,6 @@ async def build_orchestrator_agent(
             data={"observation": observation}
         )
         
-        # Avanzar al siguiente paso
         ctx.current_step += 1
     
     # ========== FASE 3: SÍNTESIS FINAL ==========
@@ -623,31 +693,36 @@ async def build_orchestrator_agent(
         }
     )
     
-    synth_messages = [
-        {"role": "system", "content": SYNTHESIZER_PROMPT.format(
-            original_query=ctx.original_query,
-            plan=json.dumps([{
-                "paso": s.id, 
-                "descripción": s.description, 
-                "agente": s.agent,
-                "estado": s.status.value
-            } for s in ctx.plan], ensure_ascii=False),
-            observations=json.dumps([{
-                "paso": o["step"], 
-                "agente": o["agent"],
-                "observación": o["observation"]
-            } for o in ctx.observations], ensure_ascii=False, default=str)
-        )}
-    ]
+    # ✅ Reemplazar variables en synthesizer prompt
+    synth_prompt = synth_node.system_prompt
+    synth_prompt = synth_prompt.replace("{{original_query}}", ctx.original_query)
+    synth_prompt = synth_prompt.replace("{{plan}}", json.dumps([{
+        "paso": s.id, 
+        "descripción": s.description, 
+        "agente": s.agent,
+        "estado": s.status.value
+    } for s in ctx.plan], ensure_ascii=False))
+    synth_prompt = synth_prompt.replace("{{observations}}", json.dumps([{
+        "paso": o["step"], 
+        "agente": o["agent"],
+        "observación": o["observation"]
+    } for o in ctx.observations], ensure_ascii=False, default=str))
     
-    # Agregar memoria al sintetizador para mantener contexto
-    if memory:
-        synth_messages.extend(memory[-10:])  # Últimos 10 mensajes
-    
-    synth_messages.append({"role": "user", "content": "Genera la respuesta final."})
+    synth_messages = build_llm_messages(
+        system_prompt=synth_prompt,
+        template=synth_node.prompt_template,
+        variables={},
+        memory=memory,
+        max_memory=10
+    )
     
     full_response = ""
-    async for token in call_llm_stream(llm_url, model, synth_messages, temperature=config.temperature, provider_type=provider_type, api_key=api_key):
+    async for token in call_llm_stream(
+        llm_url, model, synth_messages,
+        temperature=synth_node.temperature,
+        provider_type=provider_type,
+        api_key=api_key
+    ):
         full_response += token
         yield StreamEvent(
             event_type="token",
@@ -687,32 +762,15 @@ async def build_orchestrator_agent(
         }}
 
 
+# ============================================
+# Registro del Agente
+# ============================================
+
 def register_orchestrator_agent():
     """Registrar el agente orquestador"""
-    from ..models import ChainDefinition, NodeDefinition, NodeType, ChainConfig
-    
-    definition = ChainDefinition(
-        id="orchestrator",
-        name="Orchestrator Agent",
-        description="Agente orquestador que descompone tareas complejas en pasos y delega a agentes especializados del registry (SAP Agent, RAG, Tool Agent, Conversational).",
-        type="agent",
-        version="2.0.0",  # Nueva versión con delegación
-        nodes=[
-            NodeDefinition(id="input", type=NodeType.INPUT, name="Petición"),
-            NodeDefinition(id="planner", type=NodeType.LLM, name="Planificador"),
-            NodeDefinition(id="react_loop", type=NodeType.TOOL, name="Bucle ReAct (Delegación)"),
-            NodeDefinition(id="synthesizer", type=NodeType.LLM, name="Sintetizador"),
-            NodeDefinition(id="output", type=NodeType.OUTPUT, name="Respuesta")
-        ],
-        config=ChainConfig(
-            temperature=0.5,
-            use_memory=True,
-            max_memory_messages=20
-        )
-    )
     
     chain_registry.register(
         chain_id="orchestrator",
-        definition=definition,
+        definition=ORCHESTRATOR_DEFINITION,
         builder=build_orchestrator_agent
     )
