@@ -432,8 +432,9 @@ async def stream_gemini_response(
     """
     Generador asíncrono para streaming de Gemini API.
     
-    NOTA: Gemini devuelve UN array de objetos completo formateado en múltiples líneas,
-    NO múltiples JSON objects separados como OpenAI.
+    IMPORTANTE: Gemini requiere el parámetro alt=sse para verdadero streaming SSE.
+    Sin alt=sse, devuelve un JSON completo en múltiples líneas (NO streaming).
+    Con alt=sse, devuelve múltiples eventos "data: {...}" progresivamente.
     """
     # Convertir mensajes a formato Gemini
     gemini_contents = []
@@ -470,7 +471,8 @@ async def stream_gemini_response(
             "parts": [{"text": system_instruction}]
         }
     
-    url = f"{base_url}/models/{model}:streamGenerateContent?key={api_key}"
+    # CLAVE: Agregar alt=sse para streaming real
+    url = f"{base_url}/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
     
     async with httpx.AsyncClient(timeout=300.0) as client:
         async with client.stream(
@@ -479,41 +481,28 @@ async def stream_gemini_response(
             headers={"Content-Type": "application/json"},
             json=payload
         ) as response:
-            # Acumular todas las líneas para formar el JSON completo
-            accumulated_lines = []
+            # Procesar eventos SSE
             async for line in response.aiter_lines():
-                accumulated_lines.append(line)
-            
-            # Unir todas las líneas y parsear como JSON
-            full_response = "\n".join(accumulated_lines)
-            
-            try:
-                # Gemini devuelve un array de chunks
-                chunks = json.loads(full_response)
-                
-                # Procesar cada chunk
-                total_tokens = 0
-                for chunk in chunks:
-                    candidates = chunk.get("candidates", [])
-                    if candidates:
-                        content_parts = candidates[0].get("content", {}).get("parts", [])
-                        if content_parts:
-                            text = content_parts[0].get("text", "")
-                            if text:
-                                # Enviar texto en streaming
-                                yield f"data: {json.dumps({'content': text})}\n\n"
-                    
-                    # Obtener metadata de tokens del último chunk
-                    usage = chunk.get("usageMetadata", {})
-                    if usage:
-                        total_tokens = usage.get("totalTokenCount", 0)
-                
-                # Enviar evento done
-                yield f"data: {json.dumps({'done': True, 'total_tokens': total_tokens})}\n\n"
-                
-            except json.JSONDecodeError as e:
-                # Si falla el parsing, enviar error
-                yield f"data: {json.dumps({'error': f'Error parsing Gemini response: {str(e)}'})}\n\n"
+                if line.startswith("data: "):
+                    data_str = line[6:]  # Remover "data: "
+                    try:
+                        data = json.loads(data_str)
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            content_parts = candidates[0].get("content", {}).get("parts", [])
+                            if content_parts:
+                                text = content_parts[0].get("text", "")
+                                if text:
+                                    # Enviar texto en formato SSE
+                                    yield f"data: {json.dumps({'content': text})}\n\n"
+                        
+                        # Check si terminó
+                        if candidates and candidates[0].get("finishReason"):
+                            usage = data.get("usageMetadata", {})
+                            yield f"data: {json.dumps({'done': True, 'total_tokens': usage.get('totalTokenCount', 0)})}\n\n"
+                    except json.JSONDecodeError:
+                        # Ignorar líneas que no sean JSON válido
+                        continue
 
 
 # ===========================================
