@@ -81,10 +81,11 @@ services:
     networks:
       - brain-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:1337/_health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:1337/admin"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
 
   # ===========================================
   # API Python - LangChain/LangGraph
