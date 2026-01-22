@@ -109,7 +109,7 @@ services:
       BROWSER_VNC_PORT: 6080
       MCP_PLAYWRIGHT_URL: http://mcp-playwright:3001
     ports:
-      - "8001:8000"
+      - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
