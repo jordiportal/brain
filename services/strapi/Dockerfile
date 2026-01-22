@@ -35,6 +35,12 @@ COPY src/ ./src/
 COPY config/ ./config/
 COPY tsconfig.json ./
 
+# En producción, construir el admin panel durante el build de la imagen
+RUN if [ "$NODE_ENV" = "production" ]; then \
+        echo "🔨 Building admin panel..."; \
+        npm run build; \
+    fi
+
 # Script de inicio que crea Strapi si no existe
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
