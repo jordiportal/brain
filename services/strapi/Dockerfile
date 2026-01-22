@@ -38,8 +38,8 @@ COPY tsconfig.json ./
 # Crear directorio de uploads necesario para Strapi
 RUN mkdir -p /app/public/uploads && chmod 777 /app/public/uploads
 
-# En producción, construir el admin panel durante el build de la imagen
-RUN npm run build
+# NO construir en build time, dejar que Strapi lo haga en runtime
+# Esto evita problemas con dependencias y symlinks
 
 # Script de inicio que crea Strapi si no existe
 COPY docker-entrypoint.sh /docker-entrypoint.sh
