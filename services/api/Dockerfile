@@ -52,12 +52,18 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Instalar Playwright y navegador Chromium
-RUN playwright install chromium --with-deps || \
-    (playwright install chromium && apt-get update && apt-get install -y --no-install-recommends \
-    libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
-    libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 \
-    && rm -rf /var/lib/apt/lists/*)
+# Instalar Playwright y navegador Chromium SOLO en amd64
+# En arm64 skip porque Chromium no está disponible oficialmente
+# El browser service se ejecuta por separado de todas formas
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+        playwright install chromium --with-deps || \
+        (playwright install chromium && apt-get update && apt-get install -y --no-install-recommends \
+        libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
+        libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 \
+        && rm -rf /var/lib/apt/lists/*); \
+    else \
+        echo "Skipping Playwright on ARM64 - not officially supported"; \
+    fi
 
 # Copiar código fuente
 COPY src/ ./src/
