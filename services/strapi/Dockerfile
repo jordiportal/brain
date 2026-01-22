@@ -12,7 +12,8 @@ RUN apk add --no-cache \
     zlib-dev \
     libpng-dev \
     vips-dev \
-    git
+    git \
+    wget
 
 # Establecer directorio de trabajo
 WORKDIR /app
@@ -50,7 +51,7 @@ EXPOSE 1337
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:1337/_health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:1337/admin || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]
