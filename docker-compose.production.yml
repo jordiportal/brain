@@ -56,7 +56,9 @@ services:
     container_name: brain-strapi
     restart: unless-stopped
     environment:
-      NODE_ENV: production
+      # TEMPORAL: development por bug en Strapi 5.x admin panel
+      # https://github.com/strapi/strapi/issues/24384
+      NODE_ENV: development
       DATABASE_CLIENT: postgres
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -73,6 +75,8 @@ services:
       STRAPI_ADMIN_BACKEND_URL: http://192.168.7.103:1337
     ports:
       - "1337:1337"
+      # Vite HMR para modo development
+      - "5173:5173"
     volumes:
       - strapi_uploads:/app/public/uploads
     depends_on:
