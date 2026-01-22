@@ -35,6 +35,9 @@ COPY src/ ./src/
 COPY config/ ./config/
 COPY tsconfig.json ./
 
+# Crear directorio de uploads necesario para Strapi
+RUN mkdir -p /app/public/uploads && chmod 777 /app/public/uploads
+
 # Script de inicio que crea Strapi si no existe
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
