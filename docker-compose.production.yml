@@ -75,6 +75,7 @@ services:
       STRAPI_ADMIN_BACKEND_URL: http://192.168.7.103:1337
     ports:
       - "1337:1337"
+      - "5173:5173"
     volumes:
       - strapi_uploads:/app/public/uploads
     depends_on:
