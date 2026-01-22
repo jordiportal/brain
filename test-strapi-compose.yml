@@ -1,0 +1,50 @@
+version: '3.8'
+
+# ===========================================
+# TEST: Strapi vanilla para probar bug
+# ===========================================
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: test-strapi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: strapi
+      POSTGRES_PASSWORD: strapi123
+      POSTGRES_DB: strapi_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+
+  strapi-test:
+    image: strapi/strapi:latest
+    container_name: test-strapi
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_CLIENT: postgres
+      DATABASE_HOST: postgres-test
+      DATABASE_PORT: 5432
+      DATABASE_NAME: strapi_test
+      DATABASE_USERNAME: strapi
+      DATABASE_PASSWORD: strapi123
+      DATABASE_SSL: false
+      JWT_SECRET: test-jwt-secret-change-me
+      ADMIN_JWT_SECRET: test-admin-jwt-secret
+      APP_KEYS: test-key1,test-key2,test-key3,test-key4
+      API_TOKEN_SALT: test-api-token-salt
+      TRANSFER_TOKEN_SALT: test-transfer-token-salt
+    ports:
+      - "1338:1337"
+    volumes:
+      - test_strapi_data:/srv/app
+    depends_on:
+      - postgres-test
+
+volumes:
+  test_postgres_data:
+    driver: local
+  test_strapi_data:
+    driver: local
