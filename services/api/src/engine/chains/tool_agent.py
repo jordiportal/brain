@@ -48,12 +48,16 @@ async def get_available_tools_description() -> str:
 
 
 async def execute_tool(tool_id: str, tool_input: str) -> str:
+async def execute_tool(tool_id: str, tool_input: str) -> dict:
     """
     Ejecutar una herramienta via tool_registry.
     
     El tool_input puede ser:
     - Un string simple: se pasa como primer parámetro
     - Un JSON object: se parsea y los campos se pasan como kwargs
+    
+    Returns:
+        dict: Resultado completo de la herramienta (no convertido a string)
     
     Ejemplos:
     - calculator: input="2+2" → execute(tool_id, expression="2+2")
@@ -89,9 +93,13 @@ async def execute_tool(tool_id: str, tool_input: str) -> str:
                 # Fallback a input genérico
                 result = await tool_registry.execute(tool_id, input=tool_input)
         
-        return str(result.get("result", result.get("data", result)))
+        # Devolver el resultado completo como dict
+        if isinstance(result, dict):
+            return result
+        else:
+            return {"result": result}
     except Exception as e:
-        return f"Error ejecutando {tool_id}: {str(e)}"
+        return {"error": f"Error ejecutando {tool_id}: {str(e)}", "success": False}
 
 
 # ============================================
@@ -154,6 +162,16 @@ RESULTADOS DE HERRAMIENTAS:
 {{tool_results}}
 
 PREGUNTA ORIGINAL: {{user_query}}
+
+INSTRUCCIONES:
+- Si la herramienta devolvió "success": true, úsalo en tu respuesta
+- Si hay un campo "markdown", inclúyelo EXACTAMENTE como está (especialmente para imágenes)
+- Si hay un campo "result" o "data", explícalo de forma clara
+- Si hay error, explica qué salió mal
+
+EJEMPLO CON IMAGEN:
+Si tool_results contiene "markdown": "![...](data:image/png;base64,...)"
+Responde: "He generado la imagen: ![...](data:image/png;base64,...)"
 
 Proporciona una respuesta clara y útil.""",
             prompt_template="Genera la respuesta final.",
@@ -277,12 +295,18 @@ async def build_tool_agent(
             "result": result
         })
         
+        # Para el evento, crear un preview sin truncar campos importantes
+        result_preview = result.copy() if isinstance(result, dict) else {"result": result}
+        # Si hay image_base64, no incluirlo en el preview (es muy largo)
+        if "image_base64" in result_preview:
+            result_preview["image_base64"] = f"[BASE64_IMAGE_{len(result_preview['image_base64'])}chars]"
+        
         yield StreamEvent(
             event_type="node_end",
             execution_id=execution_id,
             node_id="tool_executor",
             node_name=f"Ejecutando: {tool_id}",
-            data={"result": result[:200]}
+            data={"result": result_preview}
         )
     
     # ========== FASE 3: SYNTHESIS ==========
