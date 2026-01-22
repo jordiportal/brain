@@ -24,6 +24,7 @@ import { LlmProvider } from '../../core/models';
 import { ChainEditorComponent } from './chain-editor/chain-editor.component';
 import { BrowserViewerComponent } from '../../shared/components/browser-viewer/browser-viewer.component';
 import { marked } from 'marked';
+import { environment } from '../../../environments/environment';
 
 // Configurar marked para evitar warnings
 marked.setOptions({ async: false });
@@ -995,7 +996,7 @@ export class ChainsComponent implements OnInit {
   loadingModels = signal(false);
 
   // Browser viewer
-  apiBaseUrl = 'http://localhost:8000/api/v1';
+  apiBaseUrl = environment.apiUrl;
   browserConnected = signal(false);
 
   // Map para rastrear pasos intermedios activos
@@ -1155,14 +1156,14 @@ export class ChainsComponent implements OnInit {
 
   private async executeWithStreaming(chainId: string, message: string): Promise<void> {
     const sessionId = this.useMemory ? this.sessionId : undefined;
-    const url = `http://localhost:8000/api/v1/chains/${chainId}/invoke/stream${sessionId ? `?session_id=${sessionId}` : ''}`;
+    const url = `${environment.apiUrl}/chains/${chainId}/invoke/stream${sessionId ? `?session_id=${sessionId}` : ''}`;
     
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         input: { message },
-        llm_provider_url: this.selectedProvider?.baseUrl || 'http://localhost:11434',
+        llm_provider_url: this.selectedProvider?.baseUrl || environment.ollamaDefaultUrl,
         llm_provider_type: this.selectedProvider?.type || 'ollama',
         api_key: this.selectedProvider?.apiKey,
         model: this.llmModel
@@ -1322,7 +1323,7 @@ export class ChainsComponent implements OnInit {
     
     this.apiService.invokeChain(chainId, { 
       input: { message },
-      llm_provider_url: this.selectedProvider?.baseUrl || 'http://localhost:11434',
+      llm_provider_url: this.selectedProvider?.baseUrl || environment.ollamaDefaultUrl,
       llm_provider_type: this.selectedProvider?.type || 'ollama',
       api_key: this.selectedProvider?.apiKey,
       model: this.llmModel

@@ -494,8 +494,9 @@ class ToolRegistry:
                             upload_data = upload_response.json()
                             if upload_data and len(upload_data) > 0:
                                 file_info = upload_data[0]
-                                # Usar localhost para que el navegador pueda acceder
-                                image_url = f"http://localhost:1337{file_info.get('url')}"
+                                # Usar STRAPI_PUBLIC_URL para acceso desde el navegador
+                                strapi_public_url = os.getenv("STRAPI_PUBLIC_URL", "http://localhost:1337")
+                                image_url = f"{strapi_public_url}{file_info.get('url')}"
                                 
                                 logger.info(f"✅ Imagen subida a Strapi: {image_url}")
                                 

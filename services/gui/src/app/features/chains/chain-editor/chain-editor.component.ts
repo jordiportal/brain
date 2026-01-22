@@ -16,6 +16,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { NgxGraphModule } from '@swimlane/ngx-graph';
 import { Subject } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../../environments/environment';
 
 interface ChainNode {
   id: string;
@@ -625,7 +626,7 @@ export class ChainEditorComponent implements OnInit {
   loadChain(): void {
     this.loading.set(true);
     
-    this.http.get<any>(`http://localhost:8000/api/v1/chains/${this.chainId}/full`)
+    this.http.get<any>(`${environment.apiUrl}/chains/${this.chainId}/full`)
       .subscribe({
         next: (response) => {
           this.chain = response.chain;
@@ -701,7 +702,7 @@ export class ChainEditorComponent implements OnInit {
       config: this.chain.config
     };
 
-    this.http.put(`http://localhost:8000/api/v1/chains/${this.chainId}`, payload)
+    this.http.put(`${environment.apiUrl}/chains/${this.chainId}`, payload)
       .subscribe({
         next: () => {
           this.snackBar.open('Cadena guardada correctamente', 'Cerrar', { duration: 3000 });

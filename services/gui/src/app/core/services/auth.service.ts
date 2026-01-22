@@ -3,12 +3,13 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, tap, catchError, throwError } from 'rxjs';
 import { AuthResponse, LoginCredentials, User } from '../models';
+import { environment } from '../../../environments/environment';
 
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
-  private readonly STRAPI_URL = 'http://localhost:1337';
+  private readonly STRAPI_URL = environment.strapiUrl;
   private readonly TOKEN_KEY = 'brain_token';
   private readonly USER_KEY = 'brain_user';
 

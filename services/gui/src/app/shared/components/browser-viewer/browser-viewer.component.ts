@@ -8,6 +8,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { HttpClient } from '@angular/common/http';
 import { catchError, of, interval, Subscription } from 'rxjs';
+import { environment } from '../../../../environments/environment';
 
 interface BrowserStatus {
   initialized: boolean;
@@ -243,7 +244,7 @@ export class BrowserViewerComponent implements OnInit, OnDestroy {
   private sanitizer = inject(DomSanitizer);
   private http = inject(HttpClient);
   
-  @Input() apiUrl = 'http://localhost:8000/api/v1';
+  @Input() apiUrl = environment.apiUrl;
   @Input() browserPort = 6080;
   
   @Output() connectionChange = new EventEmitter<boolean>();

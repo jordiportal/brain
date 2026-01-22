@@ -19,6 +19,7 @@ import { StrapiService } from '../../core/services/strapi.service';
 import { LlmProvider, McpConnection } from '../../core/models';
 import { HttpClient } from '@angular/common/http';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-settings',
@@ -574,7 +575,7 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
   `]
 })
 export class SettingsComponent implements OnInit {
-  private readonly API_URL = 'http://localhost:8000/api/v1';
+  private readonly API_URL = environment.apiUrl;
 
   // LLM Providers
   llmProviders = signal<LlmProvider[]>([]);
@@ -604,7 +605,7 @@ export class SettingsComponent implements OnInit {
     this.llmForm = this.fb.group({
       name: ['', Validators.required],
       type: ['ollama', Validators.required],
-      baseUrl: ['http://localhost:11434', Validators.required],
+      baseUrl: [environment.ollamaDefaultUrl, Validators.required],
       apiKey: [''],
       defaultModel: ['llama3.2'],
       embeddingModel: ['nomic-embed-text'],
@@ -661,7 +662,7 @@ export class SettingsComponent implements OnInit {
     this.editingLlm.set(null);
     this.availableModels.set([]);
     this.connectionStatus.set(null);
-    this.llmForm.reset({ type: 'ollama', baseUrl: 'http://localhost:11434', isActive: true });
+    this.llmForm.reset({ type: 'ollama', baseUrl: environment.ollamaDefaultUrl, isActive: true });
   }
 
   testLlmConnection(): void {

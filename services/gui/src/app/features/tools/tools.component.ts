@@ -18,6 +18,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatTableModule } from '@angular/material/table';
 import { MatBadgeModule } from '@angular/material/badge';
+import { environment } from '../../../environments/environment';
 
 interface OpenAPIConnection {
   id: string;
@@ -148,7 +149,7 @@ interface Tool {
                 <div class="empty-state">
                   <mat-icon>cloud_off</mat-icon>
                   <h3>No hay conexiones configuradas</h3>
-                  <p>Crea conexiones OpenAPI desde <a href="http://localhost:1337/admin" target="_blank">Strapi Admin</a></p>
+                  <p>Crea conexiones OpenAPI desde <a [href]="strapiAdminUrl" target="_blank">Strapi Admin</a></p>
                   <button mat-raised-button color="primary" (click)="refreshConnections()">
                     <mat-icon>refresh</mat-icon>
                     Refrescar desde Strapi
@@ -557,7 +558,7 @@ export class ToolsComponent implements OnInit {
 
   loadConnections(): void {
     this.loadingConnections.set(true);
-    this.http.get<any>('http://localhost:8000/api/v1/tools/openapi/connections')
+    this.http.get<any>(`${environment.apiUrl}/tools/openapi/connections`)
       .subscribe({
         next: (response) => {
           this.connections.set(response.connections || []);
@@ -572,7 +573,7 @@ export class ToolsComponent implements OnInit {
 
   loadTools(): void {
     this.loadingTools.set(true);
-    let url = 'http://localhost:8000/api/v1/tools';
+    let url = `${environment.apiUrl}/tools`;
     if (this.filterType) {
       url += `?type=${this.filterType}`;
     }
@@ -606,7 +607,7 @@ export class ToolsComponent implements OnInit {
   refreshConnections(): void {
     this.refreshingConnections.set(true);
     
-    this.http.post<any>('http://localhost:8000/api/v1/tools/openapi/connections/refresh', {})
+    this.http.post<any>(`${environment.apiUrl}/tools/openapi/connections/refresh`, {})
       .subscribe({
         next: (response) => {
           this.snackBar.open(`${response.count} conexiones cargadas desde Strapi`, 'Cerrar', { duration: 3000 });
@@ -624,7 +625,7 @@ export class ToolsComponent implements OnInit {
     this.generatingTools.set(true);
     this.generatingConnectionId = connectionId;
     
-    this.http.post<any>(`http://localhost:8000/api/v1/tools/openapi/connections/${connectionId}/generate-tools`, {})
+    this.http.post<any>(`${environment.apiUrl}/tools/openapi/connections/${connectionId}/generate-tools`, {})
       .subscribe({
         next: (response) => {
           this.snackBar.open(`${response.tools?.length || 0} herramientas generadas`, 'Cerrar', { duration: 3000 });
@@ -640,7 +641,7 @@ export class ToolsComponent implements OnInit {
 
   testConnection(connectionId: string): void {
     // Obtener spec info
-    this.http.get<any>(`http://localhost:8000/api/v1/tools/openapi/connections/${connectionId}/spec`)
+    this.http.get<any>(`${environment.apiUrl}/tools/openapi/connections/${connectionId}/spec`)
       .subscribe({
         next: (response) => {
           this.snackBar.open(`Conexión OK - ${response.spec.paths_count} endpoints`, 'Cerrar', { duration: 3000 });
@@ -672,7 +673,7 @@ export class ToolsComponent implements OnInit {
       return;
     }
 
-    this.http.post<any>(`http://localhost:8000/api/v1/tools/${this.selectedTool.id}/execute`, params)
+    this.http.post<any>(`${environment.apiUrl}/tools/${this.selectedTool.id}/execute`, params)
       .subscribe({
         next: (response) => {
           this.toolResult.set(response.result);
@@ -688,5 +689,10 @@ export class ToolsComponent implements OnInit {
   copyToolId(toolId: string): void {
     navigator.clipboard.writeText(toolId);
     this.snackBar.open('ID copiado', 'Cerrar', { duration: 2000 });
+  }
+  
+  // Exponer environment para el template
+  get strapiAdminUrl(): string {
+    return `${environment.strapiUrl}/admin`;
   }
 }

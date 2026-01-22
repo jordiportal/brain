@@ -11,12 +11,13 @@ import {
   ExecutionLog,
   SystemSetting
 } from '../models';
+import { environment } from '../../../environments/environment';
 
 @Injectable({
   providedIn: 'root'
 })
 export class StrapiService {
-  private readonly STRAPI_URL = 'http://localhost:1337/api';
+  private readonly STRAPI_URL = environment.strapiApiUrl;
 
   constructor(private http: HttpClient) {}
 

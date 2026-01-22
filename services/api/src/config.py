@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     vector_collection_name: str = "brain_documents"
     vector_embedding_dimensions: int = 768
     
-    # CORS
+    # CORS - Lista de orígenes permitidos (separados por comas en env var)
     cors_origins: list[str] = ["http://localhost:4200", "http://localhost:1337"]
     
     class Config:

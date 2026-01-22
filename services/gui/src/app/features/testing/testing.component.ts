@@ -17,6 +17,7 @@ import { StrapiService } from '../../core/services/strapi.service';
 import { LlmProvider } from '../../core/models';
 import { HttpClient } from '@angular/common/http';
 import { marked } from 'marked';
+import { environment } from '../../../environments/environment';
 
 // Configurar marked para highlight de código
 marked.setOptions({
@@ -642,7 +643,7 @@ export class TestingComponent implements OnInit {
   sending = signal(false);
   totalTokens = signal(0);
 
-  private readonly API_URL = 'http://localhost:8000/api/v1';
+  private readonly API_URL = environment.apiUrl;
 
   constructor(
     private strapiService: StrapiService,

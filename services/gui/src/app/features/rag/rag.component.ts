@@ -16,6 +16,7 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
 
 interface Collection {
   name: string;
@@ -507,7 +508,7 @@ export class RagComponent implements OnInit {
   private http = inject(HttpClient);
   private snackBar = inject(MatSnackBar);
   
-  private readonly API_URL = 'http://localhost:8000/api/v1/rag';
+  private readonly API_URL = `${environment.apiUrl}/rag`;
 
   // Collections
   collections = signal<Collection[]>([]);
