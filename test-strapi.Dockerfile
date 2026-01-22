@@ -10,12 +10,14 @@ RUN apk add --no-cache \
 
 WORKDIR /srv/app
 
-# Crear proyecto Strapi con la última versión
-RUN npx create-strapi-app@latest . \
+# Crear proyecto Strapi vanilla con SQLite (más simple)
+RUN yes n | npx create-strapi-app@latest . \
     --quickstart \
     --no-run \
-    --typescript
+    --skip-cloud \
+    --typescript || true
 
 EXPOSE 1337
+EXPOSE 5173
 
 CMD ["npm", "run", "develop"]

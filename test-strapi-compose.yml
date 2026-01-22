@@ -26,25 +26,9 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: development
-      DATABASE_CLIENT: postgres
-      DATABASE_HOST: postgres-test
-      DATABASE_PORT: 5432
-      DATABASE_NAME: strapi_test
-      DATABASE_USERNAME: strapi
-      DATABASE_PASSWORD: strapi123
-      DATABASE_SSL: false
-      JWT_SECRET: test-jwt-secret-change-me
-      ADMIN_JWT_SECRET: test-admin-jwt-secret
-      APP_KEYS: test-key1,test-key2,test-key3,test-key4
-      API_TOKEN_SALT: test-api-token-salt
-      TRANSFER_TOKEN_SALT: test-transfer-token-salt
     ports:
       - "1338:1337"
       - "5174:5173"
-    volumes:
-      - test_strapi_data:/srv/app
-    depends_on:
-      - postgres-test
 
 volumes:
   test_postgres_data:
