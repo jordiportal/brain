@@ -229,9 +229,9 @@ class ToolRegistry:
                     },
                     "model": {
                         "type": "string",
-                        "description": "Modelo a usar: 'gemini-1.5-flash-image' (rápido, 1024px) o 'gemini-3-pro-image-preview' (alta calidad, 4K). Por defecto gemini-1.5-flash-image",
-                        "default": "gemini-1.5-flash-image",
-                        "enum": ["gemini-1.5-flash-image", "gemini-3-pro-image-preview"]
+                        "description": "Modelo a usar: 'gemini-2.5-flash-image' (rápido, 1024px) o 'gemini-3-pro-image-preview' (alta calidad, 4K). Por defecto gemini-2.5-flash-image",
+                        "default": "gemini-2.5-flash-image",
+                        "enum": ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
                     }
                 },
                 "required": ["prompt"]
@@ -361,7 +361,7 @@ class ToolRegistry:
                     "hint": "DuckDuckGo puede tener rate limiting temporal. Intenta de nuevo en 30 segundos."
                 }
     
-    async def _builtin_nano_banana(self, prompt: str, model: str = "gemini-1.5-flash-image") -> Dict[str, Any]:
+    async def _builtin_nano_banana(self, prompt: str, model: str = "gemini-2.5-flash-image") -> Dict[str, Any]:
         """
         Genera imágenes con Google Nano Banana (Gemini Image).
         

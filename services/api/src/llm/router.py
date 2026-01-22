@@ -115,6 +115,27 @@ async def get_groq_models(api_key: str) -> List[str]:
     return []
 
 
+async def get_gemini_models(base_url: str, api_key: str) -> List[str]:
+    """Obtener modelos de Google Gemini"""
+    url = f"{base_url}/models?key={api_key}"
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            models = []
+            for model in data.get("models", []):
+                name = model.get("name", "").replace("models/", "")
+                # Filtrar solo modelos Gemini de chat (no embeddings, ni gemma)
+                if name.startswith("gemini-") and "embedding" not in name.lower():
+                    # Verificar que soporte generateContent
+                    methods = model.get("supportedGenerationMethods", [])
+                    if "generateContent" in methods:
+                        models.append(name)
+            return sorted(models, reverse=True)
+    return []
+
+
 # ===========================================
 # Funciones de Chat por proveedor
 # ===========================================
@@ -247,6 +268,83 @@ async def chat_anthropic(
             raise Exception(f"Error Anthropic: {response.text}")
 
 
+async def chat_gemini(
+    base_url: str,
+    model: str,
+    messages: List[dict],
+    temperature: float,
+    max_tokens: Optional[int],
+    api_key: str
+) -> dict:
+    """Chat con Google Gemini API"""
+    # Convertir mensajes de OpenAI format a Gemini format
+    gemini_contents = []
+    system_instruction = None
+    
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        
+        if role == "system":
+            system_instruction = content
+        elif role == "user":
+            gemini_contents.append({
+                "role": "user",
+                "parts": [{"text": content}]
+            })
+        elif role == "assistant":
+            gemini_contents.append({
+                "role": "model",
+                "parts": [{"text": content}]
+            })
+    
+    payload = {
+        "contents": gemini_contents,
+        "generationConfig": {
+            "temperature": temperature,
+            "topK": 40,
+            "topP": 0.95,
+        }
+    }
+    
+    if max_tokens:
+        payload["generationConfig"]["maxOutputTokens"] = max_tokens
+    
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+    
+    url = f"{base_url}/models/{model}:generateContent?key={api_key}"
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Error Gemini API: {response.text}")
+        
+        data = response.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            raise Exception("No se generó respuesta")
+        
+        content_parts = candidates[0].get("content", {}).get("parts", [])
+        if not content_parts:
+            raise Exception("Respuesta vacía")
+        
+        content = content_parts[0].get("text", "")
+        usage = data.get("usageMetadata", {})
+        
+        return {
+            "content": content,
+            "tokens": usage.get("totalTokenCount")
+        }
+
+
 # ===========================================
 # Streaming por proveedor
 # ===========================================
@@ -358,6 +456,13 @@ async def test_llm_connection(request: TestConnectionRequest):
                     message="API Key requerida para Groq"
                 )
             models = await get_groq_models(request.api_key)
+        elif provider_type == "gemini":
+            if not request.api_key:
+                return TestConnectionResponse(
+                    success=False,
+                    message="API Key requerida para Gemini"
+                )
+            models = await get_gemini_models(request.provider_url, request.api_key)
         else:
             # Para proveedores custom, intentar como Ollama primero
             try:
@@ -432,6 +537,17 @@ async def chat_with_llm(request: ChatRequest):
                 request.max_tokens,
                 request.api_key
             )
+        elif provider_type == "gemini":
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida")
+            result = await chat_gemini(
+                request.provider_url,
+                request.model,
+                messages,
+                request.temperature,
+                request.max_tokens,
+                request.api_key
+            )
         else:
             # Fallback a Ollama para proveedores custom
             result = await chat_ollama(
@@ -467,6 +583,16 @@ async def chat_with_llm_stream(request: ChatRequest):
             if not request.api_key:
                 raise HTTPException(status_code=400, detail="API Key requerida")
             generator = stream_openai_response(
+                request.provider_url,
+                request.model,
+                messages,
+                request.temperature,
+                request.api_key
+            )
+        elif provider_type == "gemini":
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida")
+            generator = stream_gemini_response(
                 request.provider_url,
                 request.model,
                 messages,
@@ -514,6 +640,10 @@ async def list_models(request: ListModelsRequest):
             if not request.api_key:
                 raise HTTPException(status_code=400, detail="API Key requerida para Groq")
             models = await get_groq_models(request.api_key)
+        elif provider_type == "gemini":
+            if not request.api_key:
+                raise HTTPException(status_code=400, detail="API Key requerida para Gemini")
+            models = await get_gemini_models(request.provider_url, request.api_key)
         else:
             # Intentar como Ollama
             try:
