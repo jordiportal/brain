@@ -2,6 +2,7 @@
 Tool Registry - Registro central de herramientas para agentes
 """
 
+import os
 import structlog
 from typing import Any, Dict, List, Optional, Callable, Union
 from dataclasses import dataclass, field
@@ -400,7 +401,8 @@ class ToolRegistry:
                         "role": "user",
                         "parts": [
                             {
-                                "text": f"Generate an image: {prompt}"
+                                # Prompt simple y directo para generación de imagen
+                                "text": prompt
                             }
                         ]
                     }
@@ -440,6 +442,7 @@ class ToolRegistry:
                 
                 # Buscar la parte que contiene la imagen
                 image_data = None
+                mime_type = None
                 for part in content_parts:
                     if "inlineData" in part:
                         image_data = part["inlineData"]["data"]
@@ -454,15 +457,73 @@ class ToolRegistry:
                 
                 logger.info(f"Imagen generada exitosamente", size=len(image_data), mime=mime_type)
                 
-                return {
-                    "success": True,
-                    "prompt": prompt,
-                    "model": model,
-                    "image_base64": image_data,
-                    "mime_type": mime_type,
-                    "markdown": f"![{prompt}](data:{mime_type};base64,{image_data})",
-                    "info": f"Imagen generada con {model}. Tamaño: ~{len(image_data) // 1024}KB"
-                }
+                # Subir imagen a Strapi usando API Token
+                try:
+                    import base64
+                    import uuid
+                    
+                    # Decodificar base64
+                    image_bytes = base64.b64decode(image_data)
+                    
+                    # Configuración de Strapi
+                    strapi_url = os.getenv("STRAPI_URL", "http://strapi:1337")
+                    strapi_token = os.getenv("STRAPI_API_TOKEN")
+                    
+                    if not strapi_token:
+                        logger.warning("STRAPI_API_TOKEN no configurado, usando fallback base64")
+                        raise Exception("No STRAPI_API_TOKEN")
+                    
+                    upload_url = f"{strapi_url}/api/upload"
+                    
+                    # Nombre de archivo seguro
+                    safe_filename = f"generated_{uuid.uuid4().hex[:8]}.png"
+                    
+                    files = {'files': (safe_filename, image_bytes, mime_type)}
+                    headers = {'Authorization': f'Bearer {strapi_token}'}
+                    
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        upload_response = await client.post(
+                            upload_url,
+                            files=files,
+                            headers=headers
+                        )
+                        
+                        logger.info(f"Strapi upload response: {upload_response.status_code}")
+                        
+                        if upload_response.status_code in [200, 201]:
+                            upload_data = upload_response.json()
+                            if upload_data and len(upload_data) > 0:
+                                file_info = upload_data[0]
+                                # Usar localhost para que el navegador pueda acceder
+                                image_url = f"http://localhost:1337{file_info.get('url')}"
+                                
+                                logger.info(f"✅ Imagen subida a Strapi: {image_url}")
+                                
+                                return {
+                                    "success": True,
+                                    "prompt": prompt,
+                                    "model": model,
+                                    "image_url": image_url,
+                                    "mime_type": mime_type,
+                                    "info": f"Imagen generada y subida a Strapi"
+                                }
+                        else:
+                            error_text = upload_response.text[:200]
+                            logger.warning(f"Error subiendo a Strapi: {upload_response.status_code} - {error_text}")
+                            raise Exception(f"Upload failed: {upload_response.status_code}")
+                        
+                except Exception as upload_error:
+                    logger.error(f"Error subiendo imagen a Strapi: {upload_error}")
+                    
+                    # Fallback: devolver base64 si falla la subida
+                    return {
+                        "success": True,
+                        "prompt": prompt,
+                        "model": model,
+                        "image_base64": image_data,
+                        "mime_type": mime_type,
+                        "info": f"Imagen generada (fallback base64)"
+                    }
                 
         except Exception as e:
             logger.error(f"Error generando imagen: {e}")

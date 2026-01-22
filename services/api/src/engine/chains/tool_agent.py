@@ -47,7 +47,6 @@ async def get_available_tools_description() -> str:
     return "\n".join(descriptions)
 
 
-async def execute_tool(tool_id: str, tool_input: str) -> str:
 async def execute_tool(tool_id: str, tool_input: str) -> dict:
     """
     Ejecutar una herramienta via tool_registry.
@@ -95,6 +94,10 @@ async def execute_tool(tool_id: str, tool_input: str) -> dict:
         
         # Devolver el resultado completo como dict
         if isinstance(result, dict):
+            # Si el resultado tiene el formato {"success": True, "data": {...}}
+            # desempaquetar el data
+            if "data" in result and isinstance(result["data"], dict):
+                return result["data"]
             return result
         else:
             return {"result": result}
@@ -156,24 +159,14 @@ Responde SOLO con el JSON de la herramienta o con tu respuesta directa.""",
             type=NodeType.LLM,
             name="Sintetizador",
             # ✅ System prompt editable
-            system_prompt="""Genera una respuesta final basándote en los resultados de las herramientas.
+            system_prompt="""Resume brevemente qué se hizo con la herramienta.
 
-RESULTADOS DE HERRAMIENTAS:
+RESULTADOS:
 {{tool_results}}
 
-PREGUNTA ORIGINAL: {{user_query}}
-
-INSTRUCCIONES:
-- Si la herramienta devolvió "success": true, úsalo en tu respuesta
-- Si hay un campo "markdown", inclúyelo EXACTAMENTE como está (especialmente para imágenes)
-- Si hay un campo "result" o "data", explícalo de forma clara
-- Si hay error, explica qué salió mal
-
-EJEMPLO CON IMAGEN:
-Si tool_results contiene "markdown": "![...](data:image/png;base64,...)"
-Responde: "He generado la imagen: ![...](data:image/png;base64,...)"
-
-Proporciona una respuesta clara y útil.""",
+Si success=true y hay markdown_available, di: "Aquí está la imagen que solicitaste."
+Si hay error, explica el error brevemente.
+SOLO 1 frase corta.""",
             prompt_template="Genera la respuesta final.",
             temperature=0.7
         ),
@@ -289,17 +282,39 @@ async def build_tool_agent(
         )
         
         result = await execute_tool(tool_id, tool_input)
+        
+        # Para los tool_results que se pasan al synthesizer:
+        # NO incluir image_base64 NI markdown completo (son muy largos, 2MB+)
+        # Solo incluir metadata para que el synthesizer sepa qué pasó
+        result_for_synth = result.copy() if isinstance(result, dict) else {"result": result}
+        
+        # Guardar el resultado completo para usarlo después
+        full_result = result
+        
+        if isinstance(result_for_synth, dict):
+            # Eliminar campos muy largos
+            if "image_base64" in result_for_synth:
+                result_for_synth["image_base64"] = "[IMAGE_DATA_OMITTED]"
+            if "markdown" in result_for_synth:
+                # Guardar solo un indicador de que hay markdown
+                result_for_synth["markdown_available"] = True
+                result_for_synth["markdown_preview"] = result_for_synth["markdown"][:80] + "..."
+                del result_for_synth["markdown"]
+        
         tool_results.append({
             "tool": tool_id,
             "input": tool_input,
-            "result": result
+            "result": result_for_synth,
+            "_full_result": full_result  # Guardamos el resultado completo internamente
         })
         
-        # Para el evento, crear un preview sin truncar campos importantes
-        result_preview = result.copy() if isinstance(result, dict) else {"result": result}
-        # Si hay image_base64, no incluirlo en el preview (es muy largo)
+        # Para el evento UI, crear un preview aún más corto
+        result_preview = result_for_synth.copy() if isinstance(result_for_synth, dict) else {"result": result_for_synth}
         if "image_base64" in result_preview:
-            result_preview["image_base64"] = f"[BASE64_IMAGE_{len(result_preview['image_base64'])}chars]"
+            result_preview["image_base64"] = f"[BASE64_IMAGE_{len(result.get('image_base64', ''))}chars]"
+        # También truncar markdown en el preview UI (no en tool_results)
+        if "markdown" in result_preview and len(result_preview.get("markdown", "")) > 100:
+            result_preview["markdown"] = result_preview["markdown"][:100] + "..."
         
         yield StreamEvent(
             event_type="node_end",
@@ -319,8 +334,13 @@ async def build_tool_agent(
     )
     
     if tool_results:
-        # Formatear resultados de herramientas
-        results_json = json.dumps(tool_results, indent=2, ensure_ascii=False)
+        # Formatear resultados de herramientas (sin _full_result)
+        results_for_llm = []
+        for tr in tool_results:
+            tr_copy = {k: v for k, v in tr.items() if k != "_full_result"}
+            results_for_llm.append(tr_copy)
+        
+        results_json = json.dumps(results_for_llm, indent=2, ensure_ascii=False)
         
         # ✅ Construir mensajes con helper y reemplazar variables
         synth_prompt = synthesizer_node.system_prompt
@@ -386,13 +406,58 @@ async def build_tool_agent(
             content=token
         )
     
+    # Si hay resultados con imágenes, añadirlas automáticamente
+    for tool_result in tool_results:
+        full_result = tool_result.get("_full_result", {})
+        if isinstance(full_result, dict):
+            # Si el synthesizer no generó texto, añadir uno por defecto
+            if not full_response or full_response.strip() == "":
+                default_text = "Aquí está la imagen que solicitaste:"
+                full_response = default_text
+                yield StreamEvent(
+                    event_type="token",
+                    execution_id=execution_id,
+                    node_id="synthesizer",
+                    content=default_text
+                )
+            
+            # Verificar si tenemos URL de Strapi (método preferido)
+            if "image_url" in full_result:
+                # Enviar la imagen como un evento especial con URL
+                yield StreamEvent(
+                    event_type="image",
+                    execution_id=execution_id,
+                    node_id="synthesizer",
+                    data={
+                        "image_url": full_result["image_url"],
+                        "alt_text": full_result.get("prompt", "Generated image")
+                    }
+                )
+                
+                full_response += "\n\n[Imagen generada]\n"
+            
+            # Fallback: base64 si no hay URL
+            elif "image_base64" in full_result:
+                yield StreamEvent(
+                    event_type="image",
+                    execution_id=execution_id,
+                    node_id="synthesizer",
+                    data={
+                        "image_data": full_result["image_base64"],
+                        "mime_type": full_result.get("mime_type", "image/png"),
+                        "alt_text": full_result.get("prompt", "Generated image")
+                    }
+                )
+                
+                full_response += "\n\n[Imagen generada]\n"
+    
     yield StreamEvent(
         event_type="node_end",
         execution_id=execution_id,
         node_id="synthesizer",
         node_name="Sintetizador",
         data={
-            "response": full_response[:500],
+            "response": full_response[:500] if len(full_response) > 500 else full_response,
             "tools_used": [t["tool"] for t in tool_results]
         }
     )

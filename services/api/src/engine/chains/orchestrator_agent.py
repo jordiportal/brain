@@ -151,6 +151,9 @@ async def execute_sub_agent(
     Args:
         previous_result: Resultado estructurado del paso anterior (para pasar datos entre agentes)
         memory: Memoria de la conversación a pasar al sub-agente
+    
+    Returns:
+        Dict con success, response, tools_used, sources, images (si las hay)
     """
     builder = chain_registry.get_builder(agent_id)
     definition = chain_registry.get(agent_id)
@@ -159,7 +162,8 @@ async def execute_sub_agent(
         return {
             "success": False,
             "error": f"Agente '{agent_id}' no encontrado en el registry",
-            "response": None
+            "response": None,
+            "images": []
         }
     
     try:
@@ -187,6 +191,7 @@ async def execute_sub_agent(
         full_response = ""
         tools_used = []
         sources = []
+        images = []  # ✅ Capturar imágenes
         raw_data = None
         
         async for event in builder(
@@ -200,6 +205,16 @@ async def execute_sub_agent(
             provider_type=provider_type,
             api_key=api_key
         ):
+            # ✅ Capturar eventos de imagen
+            if hasattr(event, 'event_type') and event.event_type == "image":
+                if event.data:
+                    images.append({
+                        "url": event.data.get("image_url"),
+                        "base64": event.data.get("image_data"),
+                        "mime_type": event.data.get("mime_type", "image/png"),
+                        "alt_text": event.data.get("alt_text", "Generated image")
+                    })
+            
             if isinstance(event, dict) and "_result" in event:
                 result = event["_result"]
                 full_response = result.get("response", "")
@@ -230,6 +245,7 @@ async def execute_sub_agent(
             "response": full_response,
             "tools_used": tools_used,
             "sources": sources,
+            "images": images,  # ✅ Devolver imágenes capturadas
             "agent_name": definition.name,
             "raw_data": raw_data
         }
@@ -238,7 +254,8 @@ async def execute_sub_agent(
         return {
             "success": False,
             "error": str(e),
-            "response": None
+            "response": None,
+            "images": []
         }
 
 
@@ -620,6 +637,16 @@ async def build_orchestrator_agent(
             step.status = StepStatus.FAILED
             step.error = action_result.get("error", "Error desconocido")
         
+        # ✅ Propagar eventos de imagen del sub-agente
+        if action_result.get("images"):
+            for img in action_result["images"]:
+                yield StreamEvent(
+                    event_type="image",
+                    execution_id=execution_id,
+                    node_id=f"act_{ctx.current_step}",
+                    data=img
+                )
+        
         yield StreamEvent(
             event_type="node_end",
             execution_id=execution_id,
@@ -630,6 +657,7 @@ async def build_orchestrator_agent(
                 "agent_used": step.agent,
                 "tools_used": action_result.get("tools_used", []),
                 "sources": action_result.get("sources", []),
+                "has_images": len(action_result.get("images", [])) > 0,
                 "result_preview": str(action_result.get("response", ""))[:500]
             }
         )

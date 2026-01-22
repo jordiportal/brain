@@ -32,10 +32,51 @@ marked.setOptions({ async: false });
 @Pipe({ name: 'markdown', standalone: true })
 export class MarkdownPipe implements PipeTransform {
   constructor(private sanitizer: DomSanitizer) {}
+  
   transform(value: string): SafeHtml {
     if (!value) return '';
-    const html = marked.parse(value, { async: false }) as string;
-    return this.sanitizer.bypassSecurityTrustHtml(html);
+    
+    try {
+      // Optimización: convertir imágenes base64 grandes a Blob URLs
+      let processedValue = value;
+      
+      // Detectar imágenes base64 en markdown: ![alt](data:image/...;base64,...)
+      const base64ImageRegex = /!\[([^\]]*)\]\(data:image\/([^;]+);base64,([^\)]+)\)/g;
+      const matches = Array.from(value.matchAll(base64ImageRegex));
+      
+      for (const match of matches) {
+        const [fullMatch, altText, mimeType, base64Data] = match;
+        
+        // Si la imagen es grande (>100KB base64), convertir a Blob URL
+        if (base64Data.length > 100000) {
+          try {
+            // Decodificar base64 y crear Blob
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: `image/${mimeType}` });
+            const blobUrl = URL.createObjectURL(blob);
+            
+            // Reemplazar el markdown inline con la Blob URL
+            const replacement = `![${altText}](${blobUrl})`;
+            processedValue = processedValue.replace(fullMatch, replacement);
+            
+            console.log(`Converted large image (${(base64Data.length/1024).toFixed(0)}KB) to Blob URL`);
+          } catch (e) {
+            console.warn('Failed to convert image to Blob:', e);
+            // Mantener el original si falla
+          }
+        }
+      }
+      
+      const html = marked.parse(processedValue, { async: false }) as string;
+      return this.sanitizer.bypassSecurityTrustHtml(html);
+    } catch (error) {
+      console.error('Error parsing markdown:', error);
+      return this.sanitizer.bypassSecurityTrustHtml(value);
+    }
   }
 }
 
@@ -77,6 +118,14 @@ interface ChatMessage {
   intermediateSteps?: IntermediateStep[];
   tokens?: number;
   isStreaming?: boolean;
+  images?: ImageData[];
+}
+
+interface ImageData {
+  url?: string;        // URL de Strapi (preferido)
+  base64?: string;     // Fallback
+  mimeType?: string;
+  altText: string;
 }
 
 @Component({
@@ -317,6 +366,21 @@ interface ChatMessage {
                                 Respuesta Final
                               </div>
                               <div class="markdown-content" [innerHTML]="msg.content | markdown"></div>
+                              
+                              <!-- Imágenes generadas -->
+                              @if (msg.images && msg.images.length > 0) {
+                                <div class="generated-images">
+                                  @for (img of msg.images; track $index) {
+                                    <img 
+                                      [src]="img.url || ('data:' + img.mimeType + ';base64,' + img.base64)"
+                                      [alt]="img.altText"
+                                      class="generated-image"
+                                      loading="lazy"
+                                    />
+                                  }
+                                </div>
+                              }
+                              
                               @if (msg.isStreaming) {
                                 <span class="cursor-blink">▊</span>
                               }
@@ -771,6 +835,20 @@ interface ChatMessage {
     .markdown-content {
       line-height: 1.6;
     }
+    
+    .generated-images {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .generated-image {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
 
     .markdown-content ::ng-deep {
       p { margin: 0 0 12px; }
@@ -1108,7 +1186,8 @@ export class ChainsComponent implements OnInit {
       role: 'assistant',
       content: '',
       intermediateSteps: [],
-      isStreaming: true
+      isStreaming: true,
+      images: []
     };
     
     this.messages.update(msgs => [...msgs, assistantMessage]);
@@ -1200,10 +1279,25 @@ export class ChainsComponent implements OnInit {
               currentStepId = null;
               this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
               
-            } else if (data.event_type === 'end') {
-              if (data.data?.output?.response) {
-                finalContent = data.data.output.response;
+            } else if (data.event_type === 'image') {
+              // Imagen generada - añadir al array de imágenes
+              if (data.data) {
+                const imageData: ImageData = {
+                  url: data.data.image_url,
+                  base64: data.data.image_data,
+                  mimeType: data.data.mime_type || 'image/png',
+                  altText: data.data.alt_text || 'Generated image'
+                };
+                assistantMessage.images = assistantMessage.images || [];
+                assistantMessage.images.push(imageData);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
               }
+              
+            } else if (data.event_type === 'end') {
+              // NO sobrescribir finalContent - ya está acumulado de los tokens
+              // if (data.data?.output?.response) {
+              //   finalContent = data.data.output.response;
+              // }
             } else if (data.event_type === 'error') {
               if (currentStepId && this.activeSteps.has(currentStepId)) {
                 const step = this.activeSteps.get(currentStepId)!;

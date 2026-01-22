@@ -4,8 +4,10 @@ Servidor FastAPI para gestión de cadenas de pensamiento con LangChain/LangGraph
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pathlib import Path
 import structlog
 
 from src.config import get_settings
