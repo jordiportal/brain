@@ -19,11 +19,13 @@ services:
       - test_postgres_data:/var/lib/postgresql/data
 
   strapi-test:
-    image: strapi/strapi:latest
+    build:
+      context: .
+      dockerfile: test-strapi.Dockerfile
     container_name: test-strapi
     restart: unless-stopped
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       DATABASE_CLIENT: postgres
       DATABASE_HOST: postgres-test
       DATABASE_PORT: 5432
@@ -38,6 +40,7 @@ services:
       TRANSFER_TOKEN_SALT: test-transfer-token-salt
     ports:
       - "1338:1337"
+      - "5174:5173"
     volumes:
       - test_strapi_data:/srv/app
     depends_on:
