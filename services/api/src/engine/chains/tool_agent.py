@@ -48,10 +48,48 @@ async def get_available_tools_description() -> str:
 
 
 async def execute_tool(tool_id: str, tool_input: str) -> str:
-    """Ejecutar una herramienta via tool_registry"""
+    """
+    Ejecutar una herramienta via tool_registry.
+    
+    El tool_input puede ser:
+    - Un string simple: se pasa como primer parámetro
+    - Un JSON object: se parsea y los campos se pasan como kwargs
+    
+    Ejemplos:
+    - calculator: input="2+2" → execute(tool_id, expression="2+2")
+    - nano_banana: input='{"prompt": "gato"}' → execute(tool_id, prompt="gato")
+    """
     try:
-        result = await tool_registry.execute(tool_id, input=tool_input)
-        return str(result.get("result", result))
+        # Intentar parsear input como JSON
+        try:
+            import json
+            params = json.loads(tool_input)
+            if isinstance(params, dict):
+                # Si es un dict, pasar como kwargs
+                result = await tool_registry.execute(tool_id, **params)
+            else:
+                # Si es otro tipo (string, number), pasar como input
+                result = await tool_registry.execute(tool_id, input=tool_input)
+        except (json.JSONDecodeError, TypeError):
+            # Si no es JSON válido, pasar como string simple
+            # Inferir el nombre del parámetro según la herramienta
+            tool = tool_registry.get(tool_id)
+            if tool and tool.parameters:
+                # Obtener el primer parámetro requerido
+                props = tool.parameters.get("properties", {})
+                required = tool.parameters.get("required", [])
+                if required:
+                    param_name = required[0]
+                    result = await tool_registry.execute(tool_id, **{param_name: tool_input})
+                else:
+                    # Si no hay required, usar el primer parámetro
+                    param_name = list(props.keys())[0] if props else "input"
+                    result = await tool_registry.execute(tool_id, **{param_name: tool_input})
+            else:
+                # Fallback a input genérico
+                result = await tool_registry.execute(tool_id, input=tool_input)
+        
+        return str(result.get("result", result.get("data", result)))
     except Exception as e:
         return f"Error ejecutando {tool_id}: {str(e)}"
 
@@ -85,9 +123,16 @@ HERRAMIENTAS DISPONIBLES:
 INSTRUCCIONES:
 1. Analiza la pregunta del usuario
 2. Decide si necesitas usar alguna herramienta
-3. Si necesitas una herramienta, responde en formato JSON:
-   {"tool": "nombre_herramienta", "input": "input para la herramienta"}
+3. Si necesitas una herramienta:
+   - Para herramientas con UN parámetro simple: {"tool": "calculator", "input": "2+2"}
+   - Para herramientas con MÚLTIPLES parámetros: {"tool": "nano_banana", "input": "{\\"prompt\\": \\"un gato astronauta\\"}"}
 4. Si no necesitas herramientas, responde directamente
+
+EJEMPLOS:
+- Calculadora: {"tool": "calculator", "input": "15 * 23"}
+- Fecha actual: {"tool": "current_datetime", "input": ""}
+- Búsqueda web: {"tool": "web_search", "input": "clima en Madrid"}
+- Generar imagen: {"tool": "nano_banana", "input": "{\\"prompt\\": \\"un paisaje de montañas al atardecer\\"}"}
 
 Responde SOLO con el JSON de la herramienta o con tu respuesta directa.""",
             prompt_template="{{user_query}}",
