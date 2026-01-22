@@ -422,6 +422,100 @@ async def stream_openai_response(
                         continue
 
 
+async def stream_gemini_response(
+    base_url: str,
+    model: str,
+    messages: List[dict],
+    temperature: float,
+    api_key: str
+) -> AsyncGenerator[str, None]:
+    """
+    Generador asíncrono para streaming de Gemini API.
+    
+    NOTA: Gemini devuelve UN array de objetos completo formateado en múltiples líneas,
+    NO múltiples JSON objects separados como OpenAI.
+    """
+    # Convertir mensajes a formato Gemini
+    gemini_contents = []
+    system_instruction = None
+    
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
+        
+        if role == "system":
+            system_instruction = content
+        elif role == "user":
+            gemini_contents.append({
+                "role": "user",
+                "parts": [{"text": content}]
+            })
+        elif role == "assistant":
+            gemini_contents.append({
+                "role": "model",
+                "parts": [{"text": content}]
+            })
+    
+    payload = {
+        "contents": gemini_contents,
+        "generationConfig": {
+            "temperature": temperature,
+            "topK": 40,
+            "topP": 0.95,
+        }
+    }
+    
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+    
+    url = f"{base_url}/models/{model}:streamGenerateContent?key={api_key}"
+    
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream(
+            "POST",
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload
+        ) as response:
+            # Acumular todas las líneas para formar el JSON completo
+            accumulated_lines = []
+            async for line in response.aiter_lines():
+                accumulated_lines.append(line)
+            
+            # Unir todas las líneas y parsear como JSON
+            full_response = "\n".join(accumulated_lines)
+            
+            try:
+                # Gemini devuelve un array de chunks
+                chunks = json.loads(full_response)
+                
+                # Procesar cada chunk
+                total_tokens = 0
+                for chunk in chunks:
+                    candidates = chunk.get("candidates", [])
+                    if candidates:
+                        content_parts = candidates[0].get("content", {}).get("parts", [])
+                        if content_parts:
+                            text = content_parts[0].get("text", "")
+                            if text:
+                                # Enviar texto en streaming
+                                yield f"data: {json.dumps({'content': text})}\n\n"
+                    
+                    # Obtener metadata de tokens del último chunk
+                    usage = chunk.get("usageMetadata", {})
+                    if usage:
+                        total_tokens = usage.get("totalTokenCount", 0)
+                
+                # Enviar evento done
+                yield f"data: {json.dumps({'done': True, 'total_tokens': total_tokens})}\n\n"
+                
+            except json.JSONDecodeError as e:
+                # Si falla el parsing, enviar error
+                yield f"data: {json.dumps({'error': f'Error parsing Gemini response: {str(e)}'})}\n\n"
+
+
 # ===========================================
 # Endpoints
 # ===========================================
