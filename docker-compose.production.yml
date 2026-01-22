@@ -110,7 +110,7 @@ services:
       MCP_PLAYWRIGHT_URL: http://mcp-playwright:3001
       CORS_ORIGINS: ${CORS_ORIGINS:-http://192.168.7.102:4200,http://192.168.7.102:1337}
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
