@@ -19,9 +19,7 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Variables de entorno para Strapi
-# TEMPORAL: Usar development por bug en Strapi 5.x admin panel
-# https://github.com/strapi/strapi/issues/24384
-ENV NODE_ENV=development
+ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=1337
 ENV STRAPI_TELEMETRY_DISABLED=true
@@ -56,5 +54,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:1337/admin || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-# TEMPORAL: Usar develop por bug en admin panel de Strapi 5.x
-CMD ["npm", "run", "develop"]
+CMD ["npm", "run", "start"]
