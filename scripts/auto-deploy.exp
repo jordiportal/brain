@@ -1,0 +1,162 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+set server "192.168.7.103"
+set username "root"
+set password "f3ssK0l4."
+
+# Función para ejecutar comando
+proc run_ssh_command {server username password command} {
+    spawn ssh -o StrictHostKeyChecking=no $username@$server $command
+    expect {
+        "*password:" {
+            send "$password\r"
+            exp_continue
+        }
+        eof
+    }
+}
+
+puts "\n================================================"
+puts "🚀 Brain v1.0.0 - Deployment Automático"
+puts "================================================"
+puts "Servidor: $server"
+puts "Usuario:  $username"
+puts "\n"
+
+# PASO 1: Verificar conexión
+puts "================================================"
+puts "PASO 1: Verificando conexión..."
+puts "================================================\n"
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server "echo '✅ Conexión exitosa' && docker --version && git --version"
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect eof
+
+puts "\n"
+
+# PASO 2: Clonar repositorio
+puts "================================================"
+puts "PASO 2: Clonando repositorio..."
+puts "================================================\n"
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server {
+    if [ -d "/opt/brain" ]; then
+        echo "📁 Directorio existe, actualizando..."
+        cd /opt/brain && git pull origin main
+    else
+        echo "📦 Clonando repositorio nuevo..."
+        git clone https://github.com/jordiportal/brain.git /opt/brain
+    fi
+}
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect eof
+
+puts "\n"
+
+# PASO 3: Configurar .env
+puts "================================================"
+puts "PASO 3: Configurando .env..."
+puts "================================================\n"
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server "cd /opt/brain && cp .env.production .env && echo '✅ .env configurado'"
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect eof
+
+puts "\n"
+
+# PASO 4: Build imágenes
+puts "================================================"
+puts "PASO 4: Construyendo imágenes..."
+puts "⏱️  Esto tomará 15-20 minutos, por favor espera..."
+puts "================================================\n"
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server "cd /opt/brain && docker compose -f docker-compose.production.yml build"
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect {
+    timeout { puts "Build timeout" }
+    eof
+}
+
+puts "\n"
+
+# PASO 5: Levantar servicios
+puts "================================================"
+puts "PASO 5: Levantando servicios..."
+puts "================================================\n"
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server "cd /opt/brain && docker compose -f docker-compose.production.yml up -d"
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect eof
+
+puts "\n"
+
+# PASO 6: Verificar estado
+puts "================================================"
+puts "PASO 6: Verificando estado..."
+puts "================================================\n"
+
+sleep 10
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server "cd /opt/brain && docker compose -f docker-compose.production.yml ps"
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect eof
+
+puts "\n"
+
+# PASO 7: Test APIs
+puts "================================================"
+puts "PASO 7: Testeando APIs..."
+puts "================================================\n"
+
+spawn ssh -o StrictHostKeyChecking=no $username@$server "curl -s http://localhost:8000/health && echo ''"
+expect {
+    "*password:" {
+        send "$password\r"
+    }
+}
+expect eof
+
+puts "\n"
+puts "================================================"
+puts "✅ DEPLOYMENT COMPLETADO"
+puts "================================================\n"
+puts "Accede a los servicios:"
+puts "  GUI:        http://192.168.7.103:4200"
+puts "  API Docs:   http://192.168.7.103:8000/docs"
+puts "  Strapi:     http://192.168.7.103:1337/admin"
+puts "\n"
+puts "⚠️  IMPORTANTE: Configurar Strapi API Token"
+puts "  1. Acceder a http://192.168.7.103:1337/admin"
+puts "  2. Crear usuario admin"
+puts "  3. Obtener API Token"
+puts "  4. Actualizar en el servidor:"
+puts "     ssh root@192.168.7.103"
+puts "     nano /opt/brain/.env"
+puts "     # Cambiar: STRAPI_API_TOKEN=tu_token_aqui"
+puts "     docker compose -f docker-compose.production.yml restart api"
+puts "\n================================================\n"

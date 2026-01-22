@@ -108,7 +108,6 @@ services:
       BROWSER_VNC_HOST: browser-service
       BROWSER_VNC_PORT: 6080
       MCP_PLAYWRIGHT_URL: http://mcp-playwright:3001
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://192.168.7.102:4200,http://192.168.7.102:1337}
     ports:
       - "8001:8000"
     volumes:
