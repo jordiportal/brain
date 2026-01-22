@@ -21,5 +21,15 @@ if [ ! -f "package.json" ]; then
     npm install @strapi/plugin-documentation || true
 fi
 
+# En producción, construir si no existe dist
+if [ "$NODE_ENV" = "production" ] && [ ! -d "/app/dist" ]; then
+    echo "🔨 Construyendo admin panel para producción..."
+    npm run build || {
+        echo "⚠️  Error en build, intentando limpiar cache..."
+        rm -rf /app/dist /app/.strapi/client /app/build /app/.cache
+        npm run build
+    }
+fi
+
 # Ejecutar el comando pasado
 exec "$@"
