@@ -18,7 +18,7 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Variables de entorno para Strapi
-ENV NODE_ENV=development
+ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=1337
 ENV STRAPI_TELEMETRY_DISABLED=true
@@ -38,6 +38,9 @@ COPY tsconfig.json ./
 # Crear directorio de uploads necesario para Strapi
 RUN mkdir -p /app/public/uploads && chmod 777 /app/public/uploads
 
+# En producción, construir el admin panel durante el build de la imagen
+RUN npm run build
+
 # Script de inicio que crea Strapi si no existe
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
@@ -50,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:1337/_health || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["npm", "run", "develop"]
+CMD ["npm", "run", "start"]
