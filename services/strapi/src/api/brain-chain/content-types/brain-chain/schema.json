@@ -23,9 +23,9 @@
     },
     "type": {
       "type": "enumeration",
-      "enum": ["chain", "graph", "agent", "rag"],
+      "enum": ["chain", "graph", "agent", "rag", "conversational", "tools"],
       "required": true,
-      "default": "graph"
+      "default": "agent"
     },
     "description": {
       "type": "text"
@@ -36,7 +36,15 @@
     },
     "definition": {
       "type": "json",
-      "required": true
+      "required": false
+    },
+    "prompts": {
+      "type": "json",
+      "description": "Diccionario de prompts {key: {template, description, variables}}"
+    },
+    "tools": {
+      "type": "json",
+      "description": "Lista de herramientas disponibles para el agente"
     },
     "nodes": {
       "type": "json"
@@ -47,6 +55,16 @@
     "isActive": {
       "type": "boolean",
       "default": true
+    },
+    "handlerType": {
+      "type": "enumeration",
+      "enum": ["generic", "legacy"],
+      "default": "generic",
+      "description": "Tipo de builder a usar: generic (nuevo) o legacy (Python hardcoded)"
+    },
+    "legacyBuilderId": {
+      "type": "string",
+      "description": "ID del builder legacy para fallback (conversational, rag, tool_agent, etc.)"
     },
     "llmProvider": {
       "type": "relation",
