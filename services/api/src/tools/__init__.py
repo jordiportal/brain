@@ -1,22 +1,24 @@
 """
-Tools module - Herramientas para agentes
+Brain 2.0 Tools Module
+
+Exporta el registry de las 15 Core Tools.
 """
 
-from .openapi_tools import OpenAPIToolkit, OpenAPITool, openapi_toolkit
-from .tool_registry import tool_registry, ToolDefinition
-from .agent_delegation import (
-    delegate_to_agent,
-    get_available_agents_description,
-    get_agents_enum
+from .tool_registry import (
+    ToolRegistry,
+    ToolDefinition,
+    ToolType,
+    tool_registry,
+    get_tool_registry
 )
 
+from .core import CORE_TOOLS
+
 __all__ = [
-    "OpenAPIToolkit",
-    "OpenAPITool", 
-    "openapi_toolkit",
+    "ToolRegistry",
+    "ToolDefinition", 
+    "ToolType",
     "tool_registry",
-    "ToolDefinition",
-    "delegate_to_agent",
-    "get_available_agents_description",
-    "get_agents_enum"
+    "get_tool_registry",
+    "CORE_TOOLS"
 ]
