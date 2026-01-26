@@ -263,11 +263,16 @@ def select_default_agent(query: str) -> str:
     """Seleccionar agente por defecto basado en keywords"""
     query_lower = query.lower()
     
+    # Patrones administrativos (alta prioridad)
+    admin_keywords = ["descarga", "download", "scraping", "scrape", "monitorea", "monitor", "programa", "schedule", "cron", "automatiza", "automation"]
+    
     sap_keywords = ["sap", "pedido", "venta", "producto", "cliente", "saldo", "banco", "factura", "stock", "inventario"]
     rag_keywords = ["documento", "buscar", "encontrar", "información sobre", "qué dice", "manual", "guía"]
     tool_keywords = ["calcular", "hora", "fecha", "buscar en web", "suma", "resta", "matemátic"]
     
-    if any(kw in query_lower for kw in sap_keywords):
+    if any(kw in query_lower for kw in admin_keywords):
+        return "admin_orchestrator"
+    elif any(kw in query_lower for kw in sap_keywords):
         return "sap_agent"
     elif any(kw in query_lower for kw in rag_keywords):
         return "rag"
@@ -329,12 +334,16 @@ REGLAS:
 - Para búsqueda en documentos/conocimiento, usa "rag"
 - Para cálculos y herramientas básicas, usa "tool_agent"
 - Para procesamiento de datos, análisis, gráficos o código, usa "code_execution_agent"
+- Para tareas administrativas (descargas web, scraping, monitoreo, scheduling, automatización), usa "admin_orchestrator"
 - Para conversación general, usa "conversational"
 
 PATRONES COMUNES DE MULTI-AGENTE:
 - "Analiza/estadísticas de datos SAP" → sap_agent + code_execution_agent
 - "Busca y resume documentos" → rag + conversational
-- "Obtén datos y genera gráfico" → sap_agent/tool_agent + code_execution_agent""",
+- "Obtén datos y genera gráfico" → sap_agent/tool_agent + code_execution_agent
+- "Descarga archivos de web" → admin_orchestrator
+- "Programa tarea para hacer X" → admin_orchestrator
+- "Monitorea cambios en Y" → admin_orchestrator""",
             prompt_template="Crea el plan de ejecución.",
             temperature=0.2
         ),

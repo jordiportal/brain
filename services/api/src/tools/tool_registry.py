@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .openapi_tools import OpenAPITool, openapi_toolkit
+from .agent_delegation import delegate_to_agent, get_agents_enum
 
 logger = structlog.get_logger()
 
@@ -137,6 +138,13 @@ class ToolRegistry:
                 # Si es async, await
                 if hasattr(result, '__await__'):
                     result = await result
+                
+                # Si el resultado ya es un dict con estructura de respuesta, retornarlo tal cual
+                # (ej: delegate_to_agent ya retorna {"success": True, "response": ...})
+                if isinstance(result, dict) and ("success" in result or "error" in result):
+                    return result
+                
+                # Sino, envolverlo en estructura estándar
                 return {"success": True, "data": result}
             
             elif tool.type == ToolType.MCP:
@@ -241,8 +249,99 @@ class ToolRegistry:
         )
         self.register(nano_banana_tool)
         
+        # ============================================
+        # META-TOOLS para Unified Agent
+        # ============================================
+        
+        # Think tool - permite al LLM razonar explícitamente
+        self.register_builtin(
+            id="think",
+            name="think",
+            description="Usa esta herramienta para razonar sobre la situación actual, planificar estrategia o analizar qué hacer a continuación. Útil para tareas complejas que requieren planificación.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "thoughts": {
+                        "type": "string",
+                        "description": "Tu razonamiento sobre: qué información tienes, qué necesitas hacer, cómo proceder, qué podría fallar."
+                    }
+                },
+                "required": ["thoughts"]
+            },
+            handler=self._builtin_think
+        )
+        
+        # Observe tool - permite al LLM reflexionar sobre resultados
+        self.register_builtin(
+            id="observe",
+            name="observe",
+            description="Usa esta herramienta para reflexionar sobre los resultados obtenidos de acciones anteriores. Analiza qué significan los resultados y qué hacer después.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "observation": {
+                        "type": "string",
+                        "description": "Tu análisis de los resultados: qué obtuviste, qué significa, cómo afecta a los próximos pasos."
+                    }
+                },
+                "required": ["observation"]
+            },
+            handler=self._builtin_observe
+        )
+        
+        # Finish tool - señala que el LLM tiene la respuesta final
+        self.register_builtin(
+            id="finish",
+            name="finish",
+            description="Usa esta herramienta cuando tengas la respuesta final completa para el usuario. El usuario recibirá el mensaje que proporciones aquí.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string",
+                        "description": "La respuesta final completa para el usuario, formateada con markdown si es apropiado."
+                    }
+                },
+                "required": ["answer"]
+            },
+            handler=self._builtin_finish
+        )
+        
+        # ============================================
+        # AGENT DELEGATION TOOL
+        # ============================================
+        
+        # Delegate tool - permite delegar a agentes especializados
+        # Nota: Los parámetros _llm_* son inyectados por el Unified Agent, no visibles para el LLM
+        self.register_builtin(
+            id="delegate",
+            name="delegate",
+            description="Delega una tarea a un agente especializado del sistema. Usa esto cuando necesites capacidades específicas (consultas SAP, búsqueda en documentos, herramientas, ejecución de código, etc.). El agente procesará la tarea y devolverá el resultado.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "ID del agente especializado a usar",
+                        "enum": get_agents_enum()  # Se actualiza dinámicamente con agentes disponibles
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "Descripción clara y específica de la tarea que debe realizar el agente"
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Contexto adicional o resultados de pasos previos que el agente necesite saber (opcional)"
+                    }
+                },
+                "required": ["agent_id", "task"]
+            },
+            handler=lambda **kwargs: delegate_to_agent(**kwargs),
+            # Nota: El Unified Agent inyecta _llm_url, _model, _provider_type, _api_key en kwargs
+        )
+        
         self._builtin_registered = True
-        logger.info("Tools builtin registradas")
+        logger.info("Tools builtin registradas (incluidas meta-tools y delegate)")
     
     def _builtin_calculator(self, expression: str) -> Dict[str, Any]:
         """Calculadora básica"""
@@ -533,6 +632,42 @@ class ToolRegistry:
                 "prompt": prompt,
                 "success": False
             }
+    
+    def _builtin_think(self, thoughts: str) -> Dict[str, Any]:
+        """
+        Meta-tool: Permite al LLM razonar explícitamente.
+        Registra el pensamiento para debugging/observability.
+        """
+        logger.info(f"🧠 Agent thinking: {thoughts}")
+        return {
+            "acknowledged": True,
+            "thoughts": thoughts,
+            "message": "Razonamiento registrado. Continúa con tu plan."
+        }
+    
+    def _builtin_observe(self, observation: str) -> Dict[str, Any]:
+        """
+        Meta-tool: Permite al LLM reflexionar sobre resultados.
+        Registra la observación para debugging/observability.
+        """
+        logger.info(f"👁 Agent observing: {observation}")
+        return {
+            "acknowledged": True,
+            "observation": observation,
+            "message": "Observación registrada. Continúa con tu plan."
+        }
+    
+    def _builtin_finish(self, answer: str) -> Dict[str, Any]:
+        """
+        Meta-tool: Señala que el LLM tiene la respuesta final.
+        Este resultado indica que la ejecución debe terminar.
+        """
+        logger.info(f"✅ Agent finishing with answer (length: {len(answer)} chars)")
+        return {
+            "final_answer": answer,
+            "done": True,
+            "message": "Respuesta final lista para el usuario."
+        }
 
 
 # Instancia global

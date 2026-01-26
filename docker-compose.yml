@@ -147,6 +147,37 @@ services:
           memory: 512M
 
   # ===========================================
+  # Persistent Python Runner - Contenedor Administrativo
+  # ===========================================
+  persistent-runner:
+    build:
+      context: ./services/code-runners
+      dockerfile: Dockerfile.persistent-python
+    container_name: brain-persistent-runner
+    restart: unless-stopped
+    environment:
+      - WORKSPACE=/workspace
+      # Acceso a servicios internos
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD:-brain_secret}@postgres:5432/${POSTGRES_DB:-brain_db}
+      - REDIS_URL=redis://redis:6379
+      - API_URL=http://api:8000
+    volumes:
+      # Volumen persistente para scripts, datos y descargas
+      - persistent_workspace:/workspace
+    networks:
+      - brain-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
   # Angular GUI
   # ===========================================
   gui:
@@ -182,6 +213,8 @@ volumes:
     name: brain-strapi-data
   gui_node_modules:
     name: brain-gui-node-modules
+  persistent_workspace:
+    name: brain-persistent-workspace
 
 # ===========================================
 # Red Interna

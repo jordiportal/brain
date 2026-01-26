@@ -50,10 +50,20 @@ class OpenAPITool:
             param_name = param.get("name", "")
             param_schema = param.get("schema", {"type": "string"})
             
-            properties[param_name] = {
+            param_def = {
                 "type": param_schema.get("type", "string"),
                 "description": param.get("description", f"Parameter {param_name}")
             }
+            
+            # Si es array, incluir items
+            if param_schema.get("type") == "array":
+                param_def["items"] = param_schema.get("items", {"type": "string"})
+            
+            # Si tiene enum, incluirlo
+            if "enum" in param_schema:
+                param_def["enum"] = param_schema["enum"]
+            
+            properties[param_name] = param_def
             
             if param.get("required", False):
                 required.append(param_name)
@@ -65,17 +75,34 @@ class OpenAPITool:
             
             if json_schema.get("properties"):
                 for prop_name, prop_schema in json_schema["properties"].items():
-                    properties[prop_name] = {
+                    # Copiar schema completo para preservar arrays, enums, etc.
+                    param_def = {
                         "type": prop_schema.get("type", "string"),
                         "description": prop_schema.get("description", f"Body parameter {prop_name}")
                     }
+                    
+                    # Si es array, incluir items (requerido por OpenAI)
+                    if prop_schema.get("type") == "array":
+                        param_def["items"] = prop_schema.get("items", {"type": "string"})
+                    
+                    # Si tiene enum, incluirlo
+                    if "enum" in prop_schema:
+                        param_def["enum"] = prop_schema["enum"]
+                    
+                    properties[prop_name] = param_def
                 
                 if json_schema.get("required"):
                     required.extend(json_schema["required"])
         
+        # Truncar el nombre si es muy largo (OpenAI límite: 64 chars)
+        function_name = self.name
+        if len(function_name) > 64:
+            # Truncar pero mantener el final que suele ser más descriptivo
+            function_name = function_name[:60] + "_" + str(hash(function_name) % 1000)
+        
         return {
-            "name": self.name,
-            "description": self.description,
+            "name": function_name,
+            "description": self.description + (f" (ID original: {self.name})" if function_name != self.name else ""),
             "parameters": {
                 "type": "object",
                 "properties": properties,

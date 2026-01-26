@@ -1,0 +1,80 @@
+# ============================================
+# Brain - Persistent Python Runner
+# ============================================
+# Contenedor Python para ejecución permanente con:
+# - Volumen persistente
+# - Acceso a red
+# - Bibliotecas extendidas (web scraping, scheduling)
+# - Supervisor para mantener el proceso vivo
+
+FROM python:3.11-slim
+
+# Variables de entorno
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV WORKSPACE=/workspace
+
+WORKDIR ${WORKSPACE}
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    git \
+    cron \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar bibliotecas Python extendidas
+RUN pip install --no-cache-dir \
+    # Básicas
+    numpy \
+    pandas \
+    matplotlib \
+    # Web scraping y automatización
+    requests \
+    beautifulsoup4 \
+    lxml \
+    playwright \
+    selenium \
+    # Scheduling
+    schedule \
+    apscheduler \
+    # Utilidades
+    python-dotenv \
+    pyyaml \
+    # Database
+    psycopg2-binary \
+    redis \
+    # HTTP client avanzado
+    httpx \
+    aiohttp \
+    # File handling
+    openpyxl \
+    python-docx \
+    PyPDF2
+
+# Instalar navegadores para Playwright (opcional, comentado por tamaño)
+# RUN playwright install chromium --with-deps
+
+# Crear directorios de trabajo
+RUN mkdir -p \
+    ${WORKSPACE}/scripts \
+    ${WORKSPACE}/downloads \
+    ${WORKSPACE}/logs \
+    ${WORKSPACE}/data \
+    /var/log/supervisor
+
+# Configurar supervisord
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Script de entrada para mantener el contenedor vivo
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
