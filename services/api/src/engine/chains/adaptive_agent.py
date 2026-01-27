@@ -74,12 +74,18 @@ def is_valid_tool_name(name: str) -> bool:
 
 ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant with access to tools.
 
+# CRITICAL - READ THIS FIRST
+
+⚠️ **YOU MUST CALL THE `finish` TOOL TO COMPLETE ANY TASK.**
+⚠️ **DO NOT CALL THE SAME TOOL MORE THAN 3 TIMES CONSECUTIVELY.**
+⚠️ **IF YOU HAVE COMPLETED THE TASK, CALL `finish` IMMEDIATELY.**
+
 # CORE PRINCIPLES
 
-1. **THINK BEFORE ACT**: For complex tasks, use the `think` tool to plan your approach.
+1. **ACT EFFICIENTLY**: Use the minimum number of tool calls needed.
 2. **USE TOOLS**: You have powerful tools available. Use them to accomplish tasks.
-3. **REFLECT ON RESULTS**: After using tools, evaluate if you achieved the goal.
-4. **FINISH WITH ANSWER**: You MUST ALWAYS use the `finish` tool to provide your final answer.
+3. **AVOID LOOPS**: Never call the same tool repeatedly without making progress.
+4. **FINISH IMMEDIATELY**: As soon as the task is done, call `finish` with your answer.
 
 # AVAILABLE TOOLS
 
@@ -114,12 +120,20 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 
 # CRITICAL RULES - FOLLOW THESE EXACTLY
 
-1. **ALWAYS call `finish`**: Every task MUST end with the `finish` tool. No exceptions.
-2. **Complete ALL steps**: For multi-step tasks (like "search AND save"), complete EVERY step before finishing.
-3. **If asked to save/write to a file**: You MUST use the `write` tool. Do not skip this step.
-4. **Verify completion**: Before calling `finish`, mentally verify ALL parts of the request are done.
-5. **Use markdown**: Format your final answer with markdown when appropriate.
-6. **Handle failures**: If a tool fails, try an alternative approach.
+1. **CALL `finish` TO END**: Every task MUST end with `finish(final_answer="your answer")`. No exceptions.
+2. **NO TOOL LOOPS**: Do NOT call the same tool more than 3 times. If you've called a tool 3 times, move on or call `finish`.
+3. **AFTER `write` → CHECK DONE**: After writing a file, the task is usually complete. Call `finish`.
+4. **AFTER `python` → REPORT RESULT**: After running Python code, report the result and call `finish`.
+5. **AFTER `shell` → VERIFY AND FINISH**: After shell commands complete successfully, call `finish`.
+6. **FORMAT**: Use markdown in your final answer.
+7. **FAILURES**: If a tool fails, try once more, then call `finish` with what you have.
+
+## STOP SIGNS - CALL `finish` NOW IF:
+- You have successfully written a file
+- You have executed code and got results
+- You have gathered the information requested
+- You have completed all parts of the task
+- You have called any tool 3+ times
 
 # EXAMPLES OF MULTI-STEP TASKS
 
@@ -289,6 +303,11 @@ async def build_adaptive_agent(
     iteration = 0
     final_answer = None
     
+    # Detección de loops
+    consecutive_same_tool = 0
+    last_tool_name = None
+    MAX_CONSECUTIVE_SAME_TOOL = 3
+    
     while iteration < max_iterations:
         iteration += 1
         
@@ -372,6 +391,17 @@ async def build_adaptive_agent(
                         tool_args = {}
                     
                     logger.info(f"🔧 Executing tool: {tool_name}", args=list(tool_args.keys()))
+                    
+                    # Detección de loops - track consecutive same tool calls
+                    if tool_name == last_tool_name:
+                        consecutive_same_tool += 1
+                    else:
+                        consecutive_same_tool = 1
+                        last_tool_name = tool_name
+                    
+                    # Si se detecta loop, añadir advertencia para la siguiente iteración
+                    if consecutive_same_tool >= MAX_CONSECUTIVE_SAME_TOOL and tool_name != "finish":
+                        logger.warning(f"⚠️ Loop detected: {tool_name} called {consecutive_same_tool} times")
                     
                     # Determinar nombre amigable para la GUI
                     tool_display_names = {
@@ -483,6 +513,18 @@ async def build_adaptive_agent(
                         data={"finished": True}
                     )
                     break
+                
+                # Si se detectó un loop, inyectar advertencia al LLM
+                if consecutive_same_tool >= MAX_CONSECUTIVE_SAME_TOOL:
+                    loop_warning = f"""⚠️ WARNING: You have called `{last_tool_name}` {consecutive_same_tool} times consecutively.
+
+STOP and call `finish` NOW with your current results. Do NOT call {last_tool_name} again.
+
+If the task is complete, use: finish(final_answer="your answer here")
+If you need something else, use a DIFFERENT tool."""
+                    
+                    messages.append({"role": "system", "content": loop_warning})
+                    logger.info(f"⚠️ Injected loop warning after {consecutive_same_tool}x {last_tool_name}")
             
             yield StreamEvent(
                 event_type="node_end",
