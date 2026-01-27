@@ -1,0 +1,38 @@
+{
+  "kind": "singleType",
+  "collectionName": "tool_configs",
+  "info": {
+    "singularName": "tool-config",
+    "pluralName": "tool-configs",
+    "displayName": "Tool Configuration",
+    "description": "Configuración global de las 15 Core Tools de Brain 2.0"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "filesystem": {
+      "type": "component",
+      "repeatable": false,
+      "component": "tool-settings.filesystem"
+    },
+    "execution": {
+      "type": "component",
+      "repeatable": false,
+      "component": "tool-settings.execution"
+    },
+    "web": {
+      "type": "component",
+      "repeatable": false,
+      "component": "tool-settings.web"
+    },
+    "isActive": {
+      "type": "boolean",
+      "default": true
+    },
+    "lastUpdated": {
+      "type": "datetime"
+    }
+  }
+}

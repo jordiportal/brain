@@ -1,0 +1,52 @@
+{
+  "collectionName": "components_tool_settings_executions",
+  "info": {
+    "displayName": "Execution Settings",
+    "description": "Configuración de herramientas de ejecución de código",
+    "icon": "terminal"
+  },
+  "attributes": {
+    "pythonImage": {
+      "type": "string",
+      "default": "python:3.11-slim"
+    },
+    "nodeImage": {
+      "type": "string",
+      "default": "node:20-slim"
+    },
+    "timeoutSeconds": {
+      "type": "integer",
+      "default": 30,
+      "min": 5,
+      "max": 300
+    },
+    "memoryLimit": {
+      "type": "string",
+      "default": "512m"
+    },
+    "cpuLimit": {
+      "type": "string",
+      "default": "1.0"
+    },
+    "networkEnabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "shellEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "pythonEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "javascriptEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "shellBlacklist": {
+      "type": "json",
+      "default": ["rm -rf /", "mkfs", "dd if="]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "collectionName": "components_tool_settings_webs",
+  "info": {
+    "displayName": "Web Settings",
+    "description": "Configuración de herramientas web",
+    "icon": "globe"
+  },
+  "attributes": {
+    "searchProvider": {
+      "type": "enumeration",
+      "enum": ["duckduckgo", "serper", "google", "bing", "tavily"],
+      "default": "duckduckgo"
+    },
+    "searchApiKey": {
+      "type": "string",
+      "private": true
+    },
+    "searchMaxResults": {
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 20
+    },
+    "fetchTimeout": {
+      "type": "integer",
+      "default": 30,
+      "min": 5,
+      "max": 120
+    },
+    "fetchMaxSizeMB": {
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 50
+    },
+    "fetchUserAgent": {
+      "type": "string",
+      "default": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    },
+    "searchEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "fetchEnabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "blockedDomains": {
+      "type": "json",
+      "default": []
+    }
+  }
+}

@@ -3,6 +3,11 @@ Brain 2.0 Core Tools - Web (2 tools)
 
 - web_search: Buscar información en internet
 - web_fetch: Obtener contenido de una URL
+
+Proveedores de búsqueda soportados:
+- duckduckgo: Gratis, sin API key, pero con rate limiting
+- serper: API de Google, 2500 queries/mes gratis
+- tavily: API optimizada para AI, 1000 queries/mes gratis
 """
 
 import time
@@ -10,6 +15,12 @@ from typing import Dict, Any, Optional, List
 import structlog
 
 logger = structlog.get_logger()
+
+# Importar configuración
+try:
+    from ..config import get_web_config
+except ImportError:
+    get_web_config = None
 
 
 # ============================================
@@ -21,7 +32,12 @@ async def web_search(
     max_results: int = 5
 ) -> Dict[str, Any]:
     """
-    Busca información en internet usando DuckDuckGo.
+    Busca información en internet.
+    
+    Soporta múltiples proveedores configurables:
+    - duckduckgo: Gratis, sin API key
+    - serper: Google Search API (2500/mes gratis)
+    - tavily: Optimizado para AI (1000/mes gratis)
     
     Args:
         query: Consulta de búsqueda
@@ -30,33 +46,52 @@ async def web_search(
     Returns:
         {"success": True, "results": [...]} o {"error": str}
     """
+    # Obtener configuración
+    config = get_web_config() if get_web_config else None
+    provider = config.search_provider if config else "duckduckgo"
+    api_key = config.search_api_key if config else None
+    
+    if config and not config.search_enabled:
+        return {
+            "success": False,
+            "error": "Web search is disabled in configuration"
+        }
+    
+    logger.info(f"🔎 web_search: {query}", provider=provider, max_results=max_results)
+    
+    # Seleccionar proveedor
+    if provider == "serper" and api_key:
+        return await _search_serper(query, max_results, api_key)
+    elif provider == "tavily" and api_key:
+        return await _search_tavily(query, max_results, api_key)
+    else:
+        # Fallback a DuckDuckGo
+        return await _search_duckduckgo(query, max_results)
+
+
+async def _search_duckduckgo(query: str, max_results: int) -> Dict[str, Any]:
+    """Búsqueda con DuckDuckGo (gratis, con rate limiting)"""
     try:
         from duckduckgo_search import DDGS
     except ImportError:
-        logger.error("duckduckgo-search no está instalado")
         return {
             "success": False,
-            "error": "duckduckgo-search no está instalado. Ejecuta: pip install duckduckgo-search",
+            "error": "duckduckgo-search not installed",
             "query": query
         }
     
-    # Intentar hasta 3 veces con delay incremental
     max_retries = 3
-    retry_delay = 1  # segundos
+    retry_delay = 1
     
     for attempt in range(max_retries):
         try:
-            logger.info(f"🔎 web_search: {query}", max_results=max_results, attempt=attempt + 1)
-            
             results_list = []
             with DDGS() as ddgs:
-                # Búsqueda de texto con timeout
                 search_results = ddgs.text(
                     query, 
                     max_results=max_results,
-                    region='wt-wt',  # World region
-                    safesearch='moderate',
-                    timelimit=None
+                    region='wt-wt',
+                    safesearch='moderate'
                 )
                 
                 for idx, result in enumerate(search_results):
@@ -67,43 +102,124 @@ async def web_search(
                         "url": result.get("href", ""),
                     })
             
-            logger.info(f"✅ web_search completed: {len(results_list)} resultados", query=query)
-            
             return {
                 "success": True,
                 "query": query,
+                "provider": "duckduckgo",
                 "results": results_list,
                 "count": len(results_list)
             }
             
         except Exception as e:
-            error_msg = str(e)
-            
-            # Si es rate limit y no es el último intento, esperar y reintentar
-            if "ratelimit" in error_msg.lower() and attempt < max_retries - 1:
-                wait_time = retry_delay * (attempt + 1)
-                logger.warning(
-                    f"Rate limit detectado, esperando {wait_time}s antes de reintentar",
-                    query=query,
-                    attempt=attempt + 1
-                )
-                time.sleep(wait_time)
+            if "ratelimit" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
                 continue
             
-            # Si llegamos aquí, es el último intento o un error diferente
-            logger.error(f"Error en búsqueda web: {e}", query=query, attempt=attempt + 1)
             return {
                 "success": False,
                 "error": str(e),
                 "query": query,
-                "hint": "DuckDuckGo puede tener rate limiting temporal. Intenta de nuevo en 30 segundos."
+                "provider": "duckduckgo",
+                "hint": "DuckDuckGo rate limited. Configure an API-based provider like Serper or Tavily."
             }
     
-    return {
-        "success": False,
-        "error": "Se agotaron los reintentos",
-        "query": query
-    }
+    return {"success": False, "error": "Max retries exceeded", "query": query}
+
+
+async def _search_serper(query: str, max_results: int, api_key: str) -> Dict[str, Any]:
+    """Búsqueda con Serper.dev (Google Search API)"""
+    try:
+        import httpx
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://google.serper.dev/search",
+                headers={
+                    "X-API-KEY": api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "q": query,
+                    "num": max_results
+                }
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            results_list = []
+            for idx, item in enumerate(data.get("organic", [])[:max_results]):
+                results_list.append({
+                    "position": idx + 1,
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", ""),
+                    "url": item.get("link", ""),
+                })
+            
+            return {
+                "success": True,
+                "query": query,
+                "provider": "serper",
+                "results": results_list,
+                "count": len(results_list)
+            }
+            
+    except Exception as e:
+        logger.error(f"Serper search error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query,
+            "provider": "serper"
+        }
+
+
+async def _search_tavily(query: str, max_results: int, api_key: str) -> Dict[str, Any]:
+    """Búsqueda con Tavily (optimizado para AI)"""
+    try:
+        import httpx
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.tavily.com/search",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "max_results": max_results,
+                    "include_answer": False,
+                    "include_raw_content": False
+                }
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            results_list = []
+            for idx, item in enumerate(data.get("results", [])[:max_results]):
+                results_list.append({
+                    "position": idx + 1,
+                    "title": item.get("title", ""),
+                    "snippet": item.get("content", ""),
+                    "url": item.get("url", ""),
+                })
+            
+            return {
+                "success": True,
+                "query": query,
+                "provider": "tavily",
+                "results": results_list,
+                "count": len(results_list)
+            }
+            
+    except Exception as e:
+        logger.error(f"Tavily search error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query,
+            "provider": "tavily"
+        }
 
 
 async def web_fetch(

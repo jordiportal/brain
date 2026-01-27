@@ -9,19 +9,17 @@ Brain 2.0 Core Tools - Execution (3 tools)
 import asyncio
 import os
 import subprocess
+import time
 from typing import Dict, Any, Optional
 import structlog
 
 logger = structlog.get_logger()
 
-# Importar CodeExecutor existente para python/javascript
+# Importar configuración
 try:
-    from ...code_executor import get_code_executor
-    from ...code_executor.models import ExecutionResult
-    CODE_EXECUTOR_AVAILABLE = True
+    from ..config import get_execution_config
 except ImportError:
-    CODE_EXECUTOR_AVAILABLE = False
-    logger.warning("CodeExecutor no disponible, python/javascript tools deshabilitadas")
+    get_execution_config = None
 
 
 # ============================================
@@ -124,41 +122,29 @@ async def python_execute(
     Returns:
         {"success": True, "stdout": str, "stderr": str} o {"error": str}
     """
-    if not CODE_EXECUTOR_AVAILABLE:
+    # Obtener configuración
+    config = get_execution_config() if get_execution_config else None
+    image = config.python_image if config else "python:3.11-slim"
+    memory_limit = config.memory_limit if config else "512m"
+    cpu_limit = config.cpu_limit if config else "1.0"
+    network_enabled = config.network_enabled if config else False
+    
+    if config and not config.python_enabled:
         return {
             "success": False,
-            "error": "CodeExecutor no disponible. Verifica que Docker esté funcionando."
+            "error": "Python execution is disabled in configuration"
         }
     
-    try:
-        logger.info(f"🐍 python: ejecutando código ({len(code)} chars)", timeout=timeout)
-        
-        executor = get_code_executor()
-        result: ExecutionResult = await executor.execute_python(code, timeout)
-        
-        logger.info(
-            f"✅ python completed",
-            success=result.success,
-            exit_code=result.exit_code,
-            execution_time=result.execution_time
-        )
-        
-        return {
-            "success": result.success,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.exit_code,
-            "execution_time": result.execution_time,
-            "status": result.status.value if result.status else None,
-            "error": result.error_message
-        }
-        
-    except Exception as e:
-        logger.error(f"Error ejecutando Python: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+    return await _execute_in_docker(
+        code=code,
+        language="python",
+        image=image,
+        command=["python", "-c"],
+        timeout=timeout,
+        memory_limit=memory_limit,
+        cpu_limit=cpu_limit,
+        network_enabled=network_enabled
+    )
 
 
 async def javascript_execute(
@@ -175,40 +161,149 @@ async def javascript_execute(
     Returns:
         {"success": True, "stdout": str, "stderr": str} o {"error": str}
     """
-    if not CODE_EXECUTOR_AVAILABLE:
+    # Obtener configuración
+    config = get_execution_config() if get_execution_config else None
+    image = config.node_image if config else "node:20-slim"
+    memory_limit = config.memory_limit if config else "512m"
+    cpu_limit = config.cpu_limit if config else "1.0"
+    network_enabled = config.network_enabled if config else False
+    
+    if config and not config.javascript_enabled:
         return {
             "success": False,
-            "error": "CodeExecutor no disponible. Verifica que Docker esté funcionando."
+            "error": "JavaScript execution is disabled in configuration"
         }
     
+    return await _execute_in_docker(
+        code=code,
+        language="javascript",
+        image=image,
+        command=["node", "-e"],
+        timeout=timeout,
+        memory_limit=memory_limit,
+        cpu_limit=cpu_limit,
+        network_enabled=network_enabled
+    )
+
+
+async def _execute_in_docker(
+    code: str,
+    language: str,
+    image: str,
+    command: list,
+    timeout: int,
+    memory_limit: str,
+    cpu_limit: str,
+    network_enabled: bool
+) -> Dict[str, Any]:
+    """
+    Ejecuta código en un contenedor Docker.
+    
+    Args:
+        code: Código a ejecutar
+        language: Lenguaje (para logging)
+        image: Imagen Docker a usar
+        command: Comando base (ej: ["python", "-c"])
+        timeout: Timeout en segundos
+        memory_limit: Límite de memoria
+        cpu_limit: Límite de CPU
+        network_enabled: Si permite red
+    
+    Returns:
+        Resultado de la ejecución
+    """
+    start_time = time.time()
+    
     try:
-        logger.info(f"📜 javascript: ejecutando código ({len(code)} chars)", timeout=timeout)
-        
-        executor = get_code_executor()
-        result: ExecutionResult = await executor.execute_javascript(code, timeout)
-        
         logger.info(
-            f"✅ javascript completed",
-            success=result.success,
-            exit_code=result.exit_code,
-            execution_time=result.execution_time
+            f"🐳 {language}: ejecutando en Docker",
+            image=image,
+            timeout=timeout,
+            code_len=len(code)
         )
         
-        return {
-            "success": result.success,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.exit_code,
-            "execution_time": result.execution_time,
-            "status": result.status.value if result.status else None,
-            "error": result.error_message
-        }
+        # Construir comando docker
+        docker_cmd = [
+            "docker", "run",
+            "--rm",
+            f"--memory={memory_limit}",
+            f"--cpus={cpu_limit}"
+        ]
         
-    except Exception as e:
-        logger.error(f"Error ejecutando JavaScript: {e}")
+        # Red deshabilitada por defecto para seguridad
+        if not network_enabled:
+            docker_cmd.append("--network=none")
+        
+        # Imagen y comando
+        docker_cmd.append(image)
+        docker_cmd.extend(command)
+        docker_cmd.append(code)
+        
+        # Ejecutar con timeout
+        process = await asyncio.create_subprocess_exec(
+            *docker_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+            
+            execution_time = time.time() - start_time
+            stdout_str = stdout.decode('utf-8', errors='replace')
+            stderr_str = stderr.decode('utf-8', errors='replace')
+            
+            success = process.returncode == 0
+            
+            logger.info(
+                f"✅ {language} completed",
+                success=success,
+                exit_code=process.returncode,
+                execution_time=f"{execution_time:.2f}s"
+            )
+            
+            return {
+                "success": success,
+                "stdout": stdout_str,
+                "stderr": stderr_str,
+                "exit_code": process.returncode,
+                "execution_time": execution_time,
+                "language": language,
+                "error": None if success else f"Exit code: {process.returncode}"
+            }
+            
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            execution_time = time.time() - start_time
+            
+            logger.warning(f"⏱️ {language} timeout after {timeout}s")
+            
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"Timeout after {timeout} seconds",
+                "exit_code": -1,
+                "execution_time": execution_time,
+                "language": language,
+                "error": f"Timeout after {timeout} seconds"
+            }
+            
+    except FileNotFoundError:
         return {
             "success": False,
-            "error": str(e)
+            "error": "Docker not found. Please ensure Docker is installed and running.",
+            "language": language
+        }
+    except Exception as e:
+        logger.error(f"Error executing {language}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "language": language
         }
 
 
