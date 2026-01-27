@@ -137,7 +137,10 @@ class ToolRegistry:
             return {"error": f"Herramienta sin handler: {tool_id}", "success": False}
         
         try:
-            result = tool.handler(**kwargs)
+            # Filtrar kwargs para solo incluir parámetros válidos del schema
+            valid_params = self._filter_valid_params(tool, kwargs)
+            
+            result = tool.handler(**valid_params)
             
             # Si es coroutine, await
             if hasattr(result, '__await__'):
@@ -153,6 +156,40 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"Error ejecutando tool {tool_id}: {e}", exc_info=True)
             return {"error": str(e), "success": False}
+    
+    def _filter_valid_params(self, tool: ToolDefinition, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Filtra los parámetros para incluir solo los definidos en el schema.
+        
+        Esto previene errores cuando el LLM inventa parámetros que no existen.
+        """
+        # Obtener propiedades válidas del schema
+        valid_props = set()
+        if tool.parameters and "properties" in tool.parameters:
+            valid_props = set(tool.parameters["properties"].keys())
+        
+        if not valid_props:
+            # Si no hay schema definido, pasar todos los kwargs
+            return kwargs
+        
+        # Filtrar solo parámetros válidos
+        filtered = {}
+        invalid = []
+        
+        for key, value in kwargs.items():
+            if key in valid_props:
+                filtered[key] = value
+            else:
+                invalid.append(key)
+        
+        if invalid:
+            logger.warning(
+                f"Ignorando parámetros inválidos para {tool.id}: {invalid}",
+                tool_id=tool.id,
+                invalid_params=invalid
+            )
+        
+        return filtered
     
     def register_core_tools(self) -> None:
         """
