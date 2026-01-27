@@ -1262,19 +1262,25 @@ export class ChainsComponent implements OnInit {
                 
                 // Agregar datos finales del paso
                 if (data.data) {
+                  // Prioridad: thinking > observation > result_preview
                   if (data.data.thinking) {
                     step.content = data.data.thinking;
-                  }
-                  if (data.data.observation) {
+                  } else if (data.data.observation) {
                     step.content = data.data.observation;
-                  }
-                  if (data.data.result_preview) {
-                    step.content += step.content ? '\n\n' + data.data.result_preview : data.data.result_preview;
+                  } else if (data.data.result_preview) {
+                    step.content = data.data.result_preview;
                   }
                   step.data = { ...step.data, ...data.data };
                 }
                 
                 if (data.data?.tokens) tokens = data.data.tokens;
+                
+                // Forzar actualización: reemplazar el step en el array
+                const stepIndex = intermediateSteps.findIndex(s => s.id === stepId);
+                if (stepIndex >= 0) {
+                  intermediateSteps[stepIndex] = { ...step };
+                  this.activeSteps.set(stepId, intermediateSteps[stepIndex]);
+                }
               }
               
               currentStepId = null;
