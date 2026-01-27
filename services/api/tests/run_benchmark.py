@@ -106,6 +106,29 @@ Ejemplos:
         help="Timeout por defecto en segundos (default: 120)"
     )
     
+    # LLM Provider arguments
+    parser.add_argument(
+        "--llm-provider",
+        choices=["ollama", "openai", "anthropic", "gemini", "groq"],
+        default="ollama",
+        help="Proveedor de LLM (default: ollama)"
+    )
+    
+    parser.add_argument(
+        "--llm-url",
+        help="URL del proveedor LLM (ej: https://api.openai.com/v1)"
+    )
+    
+    parser.add_argument(
+        "--llm-api-key",
+        help="API key del proveedor LLM"
+    )
+    
+    parser.add_argument(
+        "--llm-model",
+        help="Modelo a usar (ej: gpt-4.1, claude-3-opus)"
+    )
+    
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
@@ -184,6 +207,14 @@ async def main():
     
     # Ejecutar benchmark
     try:
+        # Configuración base de LLM
+        llm_config = {
+            "llm_provider_type": args.llm_provider,
+            "llm_provider_url": args.llm_url,
+            "llm_api_key": args.llm_api_key,
+            "llm_model": args.llm_model,
+        }
+        
         if args.quick:
             # Modo rápido: 1 test por categoría
             config = RunnerConfig(
@@ -191,29 +222,34 @@ async def main():
                 timeout_default=args.timeout,
                 verbose=verbose,
                 run_cleanup=not args.no_cleanup,
+                **llm_config,
             )
             
             async with BenchmarkRunner(config) as runner:
                 metrics = await runner.run_quick()
         else:
-            # Modo normal
-            metrics = await run_benchmark(
+            # Modo normal con LLM config
+            config = RunnerConfig(
                 api_url=args.api_url,
-                categories=args.category,
+                timeout_default=args.timeout,
+                verbose=verbose,
+                run_cleanup=not args.no_cleanup,
+                categories=[TestCategory(c) for c in args.category] if args.category else None,
                 test_ids=args.test_id,
                 tags=args.tag,
-                verbose=verbose,
-                output_json=args.output_json,
-                output_markdown=args.output_markdown,
+                **llm_config,
             )
+            
+            async with BenchmarkRunner(config) as runner:
+                metrics = await runner.run_all()
         
         # Guardar reportes si se especificaron
-        if args.output_json and not args.quick:
+        if args.output_json:
             metrics.save_report(args.output_json)
             if verbose:
                 print(f"\n📄 JSON report saved to: {args.output_json}")
         
-        if args.output_markdown and not args.quick:
+        if args.output_markdown:
             md_report = create_markdown_report(metrics)
             with open(args.output_markdown, "w", encoding="utf-8") as f:
                 f.write(md_report)

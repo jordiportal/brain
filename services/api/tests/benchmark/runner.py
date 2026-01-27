@@ -36,6 +36,11 @@ class RunnerConfig:
     categories: Optional[List[TestCategory]] = None  # None = todas
     test_ids: Optional[List[str]] = None  # None = todos
     tags: Optional[List[str]] = None  # Filtrar por tags
+    # LLM Provider config
+    llm_provider_type: str = "ollama"  # "ollama", "openai", "anthropic", "gemini"
+    llm_provider_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 class BenchmarkRunner:
@@ -85,6 +90,16 @@ class BenchmarkRunner:
         payload = {
             "input": {"query": query}
         }
+        
+        # Añadir configuración de LLM si está especificada
+        if self.config.llm_provider_type != "ollama":
+            payload["llm_provider_type"] = self.config.llm_provider_type
+        if self.config.llm_provider_url:
+            payload["llm_provider_url"] = self.config.llm_provider_url
+        if self.config.llm_api_key:
+            payload["api_key"] = self.config.llm_api_key
+        if self.config.llm_model:
+            payload["model"] = self.config.llm_model
         
         try:
             response = await self.client.post(

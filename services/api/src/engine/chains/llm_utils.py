@@ -695,6 +695,17 @@ async def _call_openai_with_tools(
     """OpenAI native function calling"""
     url = f"{base_url}/chat/completions"
     
+    # Normalizar formato de tools: si ya vienen con "type"/"function", usar tal cual
+    # Si vienen como dict plano {name, description, parameters}, wrappear
+    normalized_tools = []
+    for tool in tools:
+        if "type" in tool and tool["type"] == "function" and "function" in tool:
+            # Ya está en formato OpenAI correcto
+            normalized_tools.append(tool)
+        else:
+            # Wrappear en formato OpenAI
+            normalized_tools.append({"type": "function", "function": tool})
+    
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             url,
@@ -705,7 +716,7 @@ async def _call_openai_with_tools(
             json={
                 "model": model,
                 "messages": messages,
-                "tools": [{"type": "function", "function": tool} for tool in tools],
+                "tools": normalized_tools,
                 "temperature": temperature,
                 "stream": False
             }

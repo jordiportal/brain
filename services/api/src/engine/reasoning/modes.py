@@ -36,6 +36,7 @@ class ReasoningConfig:
 
 
 # Configuraciones por modo
+# NOTA: max_iterations aumentados para dar margen al agente de completar tareas multi-step
 REASONING_CONFIGS = {
     ReasoningMode.NONE: ReasoningConfig(
         mode=ReasoningMode.NONE,
@@ -43,7 +44,7 @@ REASONING_CONFIGS = {
         require_think=False,
         require_plan=False,
         require_reflect=False,
-        max_iterations=3,
+        max_iterations=5,       # Aumentado de 3 a 5
         temperature=0.7,
         description="Respuesta directa sin razonamiento explícito"
     ),
@@ -54,7 +55,7 @@ REASONING_CONFIGS = {
         require_think=False,
         require_plan=False,
         require_reflect=False,
-        max_iterations=5,
+        max_iterations=8,       # Aumentado de 5 a 8
         temperature=0.5,
         description="Razonamiento interno con budget moderado"
     ),
@@ -65,7 +66,7 @@ REASONING_CONFIGS = {
         require_think=True,
         require_plan=True,
         require_reflect=True,
-        max_iterations=10,
+        max_iterations=15,      # Aumentado de 10 a 15
         temperature=0.3,
         description="Razonamiento extendido con planificación"
     ),
@@ -76,7 +77,7 @@ REASONING_CONFIGS = {
         require_think=True,
         require_plan=True,
         require_reflect=True,
-        max_iterations=8,
+        max_iterations=12,      # Aumentado de 8 a 12
         temperature=0.3,
         description="Meta-tools obligatorias para debugging"
     )

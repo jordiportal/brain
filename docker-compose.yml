@@ -70,6 +70,7 @@ services:
     volumes:
       - ./services/api/src:/app/src:ro
       - /var/run/docker.sock:/var/run/docker.sock  # Acceso a Docker daemon para code execution
+      - ~/Docker/workspace:/workspace  # Workspace compartido accesible desde Mac
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -162,8 +163,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - API_URL=http://api:8000
     volumes:
-      # Volumen persistente para scripts, datos y descargas
-      - persistent_workspace:/workspace
+      # Bind mount a carpeta local del Mac para acceso directo
+      - ~/Docker/workspace:/workspace
     networks:
       - brain-network
     depends_on:
@@ -213,8 +214,7 @@ volumes:
     name: brain-strapi-data
   gui_node_modules:
     name: brain-gui-node-modules
-  persistent_workspace:
-    name: brain-persistent-workspace
+  # persistent_workspace eliminado - ahora usa bind mount ~/Docker/workspace
 
 # ===========================================
 # Red Interna

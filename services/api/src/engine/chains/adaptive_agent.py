@@ -38,6 +38,37 @@ logger = structlog.get_logger()
 
 
 # ============================================
+# Validación de Tool Names
+# ============================================
+
+# Lista de tools válidas
+VALID_TOOL_NAMES = {
+    "read", "write", "edit", "list", "search",
+    "shell", "python", "javascript",
+    "web_search", "web_fetch",
+    "think", "reflect", "plan", "finish",
+    "calculate"
+}
+
+def is_valid_tool_name(name: str) -> bool:
+    """
+    Validar que el nombre de la tool es válido.
+    Filtra artifacts de modelos como 'assistant<|channel|>commentary'
+    """
+    if not name:
+        return False
+    
+    # Patrones inválidos (artifacts de modelos)
+    invalid_patterns = ['<|', '|>', 'channel', 'functions<', 'assistant<']
+    for pattern in invalid_patterns:
+        if pattern in name.lower():
+            return False
+    
+    # Verificar que está en la lista de tools válidas
+    return name.lower() in VALID_TOOL_NAMES
+
+
+# ============================================
 # System Prompt
 # ============================================
 
@@ -48,13 +79,13 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 1. **THINK BEFORE ACT**: For complex tasks, use the `think` tool to plan your approach.
 2. **USE TOOLS**: You have powerful tools available. Use them to accomplish tasks.
 3. **REFLECT ON RESULTS**: After using tools, evaluate if you achieved the goal.
-4. **FINISH WITH ANSWER**: Always use the `finish` tool to provide your final answer.
+4. **FINISH WITH ANSWER**: You MUST ALWAYS use the `finish` tool to provide your final answer.
 
 # AVAILABLE TOOLS
 
 ## Filesystem
 - `read`: Read file contents
-- `write`: Create/overwrite files
+- `write`: Create/overwrite files (ALWAYS use this when asked to save something)
 - `edit`: Edit files (replace text)
 - `list`: List directory contents
 - `search`: Search files or content
@@ -72,7 +103,7 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 - `think`: Plan and reason about the task
 - `reflect`: Evaluate results and progress
 - `plan`: Create structured plan for complex tasks
-- `finish`: Provide final answer to user
+- `finish`: Provide final answer to user - YOU MUST CALL THIS TO COMPLETE
 
 ## Utils
 - `calculate`: Evaluate math expressions
@@ -81,32 +112,51 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 
 {workflow_instructions}
 
-# IMPORTANT
+# CRITICAL RULES - FOLLOW THESE EXACTLY
 
-- ALWAYS end with the `finish` tool containing your complete answer
-- Use markdown formatting in your final answer when appropriate
-- If a tool fails, try an alternative approach
-- Be concise but thorough
+1. **ALWAYS call `finish`**: Every task MUST end with the `finish` tool. No exceptions.
+2. **Complete ALL steps**: For multi-step tasks (like "search AND save"), complete EVERY step before finishing.
+3. **If asked to save/write to a file**: You MUST use the `write` tool. Do not skip this step.
+4. **Verify completion**: Before calling `finish`, mentally verify ALL parts of the request are done.
+5. **Use markdown**: Format your final answer with markdown when appropriate.
+6. **Handle failures**: If a tool fails, try an alternative approach.
+
+# EXAMPLES OF MULTI-STEP TASKS
+
+- "Search X and save to file Y" → web_search → write → finish
+- "Read file X and analyze" → read → think → finish  
+- "Calculate X and save result" → calculate → write → finish
 
 Now, help the user with their request."""
 
 WORKFLOW_SIMPLE = """For this SIMPLE task:
-1. Directly use the appropriate tool(s)
-2. Use `finish` to provide your answer"""
+1. Identify what tool(s) are needed
+2. Execute the tool(s) in order
+3. IMPORTANT: If task has multiple parts (like "do X AND Y"), complete ALL parts
+4. Call `finish` with your complete answer
+
+Example: "Calculate X and tell me" → calculate → finish"""
 
 WORKFLOW_MODERATE = """For this MODERATE task:
-1. Optionally use `think` to plan your approach
-2. Use tools to gather information or perform actions
-3. Optionally use `reflect` to evaluate progress
-4. Use `finish` to provide your answer"""
+1. Use `think` to break down the task into steps
+2. Execute each step using the appropriate tools
+3. IMPORTANT: Complete ALL parts of the request before finishing
+4. If asked to save/write something, you MUST use the `write` tool
+5. Use `reflect` if results seem incomplete
+6. Call `finish` with your complete answer
+
+Example: "Search X and save to file Y" → think → web_search → write → finish"""
 
 WORKFLOW_COMPLEX = """For this COMPLEX task:
-1. Use `plan` to create a structured approach
+1. Use `plan` to create a structured approach with ALL required steps
 2. Use `think` before each major step
-3. Execute tools according to your plan
-4. Use `reflect` after getting results
-5. Iterate until the task is complete
-6. Use `finish` to provide your comprehensive answer"""
+3. Execute tools according to your plan - DO NOT skip any step
+4. Use `reflect` to verify progress after each major action
+5. CHECKPOINT: Before finishing, verify ALL parts of the original request are done
+6. If any part is missing, execute the required tools
+7. Call `finish` with your comprehensive answer
+
+Example: "Research X, analyze Y, and create report Z" → plan → web_search → think → write → reflect → finish"""
 
 
 # ============================================
@@ -303,7 +353,16 @@ async def build_adaptive_agent(
                 
                 # Ejecutar cada tool
                 for tool_call in response.tool_calls:
-                    tool_name = tool_call.function.get("name")
+                    tool_name = tool_call.function.get("name", "")
+                    
+                    # Validar nombre de tool (filtrar artifacts de modelos)
+                    if not is_valid_tool_name(tool_name):
+                        logger.warning(
+                            f"⚠️ Ignorando tool inválida: {tool_name}",
+                            tool_name=tool_name
+                        )
+                        continue
+                    
                     tool_args_str = tool_call.function.get("arguments", "{}")
                     
                     # Parsear argumentos
@@ -414,8 +473,70 @@ async def build_adaptive_agent(
     # ========== FASE 4: FINALIZACIÓN ==========
     
     if final_answer is None:
-        # Si no se obtuvo respuesta, generar una de fallback
-        final_answer = "No se pudo completar la tarea. Por favor, reformula tu petición."
+        # Intentar forzar una respuesta final del LLM
+        logger.info("⚠️ No finish called, forcing final response")
+        
+        # Construir resumen de lo que se hizo
+        tools_summary = ", ".join([tr["tool"] for tr in tool_results]) if tool_results else "ninguna"
+        
+        # Pedir al LLM que genere una respuesta final
+        force_finish_prompt = f"""You have completed {iteration} iterations using these tools: {tools_summary}.
+
+Now you MUST provide your final answer using the `finish` tool. Summarize what was accomplished and provide the answer to the user's original request.
+
+IMPORTANT: You MUST call the `finish` tool now with your complete answer."""
+        
+        messages.append({"role": "user", "content": force_finish_prompt})
+        
+        try:
+            # Una última llamada para obtener finish
+            final_response = await call_llm_with_tools(
+                llm_url=llm_url,
+                model=model,
+                messages=messages,
+                tools=tools,
+                temperature=0.3,  # Más determinístico para finish
+                provider_type=provider_type,
+                api_key=api_key
+            )
+            
+            # Procesar respuesta
+            if final_response.tool_calls:
+                for tc in final_response.tool_calls:
+                    if tc.function.get("name") == "finish":
+                        try:
+                            args = json.loads(tc.function.get("arguments", "{}"))
+                            final_answer = args.get("answer", args.get("final_answer", ""))
+                        except:
+                            final_answer = tc.function.get("arguments", "")
+                        break
+            
+            if not final_answer and final_response.content:
+                final_answer = final_response.content
+                
+        except Exception as e:
+            logger.error(f"Error forcing finish: {e}")
+        
+        # Si aún no hay respuesta, usar los resultados de las herramientas
+        if not final_answer:
+            if tool_results:
+                # Intentar extraer información útil de los resultados
+                last_results = tool_results[-3:]  # Últimos 3 resultados
+                summary_parts = []
+                for tr in last_results:
+                    result = tr.get("result", {})
+                    if isinstance(result, dict):
+                        if "content" in result:
+                            summary_parts.append(str(result["content"])[:500])
+                        elif "data" in result:
+                            summary_parts.append(str(result["data"])[:500])
+                
+                if summary_parts:
+                    final_answer = "Resultados obtenidos:\n\n" + "\n\n".join(summary_parts)
+                else:
+                    final_answer = f"Tarea procesada usando: {tools_summary}. Consulta los archivos generados para ver los resultados."
+            else:
+                final_answer = "No se pudo completar la tarea. Por favor, reformula tu petición."
         
         yield StreamEvent(
             event_type="token",
