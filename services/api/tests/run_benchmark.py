@@ -42,6 +42,13 @@ from benchmark import (
     CODE_EXECUTION_TESTS,
     ERROR_HANDLING_TESTS,
     INTEGRATION_TESTS,
+    # Advanced tests
+    ADVANCED_TESTS,
+    SHELL_ADMIN_TESTS,
+    AGENTIC_CODING_TESTS,
+    DATABASE_OPS_TESTS,
+    DATA_PROCESSING_TESTS,
+    CODE_QUALITY_TESTS,
 )
 from benchmark.runner import run_benchmark
 from benchmark.metrics import create_markdown_report
@@ -53,17 +60,26 @@ def parse_args():
         description="Brain 2.0 Core Tools Benchmark Runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Categorías disponibles:
+Benchmark Básico (26 tests):
   - multi_tool       Tests de múltiples herramientas encadenadas
   - reasoning        Tests de cadenas de razonamiento
   - code_execution   Tests de ejecución de código
   - error_handling   Tests de manejo de errores
   - integration      Tests de integración complejos
 
+Benchmark Avanzado (23 tests) - usar --advanced:
+  - shell_admin      Instalación de paquetes, configuración de sistema
+  - agentic_coding   Debugging, refactoring, feature development
+  - database_ops     SQLite, migraciones, query building
+  - data_processing  CSV, JSON, text processing, ETL
+  - code_quality     Documentación, error handling
+
 Ejemplos:
   %(prog)s --quick                          # Test rápido (1 por categoría)
+  %(prog)s --advanced                       # Básico + Avanzado (49 tests)
+  %(prog)s --advanced-only                  # Solo avanzados (23 tests)
+  %(prog)s --tag advanced                   # Tests con tag 'advanced'
   %(prog)s --category reasoning             # Solo tests de razonamiento
-  %(prog)s --tag python --tag javascript    # Tests con tags específicos
   %(prog)s -o results.json -m report.md     # Guardar reportes
         """
     )
@@ -97,6 +113,19 @@ Ejemplos:
         "--quick", "-q",
         action="store_true",
         help="Ejecutar test rápido (1 test por categoría)"
+    )
+    
+    # Advanced benchmark options
+    parser.add_argument(
+        "--advanced",
+        action="store_true",
+        help="Incluir tests avanzados (shell admin, agentic coding, database, etc.)"
+    )
+    
+    parser.add_argument(
+        "--advanced-only",
+        action="store_true",
+        help="Ejecutar SOLO tests avanzados (sin los básicos)"
     )
     
     parser.add_argument(
@@ -172,7 +201,12 @@ def list_tests():
     print("\n📋 AVAILABLE TESTS")
     print("=" * 80)
     
-    categories = {
+    # Tests básicos
+    print("\n" + "=" * 40)
+    print("📦 BASIC BENCHMARK (26 tests)")
+    print("=" * 40)
+    
+    basic_categories = {
         "multi_tool": ("🔗 Multi-Tool Workflows", MULTI_TOOL_TESTS),
         "reasoning": ("🧠 Reasoning Chains", REASONING_TESTS),
         "code_execution": ("💻 Code Execution", CODE_EXECUTION_TESTS),
@@ -180,7 +214,7 @@ def list_tests():
         "integration": ("🔄 Integration Tests", INTEGRATION_TESTS),
     }
     
-    for cat_id, (cat_name, tests) in categories.items():
+    for cat_id, (cat_name, tests) in basic_categories.items():
         print(f"\n{cat_name} ({len(tests)} tests)")
         print("-" * 60)
         for test in tests:
@@ -190,7 +224,30 @@ def list_tests():
             print(f"  {'':25} Tags: {tags_str}")
             print()
     
-    print(f"\nTotal: {len(ALL_TESTS)} tests")
+    # Tests avanzados
+    print("\n" + "=" * 40)
+    print("🚀 ADVANCED BENCHMARK (23 tests)")
+    print("=" * 40)
+    
+    advanced_categories = {
+        "shell_admin": ("🖥️ Shell & System Admin", SHELL_ADMIN_TESTS),
+        "agentic_coding": ("🛠️ Agentic Coding", AGENTIC_CODING_TESTS),
+        "database_ops": ("🗄️ Database Operations", DATABASE_OPS_TESTS),
+        "data_processing": ("📊 Data Processing", DATA_PROCESSING_TESTS),
+        "code_quality": ("✨ Code Quality", CODE_QUALITY_TESTS),
+    }
+    
+    for cat_id, (cat_name, tests) in advanced_categories.items():
+        print(f"\n{cat_name} ({len(tests)} tests)")
+        print("-" * 60)
+        for test in tests:
+            tags_str = ", ".join(test.tags[:3])
+            print(f"  {test.id:25} {test.name}")
+            print(f"  {'':25} Tools: {', '.join(test.expected_tools)}")
+            print(f"  {'':25} Tags: {tags_str}")
+            print()
+    
+    print(f"\nTotal: {len(ALL_TESTS)} basic + {len(ADVANCED_TESTS)} advanced = {len(ALL_TESTS) + len(ADVANCED_TESTS)} tests")
 
 
 async def main():
@@ -215,6 +272,10 @@ async def main():
             "llm_model": args.llm_model,
         }
         
+        # Configuración de benchmark avanzado
+        use_advanced = args.advanced or args.advanced_only
+        include_basic = not args.advanced_only
+        
         if args.quick:
             # Modo rápido: 1 test por categoría
             config = RunnerConfig(
@@ -222,6 +283,8 @@ async def main():
                 timeout_default=args.timeout,
                 verbose=verbose,
                 run_cleanup=not args.no_cleanup,
+                use_advanced=use_advanced,
+                include_basic=include_basic,
                 **llm_config,
             )
             
@@ -237,6 +300,8 @@ async def main():
                 categories=[TestCategory(c) for c in args.category] if args.category else None,
                 test_ids=args.test_id,
                 tags=args.tag,
+                use_advanced=use_advanced,
+                include_basic=include_basic,
                 **llm_config,
             )
             

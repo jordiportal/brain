@@ -16,6 +16,7 @@ from .test_cases import (
     get_tests_by_category,
     get_test_by_id,
 )
+from .test_cases_advanced import ADVANCED_TESTS
 from .metrics import (
     BenchmarkMetrics,
     TestResult,
@@ -41,6 +42,9 @@ class RunnerConfig:
     llm_provider_url: Optional[str] = None
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
+    # Benchmark type
+    use_advanced: bool = False  # True = usar tests avanzados
+    include_basic: bool = True  # True = incluir tests básicos cuando use_advanced=True
 
 
 class BenchmarkRunner:
@@ -68,7 +72,14 @@ class BenchmarkRunner:
     
     def _get_tests_to_run(self) -> List[TestCase]:
         """Obtener lista de tests a ejecutar según configuración"""
-        tests = ALL_TESTS.copy()
+        # Seleccionar conjunto de tests base
+        if self.config.use_advanced:
+            if self.config.include_basic:
+                tests = ALL_TESTS.copy() + ADVANCED_TESTS.copy()
+            else:
+                tests = ADVANCED_TESTS.copy()
+        else:
+            tests = ALL_TESTS.copy()
         
         # Filtrar por IDs específicos
         if self.config.test_ids:
