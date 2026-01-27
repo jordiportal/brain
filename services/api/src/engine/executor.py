@@ -67,6 +67,18 @@ class ChainExecutor:
                 self._default_model = provider.default_model
                 self._provider_loaded = True
     
+    def _get_default_url_for_provider(self, provider_type: str) -> str:
+        """Obtener URL por defecto según el tipo de proveedor"""
+        default_urls = {
+            "ollama": self.llm_provider_url,  # URL de Ollama configurada
+            "openai": "https://api.openai.com/v1",
+            "anthropic": "https://api.anthropic.com",
+            "groq": "https://api.groq.com/openai/v1",
+            "gemini": "https://generativelanguage.googleapis.com/v1beta",
+            "azure": "https://api.openai.azure.com"
+        }
+        return default_urls.get(provider_type, self.llm_provider_url)
+    
     async def invoke(
         self,
         chain_id: str,
@@ -97,8 +109,11 @@ class ChainExecutor:
         )
         
         try:
-            # Configurar LLM
-            llm_url = request.llm_provider_url or self.llm_provider_url
+            # Configurar LLM según proveedor
+            llm_url = request.llm_provider_url
+            if not llm_url:
+                # Usar URL por defecto según el tipo de proveedor
+                llm_url = self._get_default_url_for_provider(request.llm_provider_type)
             model = request.model or definition.config.model or self.default_model
             
             # Merge config: request config sobrescribe definition config
@@ -212,7 +227,10 @@ class ChainExecutor:
         )
         
         try:
-            llm_url = request.llm_provider_url or self.llm_provider_url
+            # Configurar LLM según proveedor
+            llm_url = request.llm_provider_url
+            if not llm_url:
+                llm_url = self._get_default_url_for_provider(request.llm_provider_type)
             model = request.model or definition.config.model or self.default_model
             
             # Merge config: request config sobrescribe definition config
