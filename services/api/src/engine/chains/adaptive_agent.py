@@ -373,12 +373,32 @@ async def build_adaptive_agent(
                     
                     logger.info(f"🔧 Executing tool: {tool_name}", args=list(tool_args.keys()))
                     
-                    # Yield evento de tool call
+                    # Determinar nombre amigable para la GUI
+                    tool_display_names = {
+                        "think": "💭 Pensando",
+                        "reflect": "🔍 Reflexionando", 
+                        "plan": "📋 Planificando",
+                        "read": "📖 Leyendo archivo",
+                        "write": "✍️ Escribiendo archivo",
+                        "edit": "✏️ Editando archivo",
+                        "list": "📁 Listando directorio",
+                        "search": "🔎 Buscando en archivos",
+                        "shell": "💻 Ejecutando comando",
+                        "python": "🐍 Ejecutando Python",
+                        "javascript": "📜 Ejecutando JavaScript",
+                        "web_search": "🌐 Buscando en web",
+                        "web_fetch": "📥 Obteniendo URL",
+                        "calculate": "🔢 Calculando",
+                        "finish": "✅ Finalizando"
+                    }
+                    display_name = tool_display_names.get(tool_name, f"🔧 {tool_name}")
+                    
+                    # Yield evento de tool call (node_start para la GUI)
                     yield StreamEvent(
-                        event_type="tool_call",
+                        event_type="node_start",
                         execution_id=execution_id,
-                        node_id=f"tool_{tool_name}",
-                        node_name=f"Tool: {tool_name}",
+                        node_id=f"tool_{tool_name}_{iteration}",
+                        node_name=display_name,
                         data={"tool": tool_name, "arguments": tool_args}
                     )
                     
@@ -390,10 +410,10 @@ async def build_adaptive_agent(
                         final_answer = result.get("final_answer", "")
                         
                         yield StreamEvent(
-                            event_type="tool_result",
+                            event_type="node_end",
                             execution_id=execution_id,
-                            node_id=f"tool_{tool_name}",
-                            data={"tool": tool_name, "done": True}
+                            node_id=f"tool_{tool_name}_{iteration}",
+                            data={"tool": tool_name, "done": True, "thinking": final_answer}
                         )
                         
                         # Emitir respuesta final
@@ -411,14 +431,28 @@ async def build_adaptive_agent(
                         "result": result
                     })
                     
+                    # Extraer contenido para herramientas de razonamiento
+                    thinking_content = None
+                    if tool_name in ("think", "reflect", "plan"):
+                        # Estas herramientas devuelven contenido de pensamiento
+                        thinking_content = result.get("thinking") or result.get("reflection") or result.get("plan") or result.get("result", "")
+                    
+                    # Crear preview del resultado
+                    if thinking_content:
+                        preview = thinking_content[:500] + "..." if len(thinking_content) > 500 else thinking_content
+                    else:
+                        preview = str(result)[:200]
+                    
                     yield StreamEvent(
-                        event_type="tool_result",
+                        event_type="node_end",
                         execution_id=execution_id,
-                        node_id=f"tool_{tool_name}",
+                        node_id=f"tool_{tool_name}_{iteration}",
                         data={
                             "tool": tool_name,
-                            "success": result.get("success", False),
-                            "preview": str(result)[:200]
+                            "success": result.get("success", True),
+                            "thinking": thinking_content,  # Para herramientas de razonamiento
+                            "observation": preview if not thinking_content else None,  # Para otras herramientas
+                            "result_preview": preview
                         }
                     )
                     
