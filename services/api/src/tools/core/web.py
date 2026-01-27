@@ -5,6 +5,7 @@ Brain 2.0 Core Tools - Web (2 tools)
 - web_fetch: Obtener contenido de una URL
 
 Proveedores de búsqueda soportados:
+- openai: Búsqueda nativa de OpenAI (usa Bing, mejor integración)
 - duckduckgo: Gratis, sin API key, pero con rate limiting
 - serper: API de Google, 2500 queries/mes gratis
 - tavily: API optimizada para AI, 1000 queries/mes gratis
@@ -57,16 +58,221 @@ async def web_search(
             "error": "Web search is disabled in configuration"
         }
     
+    # Obtener API key de OpenAI desde Strapi
+    openai_api_key = await _get_openai_api_key()
+    
     logger.info(f"🔎 web_search: {query}", provider=provider, max_results=max_results)
     
     # Seleccionar proveedor
-    if provider == "serper" and api_key:
+    if provider == "openai" and openai_api_key:
+        return await _search_openai(query, max_results, openai_api_key)
+    elif provider == "serper" and api_key:
         return await _search_serper(query, max_results, api_key)
     elif provider == "tavily" and api_key:
         return await _search_tavily(query, max_results, api_key)
+    elif openai_api_key:
+        # Fallback a OpenAI si hay API key disponible en Strapi
+        logger.info("Using OpenAI as fallback search provider (from Strapi)")
+        return await _search_openai(query, max_results, openai_api_key)
     else:
-        # Fallback a DuckDuckGo
+        # Último fallback a DuckDuckGo
         return await _search_duckduckgo(query, max_results)
+
+
+async def _get_openai_api_key() -> Optional[str]:
+    """Obtiene la API key de OpenAI desde Strapi o variables de entorno"""
+    import os
+    
+    # Primero intentar desde Strapi
+    try:
+        from ...providers.llm_provider import get_provider_by_type
+        
+        openai_provider = await get_provider_by_type("openai")
+        if openai_provider and openai_provider.api_key:
+            logger.debug("OpenAI API key loaded from Strapi")
+            return openai_provider.api_key
+    except Exception as e:
+        logger.warning(f"Could not load OpenAI provider from Strapi: {e}")
+    
+    # Fallback a variable de entorno
+    env_key = os.getenv("OPENAI_API_KEY")
+    if env_key:
+        logger.debug("OpenAI API key loaded from environment")
+        return env_key
+    
+    return None
+
+
+async def _search_openai(query: str, max_results: int, api_key: str) -> Dict[str, Any]:
+    """
+    Búsqueda con OpenAI Native Web Search (usa Bing).
+    
+    Usa Chat Completions API con modelos search-preview que tienen
+    búsqueda web integrada (sin necesidad de tools).
+    
+    Modelos disponibles:
+    - gpt-4o-mini-search-preview (más barato)
+    - gpt-4o-search-preview (más capaz)
+    
+    Ventajas:
+    - Sin rate limiting
+    - Mejor integración con LLM
+    - Resultados actualizados y citados
+    """
+    try:
+        import httpx
+        
+        # Usar modelo mini para búsquedas (más económico)
+        # Estos modelos tienen web search integrado, no necesitan tools
+        model = "gpt-4o-mini-search-preview"
+        
+        # Prompt optimizado para obtener resultados estructurados
+        search_prompt = f"""Search the web for: {query}
+
+Provide {max_results} relevant results with:
+1. Title
+2. URL
+3. Brief description (1-2 sentences)
+
+Format each result clearly. Be factual and cite sources."""
+
+        # Chat Completions - los modelos *-search-preview no necesitan tools
+        # Nota: estos modelos no soportan temperature
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": search_prompt}],
+            "max_tokens": 1500
+        }
+        
+        logger.info(f"🔎 OpenAI search starting", model=model, query=query[:50])
+        
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json=payload
+            )
+            
+            if response.status_code != 200:
+                error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text
+                error_msg = error_data.get("error", {}).get("message", str(error_data)) if isinstance(error_data, dict) else str(error_data)
+                logger.error(f"OpenAI API error: {response.status_code}", error=error_msg)
+                return {
+                    "success": False,
+                    "error": f"OpenAI API error: {error_msg}",
+                    "query": query,
+                    "provider": "openai"
+                }
+            
+            data = response.json()
+            
+            # Extraer contenido de la respuesta
+            content = ""
+            if data.get("choices"):
+                message = data["choices"][0].get("message", {})
+                content = message.get("content", "")
+            
+            # Parsear resultados
+            results_list = _parse_openai_search_results(content, max_results)
+            
+            logger.info(
+                f"✅ OpenAI web search completed",
+                query=query,
+                results_count=len(results_list),
+                model=model
+            )
+            
+            return {
+                "success": True,
+                "query": query,
+                "provider": "openai",
+                "model": model,
+                "results": results_list,
+                "count": len(results_list),
+                "raw_content": content
+            }
+            
+    except Exception as e:
+        logger.error(f"OpenAI search error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query,
+            "provider": "openai"
+        }
+
+
+def _parse_openai_search_results(content: str, max_results: int) -> List[Dict[str, str]]:
+    """
+    Parsea los resultados de búsqueda de OpenAI.
+    
+    Maneja el formato markdown típico de OpenAI:
+    **1. Title**
+    - **URL:** ([domain](full_url))
+    - **Description:** text
+    """
+    import re
+    
+    results = []
+    
+    # Dividir por secciones numeradas (**1., **2., etc)
+    sections = re.split(r'\*\*\d+\.', content)
+    
+    for section in sections[1:]:  # Skip primera sección vacía
+        if not section.strip():
+            continue
+        
+        # Extraer título (primera línea después del número)
+        title_match = re.search(r'^([^*\n]+)', section.strip())
+        title = title_match.group(1).strip().rstrip('*') if title_match else ""
+        
+        # Extraer URL - buscar formato markdown [text](url)
+        url_match = re.search(r'\[([^\]]+)\]\(([^)]+)\)', section)
+        if url_match:
+            url = url_match.group(2).rstrip(')')  # Limpiar paréntesis extra
+            # Limpiar parámetros de tracking si es necesario
+            url = re.sub(r'\?utm_source=openai$', '', url)
+        else:
+            # Fallback a URL directa
+            url_direct = re.search(r'https?://[^\s\)]+', section)
+            url = url_direct.group(0).rstrip(')') if url_direct else ""
+        
+        # Extraer descripción
+        desc_match = re.search(r'\*\*Description:\*\*\s*([^\n]+)', section)
+        if desc_match:
+            snippet = desc_match.group(1).strip()
+        else:
+            # Fallback: tomar texto después del URL hasta el final o próxima línea
+            snippet_parts = re.findall(r'(?:Description|Brief)[:\s]*([^\n*]+)', section, re.IGNORECASE)
+            snippet = snippet_parts[0].strip() if snippet_parts else ""
+        
+        if title or url:
+            results.append({
+                "position": len(results) + 1,
+                "title": title.strip('* '),
+                "snippet": snippet,
+                "url": url
+            })
+        
+        if len(results) >= max_results:
+            break
+    
+    # Si no se encontraron resultados con el formato estructurado,
+    # intentar extraer URLs directamente del contenido
+    if not results:
+        urls = re.findall(r'\[([^\]]+)\]\((https?://[^)]+)\)', content)
+        for idx, (text, url) in enumerate(urls[:max_results]):
+            results.append({
+                "position": idx + 1,
+                "title": text,
+                "snippet": "",
+                "url": url.rstrip(')')
+            })
+    
+    return results
 
 
 async def _search_duckduckgo(query: str, max_results: int) -> Dict[str, Any]:

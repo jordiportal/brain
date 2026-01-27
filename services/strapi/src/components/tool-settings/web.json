@@ -8,8 +8,8 @@
   "attributes": {
     "searchProvider": {
       "type": "enumeration",
-      "enum": ["duckduckgo", "serper", "google", "bing", "tavily"],
-      "default": "duckduckgo"
+      "enum": ["openai", "duckduckgo", "serper", "tavily"],
+      "default": "openai"
     },
     "searchApiKey": {
       "type": "string",
