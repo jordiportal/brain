@@ -19,8 +19,11 @@ logger = structlog.get_logger()
 
 class ToolType(str, Enum):
     """Tipos de herramientas disponibles"""
-    CORE = "core"      # Las 15 core tools de Brain 2.0
-    BUILTIN = "builtin"  # Compatibilidad con sistema anterior
+    CORE = "core"       # Las 15 core tools de Brain 2.0
+    BUILTIN = "builtin" # Alias para compatibilidad (=CORE)
+    OPENAPI = "openapi" # Compatibilidad Brain 1.x
+    MCP = "mcp"         # Compatibilidad Brain 1.x
+    CUSTOM = "custom"   # Compatibilidad Brain 1.x
 
 
 @dataclass
@@ -32,6 +35,10 @@ class ToolDefinition:
     type: ToolType
     parameters: Dict[str, Any] = field(default_factory=dict)
     handler: Optional[Callable] = None
+    # Compatibilidad Brain 1.x
+    openapi_tool: Optional[Any] = None
+    mcp_server: Optional[str] = None
+    mcp_tool_name: Optional[str] = None
     
     def to_function_schema(self) -> Dict[str, Any]:
         """Convierte a schema de función para el LLM (formato OpenAI)"""
@@ -217,3 +224,19 @@ tool_registry = ToolRegistry()
 def get_tool_registry() -> ToolRegistry:
     """Obtiene el registry global de herramientas"""
     return tool_registry
+
+
+# ============================================
+# Compatibilidad con Brain 1.x
+# ============================================
+
+# Alias para compatibilidad hacia atrás
+ToolRegistry.register_builtin_tools = ToolRegistry.register_core_tools
+
+# Método stub para load_openapi_tools (ya no se usa en Brain 2.0)
+async def _load_openapi_tools_stub(self) -> int:
+    """Stub para compatibilidad - OpenAPI tools deshabilitadas en Brain 2.0"""
+    logger.info("OpenAPI tools disabled in Brain 2.0 - using core tools only")
+    return 0
+
+ToolRegistry.load_openapi_tools = _load_openapi_tools_stub
