@@ -112,9 +112,9 @@ import { StrapiService } from '../../core/services/strapi.service';
 
           <mat-card class="status-card">
             <mat-card-header>
-              <mat-icon mat-card-avatar [class]="strapiStatus().class">{{ strapiStatus().icon }}</mat-icon>
-              <mat-card-title>Strapi CMS</mat-card-title>
-              <mat-card-subtitle>{{ strapiStatus().message }}</mat-card-subtitle>
+              <mat-icon mat-card-avatar [class]="apiStatus().class">{{ apiStatus().icon }}</mat-icon>
+              <mat-card-title>PostgreSQL</mat-card-title>
+              <mat-card-subtitle>{{ dbStatus().message }}</mat-card-subtitle>
             </mat-card-header>
           </mat-card>
 
@@ -285,7 +285,6 @@ import { StrapiService } from '../../core/services/strapi.service';
 export class DashboardComponent implements OnInit {
   stats = signal({ chains: 0, llmProviders: 0, executions: 0, mcpConnections: 0 });
   apiStatus = signal({ icon: 'sync', message: 'Verificando...', class: 'checking' });
-  strapiStatus = signal({ icon: 'sync', message: 'Verificando...', class: 'checking' });
   dbStatus = signal({ icon: 'sync', message: 'Verificando...', class: 'checking' });
 
   constructor(
@@ -299,31 +298,19 @@ export class DashboardComponent implements OnInit {
   }
 
   private loadStats(): void {
-    // Cargar estadísticas desde Strapi
-    this.strapiService.getBrainChains().subscribe({
-      next: (chains) => this.stats.update(s => ({ ...s, chains: chains.filter(c => c.isActive).length })),
-      error: () => {}
-    });
-
-    this.strapiService.getLlmProviders().subscribe({
-      next: (providers) => this.stats.update(s => ({ ...s, llmProviders: providers.filter(p => p.isActive).length })),
-      error: () => {}
-    });
-
-    this.strapiService.getMcpConnections().subscribe({
-      next: (connections) => this.stats.update(s => ({ ...s, mcpConnections: connections.filter(c => c.isActive).length })),
-      error: () => {}
-    });
-
-    this.strapiService.getExecutionLogs({ pageSize: 100 }).subscribe({
-      next: (response) => {
-        const today = new Date().toDateString();
-        const todayExecutions = response.data.filter(e => 
-          new Date(e.createdAt).toDateString() === today
-        ).length;
-        this.stats.update(s => ({ ...s, executions: todayExecutions }));
+    // Cargar estadísticas desde la API de Python
+    this.strapiService.getSystemStats().subscribe({
+      next: (stats) => {
+        this.stats.set({
+          chains: stats.chains,
+          llmProviders: stats.llmProviders,
+          mcpConnections: stats.mcpConnections,
+          executions: stats.executions
+        });
       },
-      error: () => {}
+      error: (err) => {
+        console.error('Error loading stats:', err);
+      }
     });
   }
 
@@ -338,7 +325,7 @@ export class DashboardComponent implements OnInit {
         });
         this.dbStatus.set({ 
           icon: 'check_circle', 
-          message: 'Conectada (PostgreSQL)', 
+          message: 'Conectada', 
           class: 'online' 
         });
       },
@@ -348,14 +335,12 @@ export class DashboardComponent implements OnInit {
           message: 'No disponible', 
           class: 'offline' 
         });
+        this.dbStatus.set({ 
+          icon: 'error', 
+          message: 'No disponible', 
+          class: 'offline' 
+        });
       }
-    });
-
-    // Strapi siempre está online si llegamos aquí (autenticados)
-    this.strapiStatus.set({ 
-      icon: 'check_circle', 
-      message: 'Online', 
-      class: 'online' 
     });
   }
 }

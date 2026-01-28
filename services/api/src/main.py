@@ -11,6 +11,7 @@ from pathlib import Path
 import structlog
 
 from src.config import get_settings
+from src.db import get_db
 from src.llm.router import router as llm_router
 from src.engine.router import router as chains_router
 from src.engine.chains import register_all_chains
@@ -23,6 +24,8 @@ from src.browser.service import browser_service
 from src.browser.router import router as browser_router
 from src.engine.chains.agents.router import router as subagents_router
 from src.openai_compat.router import router as openai_compat_router
+from src.config_router import router as config_router
+from src.auth_router import router as auth_router
 
 # Configurar logging estructurado
 structlog.configure(
@@ -48,6 +51,11 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Iniciando Brain API", version=settings.app_version)
     
+    # Inicializar conexión a base de datos
+    db = get_db()
+    await db.connect()
+    logger.info("Conexión a PostgreSQL establecida")
+    
     # Registrar cadenas predefinidas
     register_all_chains()
     logger.info("Cadenas predefinidas registradas")
@@ -64,16 +72,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"No se pudieron registrar subagentes: {e}")
     
-    # Cargar herramientas OpenAPI desde Strapi
+    # Cargar herramientas OpenAPI desde BD
     try:
         openapi_count = await tool_registry.load_openapi_tools()
         logger.info(f"Herramientas OpenAPI cargadas: {openapi_count}")
     except Exception as e:
         logger.warning(f"No se pudieron cargar herramientas OpenAPI: {e}")
     
-    # Cargar conexiones MCP desde Strapi
+    # Cargar conexiones MCP desde BD
     try:
-        mcp_count = await mcp_client.load_connections_from_strapi()
+        mcp_count = await mcp_client.load_connections_from_db()
         logger.info(f"Conexiones MCP cargadas: {mcp_count}")
         
         # Asegurar que existe conexión de Playwright (auto-configura si no existe)
@@ -93,6 +101,10 @@ async def lifespan(app: FastAPI):
     # Cerrar servicio de navegador
     await browser_service.shutdown()
     logger.info("Servicio de navegador cerrado")
+    
+    # Cerrar conexión a base de datos
+    await db.disconnect()
+    logger.info("Conexión a PostgreSQL cerrada")
 
 
 # Crear aplicación FastAPI
@@ -124,6 +136,10 @@ app.include_router(tools_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(browser_router, prefix="/api/v1")
 app.include_router(subagents_router, prefix="/api/v1")
+app.include_router(config_router, prefix="/api/v1")
+
+# Auth Router (sin prefix para compatibilidad con Strapi)
+app.include_router(auth_router)
 
 # OpenAI-Compatible API (sin prefix /api para compatibilidad)
 app.include_router(openai_compat_router)

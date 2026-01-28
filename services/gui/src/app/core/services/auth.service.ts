@@ -9,7 +9,8 @@ import { environment } from '../../../environments/environment';
   providedIn: 'root'
 })
 export class AuthService {
-  private readonly STRAPI_URL = environment.strapiUrl;
+  // Usar API de Python en lugar de Strapi
+  private readonly API_URL = environment.apiUrl.replace('/api/v1', '');
   private readonly TOKEN_KEY = 'brain_token';
   private readonly USER_KEY = 'brain_user';
 
@@ -30,11 +31,11 @@ export class AuthService {
   }
 
   /**
-   * Login con Strapi
+   * Login con API Python
    */
   login(credentials: LoginCredentials): Observable<AuthResponse> {
     return this.http.post<AuthResponse>(
-      `${this.STRAPI_URL}/api/auth/local`,
+      `${this.API_URL}/api/auth/local`,
       credentials
     ).pipe(
       tap(response => {
@@ -42,7 +43,7 @@ export class AuthService {
       }),
       catchError(error => {
         console.error('Login error:', error);
-        return throwError(() => new Error(error.error?.error?.message || 'Error de autenticación'));
+        return throwError(() => new Error(error.error?.detail || error.error?.error?.message || 'Error de autenticación'));
       })
     );
   }
@@ -52,7 +53,7 @@ export class AuthService {
    */
   register(username: string, email: string, password: string): Observable<AuthResponse> {
     return this.http.post<AuthResponse>(
-      `${this.STRAPI_URL}/api/auth/local/register`,
+      `${this.API_URL}/api/auth/local/register`,
       { username, email, password }
     ).pipe(
       tap(response => {
@@ -60,7 +61,7 @@ export class AuthService {
       }),
       catchError(error => {
         console.error('Register error:', error);
-        return throwError(() => new Error(error.error?.error?.message || 'Error de registro'));
+        return throwError(() => new Error(error.error?.detail || error.error?.error?.message || 'Error de registro'));
       })
     );
   }
@@ -94,7 +95,7 @@ export class AuthService {
       this.isAuthenticatedSignal.set(true);
       
       // Verificar que el token sigue siendo válido en background
-      this.http.get<User>(`${this.STRAPI_URL}/api/users/me`).pipe(
+      this.http.get<User>(`${this.API_URL}/api/users/me`).pipe(
         tap(user => {
           this.currentUserSignal.set(user);
           localStorage.setItem(this.USER_KEY, JSON.stringify(user));

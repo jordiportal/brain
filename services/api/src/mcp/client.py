@@ -14,12 +14,9 @@ import httpx
 import structlog
 
 from .models import MCPConnection, MCPConnectionType, MCPTool, MCPResource
+from ..db.repositories import MCPConnectionRepository
 
 logger = structlog.get_logger()
-
-# Configuración de Strapi
-STRAPI_URL = os.getenv("STRAPI_URL", "http://localhost:1337")
-STRAPI_API_TOKEN = os.getenv("STRAPI_API_TOKEN", "")
 
 # URL del servidor MCP Playwright (para conexión HTTP)
 MCP_PLAYWRIGHT_URL = os.getenv("MCP_PLAYWRIGHT_URL", "http://localhost:3001")
@@ -40,39 +37,49 @@ class MCPClient:
         self._locks: Dict[str, asyncio.Lock] = {}
         self._http_clients: Dict[str, httpx.AsyncClient] = {}  # Clientes HTTP persistentes
     
-    async def load_connections_from_strapi(self) -> int:
-        """Cargar conexiones activas desde Strapi"""
+    async def load_connections_from_db(self) -> int:
+        """Cargar conexiones activas desde PostgreSQL"""
         try:
-            headers = {}
-            if STRAPI_API_TOKEN:
-                headers["Authorization"] = f"Bearer {STRAPI_API_TOKEN}"
+            db_connections = await MCPConnectionRepository.get_all(active_only=True)
+            count = 0
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    f"{STRAPI_URL}/api/mcp-connections",
-                    params={"filters[isActive][$eq]": "true"},
-                    headers=headers
+            for db_conn in db_connections:
+                # Determinar tipo de conexión
+                conn_type_str = db_conn.type or "stdio"
+                if conn_type_str == "http":
+                    conn_type = MCPConnectionType.HTTP
+                elif conn_type_str == "sse":
+                    conn_type = MCPConnectionType.SSE
+                else:
+                    conn_type = MCPConnectionType.STDIO
+                
+                # Crear objeto MCPConnection del módulo mcp.models
+                connection = MCPConnection(
+                    id=db_conn.document_id or str(db_conn.id),
+                    name=db_conn.name or "",
+                    conn_type=conn_type,
+                    description=db_conn.description or "",
+                    command=db_conn.command,
+                    args=db_conn.args or [],
+                    env=db_conn.env or {},
+                    server_url=db_conn.server_url,
+                    config=db_conn.config or {}
                 )
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    count = 0
-                    
-                    for item in data.get("data", []):
-                        connection = MCPConnection.from_strapi(item)
-                        self.connections[connection.id] = connection
-                        self._locks[connection.id] = asyncio.Lock()
-                        count += 1
-                    
-                    logger.info(f"Cargadas {count} conexiones MCP desde Strapi")
-                    return count
-                else:
-                    logger.warning(f"Error cargando conexiones MCP: {response.status_code}")
-                    return 0
+                self.connections[connection.id] = connection
+                self._locks[connection.id] = asyncio.Lock()
+                count += 1
+            
+            logger.info(f"Cargadas {count} conexiones MCP desde BD")
+            return count
                     
         except Exception as e:
-            logger.error(f"Error conectando con Strapi para MCP: {e}")
+            logger.error(f"Error cargando conexiones MCP: {e}")
             return 0
+    
+    async def load_connections_from_strapi(self) -> int:
+        """Alias para compatibilidad - usa load_connections_from_db"""
+        return await self.load_connections_from_db()
     
     async def connect(self, connection_id: str) -> bool:
         """Conectar a un servidor MCP"""

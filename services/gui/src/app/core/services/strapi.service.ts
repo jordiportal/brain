@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
 import {
   StrapiResponse,
   StrapiSingleResponse,
@@ -13,154 +13,265 @@ import {
 } from '../models';
 import { environment } from '../../../environments/environment';
 
+/**
+ * StrapiService - Ahora usa la API de Python en lugar de Strapi
+ * Mantiene la interfaz para compatibilidad con los componentes existentes
+ */
 @Injectable({
   providedIn: 'root'
 })
 export class StrapiService {
-  private readonly STRAPI_URL = environment.strapiApiUrl;
+  // Ahora usa la API de Python
+  private readonly API_URL = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
 
   // ===========================================
-  // LLM Providers
+  // LLM Providers - Ahora desde API Python
   // ===========================================
 
   getLlmProviders(): Observable<LlmProvider[]> {
-    return this.http.get<StrapiResponse<LlmProvider>>(`${this.STRAPI_URL}/llm-providers`)
-      .pipe(map(res => res.data));
+    return this.http.get<any[]>(`${this.API_URL}/config/llm-providers`)
+      .pipe(
+        map(providers => providers.map(p => this.mapProviderResponse(p))),
+        catchError(err => {
+          console.error('Error loading LLM providers:', err);
+          return of([]);
+        })
+      );
   }
 
   getLlmProvider(documentId: string): Observable<LlmProvider> {
-    return this.http.get<StrapiSingleResponse<LlmProvider>>(`${this.STRAPI_URL}/llm-providers/${documentId}`)
-      .pipe(map(res => res.data));
+    // Intentar buscar por ID numérico
+    const id = parseInt(documentId, 10);
+    if (!isNaN(id)) {
+      return this.http.get<any>(`${this.API_URL}/config/llm-providers/${id}`)
+        .pipe(map(p => this.mapProviderResponse(p)));
+    }
+    // Fallback: buscar en la lista
+    return this.getLlmProviders().pipe(
+      map(providers => {
+        const provider = providers.find(p => p.documentId === documentId || p.id.toString() === documentId);
+        if (!provider) throw new Error('Provider not found');
+        return provider;
+      })
+    );
   }
 
   createLlmProvider(data: Partial<LlmProvider>): Observable<LlmProvider> {
-    return this.http.post<StrapiSingleResponse<LlmProvider>>(`${this.STRAPI_URL}/llm-providers`, { data })
-      .pipe(map(res => res.data));
+    // Por ahora, los creates no están implementados en la API
+    console.warn('createLlmProvider not implemented - use database directly');
+    return of(data as LlmProvider);
   }
 
   updateLlmProvider(documentId: string, data: Partial<LlmProvider>): Observable<LlmProvider> {
-    return this.http.put<StrapiSingleResponse<LlmProvider>>(`${this.STRAPI_URL}/llm-providers/${documentId}`, { data })
-      .pipe(map(res => res.data));
+    console.warn('updateLlmProvider not implemented - use database directly');
+    return of(data as LlmProvider);
   }
 
   deleteLlmProvider(documentId: string): Observable<void> {
-    return this.http.delete<void>(`${this.STRAPI_URL}/llm-providers/${documentId}`);
+    console.warn('deleteLlmProvider not implemented - use database directly');
+    return of(undefined);
+  }
+
+  private mapProviderResponse(p: any): LlmProvider {
+    return {
+      id: p.id,
+      documentId: p.documentId || p.id?.toString(),
+      name: p.name,
+      type: p.type || 'ollama',
+      baseUrl: p.baseUrl,
+      apiKey: p.apiKey,
+      defaultModel: p.defaultModel,
+      embeddingModel: p.embeddingModel,
+      isActive: p.isActive ?? true,
+      config: p.config || {},
+      description: p.description,
+      createdAt: p.createdAt || new Date().toISOString(),
+      updatedAt: p.updatedAt || new Date().toISOString()
+    };
   }
 
   // ===========================================
-  // MCP Connections
+  // MCP Connections - Ahora desde API Python
   // ===========================================
 
   getMcpConnections(): Observable<McpConnection[]> {
-    return this.http.get<StrapiResponse<McpConnection>>(`${this.STRAPI_URL}/mcp-connections`)
-      .pipe(map(res => res.data));
+    return this.http.get<any[]>(`${this.API_URL}/config/mcp-connections`)
+      .pipe(
+        map(connections => connections.map(c => this.mapMcpResponse(c))),
+        catchError(err => {
+          console.error('Error loading MCP connections:', err);
+          return of([]);
+        })
+      );
   }
 
   getMcpConnection(documentId: string): Observable<McpConnection> {
-    return this.http.get<StrapiSingleResponse<McpConnection>>(`${this.STRAPI_URL}/mcp-connections/${documentId}`)
-      .pipe(map(res => res.data));
+    return this.getMcpConnections().pipe(
+      map(connections => {
+        const conn = connections.find(c => c.documentId === documentId || c.id.toString() === documentId);
+        if (!conn) throw new Error('Connection not found');
+        return conn;
+      })
+    );
   }
 
   createMcpConnection(data: Partial<McpConnection>): Observable<McpConnection> {
-    return this.http.post<StrapiSingleResponse<McpConnection>>(`${this.STRAPI_URL}/mcp-connections`, { data })
-      .pipe(map(res => res.data));
+    console.warn('createMcpConnection not implemented - use database directly');
+    return of(data as McpConnection);
   }
 
   updateMcpConnection(documentId: string, data: Partial<McpConnection>): Observable<McpConnection> {
-    return this.http.put<StrapiSingleResponse<McpConnection>>(`${this.STRAPI_URL}/mcp-connections/${documentId}`, { data })
-      .pipe(map(res => res.data));
+    console.warn('updateMcpConnection not implemented - use database directly');
+    return of(data as McpConnection);
   }
 
   deleteMcpConnection(documentId: string): Observable<void> {
-    return this.http.delete<void>(`${this.STRAPI_URL}/mcp-connections/${documentId}`);
+    console.warn('deleteMcpConnection not implemented - use database directly');
+    return of(undefined);
+  }
+
+  private mapMcpResponse(c: any): McpConnection {
+    return {
+      id: c.id,
+      documentId: c.documentId || c.id?.toString(),
+      name: c.name,
+      type: c.type || 'stdio',
+      serverUrl: c.serverUrl,
+      command: c.command,
+      args: c.args,
+      isActive: c.isActive ?? true,
+      description: c.description,
+      config: c.config || {},
+      createdAt: c.createdAt || new Date().toISOString(),
+      updatedAt: c.updatedAt || new Date().toISOString()
+    };
   }
 
   // ===========================================
-  // Brain Chains
+  // Brain Chains - Ahora desde API Python
   // ===========================================
 
   getBrainChains(params?: { populate?: string }): Observable<BrainChain[]> {
-    let httpParams = new HttpParams();
-    if (params?.populate) {
-      httpParams = httpParams.set('populate', params.populate);
-    }
-    return this.http.get<StrapiResponse<BrainChain>>(`${this.STRAPI_URL}/brain-chains`, { params: httpParams })
-      .pipe(map(res => res.data));
+    return this.http.get<any[]>(`${this.API_URL}/config/brain-chains`)
+      .pipe(
+        map(chains => chains.map(c => this.mapChainResponse(c))),
+        catchError(err => {
+          console.error('Error loading brain chains:', err);
+          return of([]);
+        })
+      );
   }
 
   getBrainChain(documentId: string): Observable<BrainChain> {
-    return this.http.get<StrapiSingleResponse<BrainChain>>(`${this.STRAPI_URL}/brain-chains/${documentId}?populate=*`)
-      .pipe(map(res => res.data));
+    return this.getBrainChains().pipe(
+      map(chains => {
+        const chain = chains.find(c => c.documentId === documentId || c.id.toString() === documentId);
+        if (!chain) throw new Error('Chain not found');
+        return chain;
+      })
+    );
   }
 
   createBrainChain(data: Partial<BrainChain>): Observable<BrainChain> {
-    return this.http.post<StrapiSingleResponse<BrainChain>>(`${this.STRAPI_URL}/brain-chains`, { data })
-      .pipe(map(res => res.data));
+    console.warn('createBrainChain not implemented - use database directly');
+    return of(data as BrainChain);
   }
 
   updateBrainChain(documentId: string, data: Partial<BrainChain>): Observable<BrainChain> {
-    return this.http.put<StrapiSingleResponse<BrainChain>>(`${this.STRAPI_URL}/brain-chains/${documentId}`, { data })
-      .pipe(map(res => res.data));
+    console.warn('updateBrainChain not implemented - use database directly');
+    return of(data as BrainChain);
   }
 
   deleteBrainChain(documentId: string): Observable<void> {
-    return this.http.delete<void>(`${this.STRAPI_URL}/brain-chains/${documentId}`);
+    console.warn('deleteBrainChain not implemented - use database directly');
+    return of(undefined);
+  }
+
+  private mapChainResponse(c: any): BrainChain {
+    return {
+      id: c.id,
+      documentId: c.documentId || c.id?.toString(),
+      name: c.name,
+      slug: c.slug || c.name?.toLowerCase().replace(/\s+/g, '-'),
+      type: c.type || 'chain',
+      description: c.description,
+      version: c.version || '1.0.0',
+      isActive: c.isActive ?? true,
+      definition: c.definition || {},
+      nodes: c.nodes,
+      edges: c.edges,
+      config: c.config,
+      tags: c.tags,
+      llmProvider: c.llmProvider,
+      createdAt: c.createdAt || new Date().toISOString(),
+      updatedAt: c.updatedAt || new Date().toISOString()
+    };
   }
 
   // ===========================================
-  // Execution Logs
+  // Execution Logs - Devuelve vacío por ahora
   // ===========================================
 
   getExecutionLogs(params?: { page?: number; pageSize?: number; filters?: any }): Observable<StrapiResponse<ExecutionLog>> {
-    let httpParams = new HttpParams()
-      .set('populate', '*')
-      .set('sort', 'createdAt:desc');
-    
-    if (params?.page) {
-      httpParams = httpParams.set('pagination[page]', params.page.toString());
-    }
-    if (params?.pageSize) {
-      httpParams = httpParams.set('pagination[pageSize]', params.pageSize.toString());
-    }
-    
-    return this.http.get<StrapiResponse<ExecutionLog>>(`${this.STRAPI_URL}/execution-logs`, { params: httpParams });
+    // Execution logs no están implementados en la nueva API
+    return of({
+      data: [],
+      meta: {
+        pagination: {
+          page: 1,
+          pageSize: 25,
+          pageCount: 0,
+          total: 0
+        }
+      }
+    });
   }
 
   getExecutionLog(documentId: string): Observable<ExecutionLog> {
-    return this.http.get<StrapiSingleResponse<ExecutionLog>>(`${this.STRAPI_URL}/execution-logs/${documentId}?populate=*`)
-      .pipe(map(res => res.data));
+    return of({} as ExecutionLog);
   }
 
   // ===========================================
-  // System Settings
+  // System Settings - Devuelve vacío por ahora
   // ===========================================
 
   getSystemSettings(category?: string): Observable<SystemSetting[]> {
-    let httpParams = new HttpParams();
-    if (category) {
-      httpParams = httpParams.set('filters[category][$eq]', category);
-    }
-    return this.http.get<StrapiResponse<SystemSetting>>(`${this.STRAPI_URL}/system-settings`, { params: httpParams })
-      .pipe(map(res => res.data));
+    return of([]);
   }
 
   getSystemSetting(key: string): Observable<SystemSetting | undefined> {
-    const params = new HttpParams().set('filters[key][$eq]', key);
-    return this.http.get<StrapiResponse<SystemSetting>>(`${this.STRAPI_URL}/system-settings`, { params })
-      .pipe(map(res => res.data[0]));
+    return of(undefined);
   }
 
   updateSystemSetting(documentId: string, value: any): Observable<SystemSetting> {
-    return this.http.put<StrapiSingleResponse<SystemSetting>>(
-      `${this.STRAPI_URL}/system-settings/${documentId}`,
-      { data: { value } }
-    ).pipe(map(res => res.data));
+    console.warn('updateSystemSetting not implemented');
+    return of({} as SystemSetting);
   }
 
   createSystemSetting(data: Partial<SystemSetting>): Observable<SystemSetting> {
-    return this.http.post<StrapiSingleResponse<SystemSetting>>(`${this.STRAPI_URL}/system-settings`, { data })
-      .pipe(map(res => res.data));
+    console.warn('createSystemSetting not implemented');
+    return of(data as SystemSetting);
+  }
+
+  // ===========================================
+  // System Stats - Nuevo endpoint
+  // ===========================================
+
+  getSystemStats(): Observable<{ chains: number; llmProviders: number; mcpConnections: number; executions: number }> {
+    return this.http.get<any>(`${this.API_URL}/config/stats`)
+      .pipe(
+        map(stats => ({
+          chains: stats.chains || 0,
+          llmProviders: stats.llmProviders || 0,
+          mcpConnections: stats.mcpConnections || 0,
+          executions: 0 // No tenemos este dato aún
+        })),
+        catchError(err => {
+          console.error('Error loading system stats:', err);
+          return of({ chains: 0, llmProviders: 0, mcpConnections: 0, executions: 0 });
+        })
+      );
   }
 }

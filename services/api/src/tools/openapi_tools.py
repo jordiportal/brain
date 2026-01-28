@@ -2,20 +2,17 @@
 OpenAPI Tools - Convierte especificaciones OpenAPI en herramientas para agentes
 """
 
-import os
 import re
 import json
 import httpx
 import structlog
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
 from urllib.parse import urljoin, urlencode
 
-logger = structlog.get_logger()
+from ..db.repositories import OpenAPIConnectionRepository
 
-STRAPI_URL = os.getenv("STRAPI_URL", "http://strapi:1337")
-STRAPI_API_TOKEN = os.getenv("STRAPI_API_TOKEN", "")
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -198,62 +195,51 @@ class OpenAPIToolkit:
         self.tools: Dict[str, OpenAPITool] = {}
         self._loaded = False
     
-    async def load_connections_from_strapi(self) -> int:
-        """Carga conexiones activas desde Strapi"""
+    async def load_connections_from_db(self) -> int:
+        """Carga conexiones activas desde PostgreSQL"""
         try:
-            headers = {}
-            if STRAPI_API_TOKEN:
-                headers["Authorization"] = f"Bearer {STRAPI_API_TOKEN}"
+            db_connections = await OpenAPIConnectionRepository.get_all(active_only=True)
+            count = 0
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    f"{STRAPI_URL}/api/openapi-connections",
-                    params={"filters[isActive][$eq]": "true", "populate": "*"},
-                    headers=headers
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    count = 0
-                    
-                    for item in data.get("data", []):
-                        # Extraer atributos (Strapi devuelve los datos directamente)
-                        conn_id = item.get("documentId") or str(item.get("id"))
-                        self.connections[conn_id] = {
-                            "id": conn_id,
-                            "name": item.get("name"),
-                            "slug": item.get("slug"),
-                            "specUrl": item.get("specUrl"),
-                            "baseUrl": item.get("baseUrl"),
-                            "authType": item.get("authType", "none"),
-                            "authToken": item.get("authToken"),
-                            "authHeader": item.get("authHeader", "Authorization"),
-                            "authPrefix": item.get("authPrefix", "Bearer"),
-                            "timeout": item.get("timeout", 30000),
-                            "customHeaders": item.get("customHeaders") or {},
-                            "enabledEndpoints": item.get("enabledEndpoints"),
-                            "cachedSpec": item.get("cachedSpec")
-                        }
-                        count += 1
-                        logger.info(f"Conexión cargada: {item.get('name')} ({conn_id})")
-                    
-                    self._loaded = True
-                    logger.info(f"Cargadas {count} conexiones OpenAPI desde Strapi")
-                    return count
-                else:
-                    logger.warning(f"Error cargando conexiones: {response.status_code}")
-                    return 0
+            for conn in db_connections:
+                conn_id = conn.document_id or str(conn.id)
+                self.connections[conn_id] = {
+                    "id": conn_id,
+                    "name": conn.name,
+                    "slug": conn.slug,
+                    "specUrl": conn.spec_url,
+                    "baseUrl": conn.base_url,
+                    "authType": conn.auth_type or "none",
+                    "authToken": conn.auth_token,
+                    "authHeader": conn.auth_header or "Authorization",
+                    "authPrefix": conn.auth_prefix or "Bearer",
+                    "timeout": conn.timeout or 30000,
+                    "customHeaders": conn.custom_headers or {},
+                    "enabledEndpoints": conn.enabled_endpoints,
+                    "cachedSpec": conn.cached_spec
+                }
+                count += 1
+                logger.info(f"Conexión cargada: {conn.name} ({conn_id})")
+            
+            self._loaded = True
+            logger.info(f"Cargadas {count} conexiones OpenAPI desde BD")
+            return count
                     
         except Exception as e:
-            logger.error(f"Error conectando con Strapi: {e}")
+            logger.error(f"Error cargando conexiones OpenAPI: {e}")
             return 0
     
+    # Alias para compatibilidad
+    async def load_connections_from_strapi(self) -> int:
+        """Alias para compatibilidad - usa load_connections_from_db"""
+        return await self.load_connections_from_db()
+    
     async def refresh_connections(self) -> int:
-        """Recarga las conexiones desde Strapi"""
+        """Recarga las conexiones desde la BD"""
         self.connections = {}
         self.tools = {}
         self._loaded = False
-        return await self.load_connections_from_strapi()
+        return await self.load_connections_from_db()
     
     async def fetch_and_parse_spec(self, connection_id: str) -> Dict[str, Any]:
         """Descarga y parsea la especificación OpenAPI"""
@@ -339,7 +325,7 @@ class OpenAPIToolkit:
     async def load_all_tools(self) -> Dict[str, OpenAPITool]:
         """Carga todas las herramientas de todas las conexiones"""
         if not self.connections:
-            await self.load_connections_from_strapi()
+            await self.load_connections_from_db()
         
         for conn_id in self.connections:
             try:

@@ -257,8 +257,20 @@ class ChainExecutor:
                 provider_type=request.llm_provider_type,
                 api_key=request.api_key
             ):
+                # El builder puede devolver StreamEvent o dict
+                if isinstance(event, dict):
+                    # Es un dict puro (como _result al final)
+                    if "_result" in event:
+                        # Resultado final, no emitir al stream
+                        continue
+                    # Convertir dict a StreamEvent si tiene los campos necesarios
+                    if "event_type" in event:
+                        event = StreamEvent(**event)
+                    else:
+                        continue
+                
                 yield event
-                if event.event_type == "token" and event.content:
+                if hasattr(event, 'event_type') and event.event_type == "token" and event.content:
                     full_response += event.content
             
             # Actualizar memoria

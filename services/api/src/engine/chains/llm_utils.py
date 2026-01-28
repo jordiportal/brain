@@ -768,10 +768,21 @@ async def _call_anthropic_with_tools(
     # Convertir tools a formato Anthropic
     anthropic_tools = []
     for tool in tools:
+        # Normalizar: puede venir como {type, function} o como {name, description, parameters}
+        if "function" in tool:
+            func = tool["function"]
+            name = func.get("name", "")
+            description = func.get("description", "")
+            parameters = func.get("parameters", {})
+        else:
+            name = tool.get("name", "")
+            description = tool.get("description", "")
+            parameters = tool.get("parameters", {})
+        
         anthropic_tools.append({
-            "name": tool["name"],
-            "description": tool.get("description", ""),
-            "input_schema": tool.get("parameters", {})
+            "name": name,
+            "description": description,
+            "input_schema": parameters
         })
     
     payload = {
@@ -859,11 +870,22 @@ async def _call_gemini_with_tools(
     # Convertir tools a formato Gemini
     gemini_tools = []
     for tool in tools:
+        # Normalizar: puede venir como {type, function} o como {name, description, parameters}
+        if "function" in tool:
+            func = tool["function"]
+            name = func.get("name", "")
+            description = func.get("description", "")
+            parameters = func.get("parameters", {})
+        else:
+            name = tool.get("name", "")
+            description = tool.get("description", "")
+            parameters = tool.get("parameters", {})
+        
         gemini_tools.append({
             "function_declarations": [{
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": tool.get("parameters", {})
+                "name": name,
+                "description": description,
+                "parameters": parameters
             }]
         })
     

@@ -1,14 +1,14 @@
 """
 Configuration loader for OpenAI-Compatible API
 
-Carga la configuración desde Strapi.
+Carga la configuración desde PostgreSQL directamente.
 """
 
-import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 from dataclasses import dataclass, field
-import httpx
 import structlog
+
+from ..db.repositories import ModelConfigRepository
 
 logger = structlog.get_logger()
 
@@ -54,11 +54,9 @@ class OpenAICompatConfig:
 
 
 class ConfigLoader:
-    """Cargador de configuración desde Strapi"""
+    """Cargador de configuración desde PostgreSQL"""
     
     def __init__(self):
-        self._strapi_url = os.getenv("STRAPI_URL", "http://strapi:1337")
-        self._strapi_token = os.getenv("STRAPI_API_TOKEN")
         self._config: Optional[OpenAICompatConfig] = None
         self._default_models = [
             BrainModel(
@@ -91,58 +89,32 @@ class ConfigLoader:
         ]
     
     async def load_config(self) -> OpenAICompatConfig:
-        """Carga configuración desde Strapi"""
+        """Carga configuración desde PostgreSQL"""
         if self._config:
             return self._config
         
-        if not self._strapi_token:
-            logger.warning("STRAPI_API_TOKEN not set, using default config")
-            self._config = self._get_default_config()
-            return self._config
-        
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    f"{self._strapi_url}/api/brain-model-config",
-                    headers={"Authorization": f"Bearer {self._strapi_token}"},
-                    params={"populate": "*"}
-                )
-                
-                if response.status_code == 404:
-                    logger.info("Brain model config not found, using defaults")
-                    self._config = self._get_default_config()
-                    return self._config
-                
-                if response.status_code != 200:
-                    logger.error(f"Strapi returned {response.status_code}")
-                    self._config = self._get_default_config()
-                    return self._config
-                
-                data = response.json()
-                # Strapi v5: datos directamente en data, sin attributes
-                attrs = data.get("data", {})
-                if isinstance(attrs, dict) and "attributes" in attrs:
-                    # Strapi v4 format
-                    attrs = attrs.get("attributes", {})
-                
-                if not attrs:
-                    self._config = self._get_default_config()
-                    return self._config
-                
-                self._config = self._parse_config(attrs)
-                logger.info("OpenAI-compat config loaded from Strapi")
+            db_config = await ModelConfigRepository.get()
+            
+            if not db_config:
+                logger.info("Brain model config not found, using defaults")
+                self._config = self._get_default_config()
                 return self._config
+            
+            self._config = self._parse_config(db_config)
+            logger.info("OpenAI-compat config loaded from database")
+            return self._config
                 
         except Exception as e:
             logger.error(f"Error loading config: {e}")
             self._config = self._get_default_config()
             return self._config
     
-    def _parse_config(self, attrs: Dict[str, Any]) -> OpenAICompatConfig:
-        """Parsea la configuración desde Strapi"""
+    def _parse_config(self, db_config) -> OpenAICompatConfig:
+        """Parsea la configuración desde la BD"""
         # Parsear modelos
         models = []
-        for m in attrs.get("availableModels", []):
+        for m in (db_config.available_models or []):
             models.append(BrainModel(
                 id=m.get("id", "brain-adaptive"),
                 name=m.get("name", "Brain Model"),
@@ -157,7 +129,7 @@ class ConfigLoader:
             models = self._default_models
         
         # Parsear backend LLM
-        backend = attrs.get("backendLlm", {})
+        backend = db_config.backend_llm or {}
         backend_llm = BackendLLM(
             provider=backend.get("provider", "ollama"),
             url=backend.get("url", "http://192.168.7.101:11434"),
@@ -166,20 +138,20 @@ class ConfigLoader:
         )
         
         # Parsear rate limits
-        limits = attrs.get("rateLimits", {})
+        limits = db_config.rate_limits or {}
         rate_limits = RateLimits(
             requests_per_minute=limits.get("requestsPerMinute", 60),
             tokens_per_minute=limits.get("tokensPerMinute", 100000)
         )
         
         return OpenAICompatConfig(
-            is_enabled=attrs.get("isEnabled", True),
-            base_url=attrs.get("baseUrl", "/v1"),
-            default_model=attrs.get("defaultModel", "brain-adaptive"),
+            is_enabled=db_config.is_enabled,
+            base_url=db_config.base_url or "/v1",
+            default_model=db_config.default_model or "brain-adaptive",
             available_models=models,
             backend_llm=backend_llm,
             rate_limits=rate_limits,
-            logging_enabled=attrs.get("loggingEnabled", True)
+            logging_enabled=db_config.logging_enabled
         )
     
     def _get_default_config(self) -> OpenAICompatConfig:
