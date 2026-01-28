@@ -86,14 +86,10 @@ class APIKeyValidator:
         
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Buscar por key exacto
+                # Buscar todas las keys y filtrar manualmente (Strapi v5 filter issue)
                 response = await client.get(
                     f"{self._strapi_url}/api/brain-api-keys",
-                    headers={"Authorization": f"Bearer {self._strapi_token}"},
-                    params={
-                        "filters[key][$eq]": api_key,
-                        "populate": "*"
-                    }
+                    headers={"Authorization": f"Bearer {self._strapi_token}"}
                 )
                 
                 if response.status_code != 200:
@@ -103,12 +99,17 @@ class APIKeyValidator:
                 data = response.json()
                 items = data.get("data", [])
                 
-                if items:
-                    item = items[0]
-                    return {
-                        "id": item["id"],
-                        **item.get("attributes", {})
-                    }
+                # Buscar la key que coincida
+                for item in items:
+                    # Strapi v5 format: campos directamente en el objeto
+                    if item.get("key") == api_key:
+                        return item
+                    # Fallback Strapi v4 format
+                    if item.get("attributes", {}).get("key") == api_key:
+                        return {
+                            "id": item["id"],
+                            **item.get("attributes", {})
+                        }
                 
                 return None
                 

@@ -97,7 +97,8 @@ class ConfigLoader:
         
         if not self._strapi_token:
             logger.warning("STRAPI_API_TOKEN not set, using default config")
-            return self._get_default_config()
+            self._config = self._get_default_config()
+            return self._config
         
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -109,17 +110,24 @@ class ConfigLoader:
                 
                 if response.status_code == 404:
                     logger.info("Brain model config not found, using defaults")
-                    return self._get_default_config()
+                    self._config = self._get_default_config()
+                    return self._config
                 
                 if response.status_code != 200:
                     logger.error(f"Strapi returned {response.status_code}")
-                    return self._get_default_config()
+                    self._config = self._get_default_config()
+                    return self._config
                 
                 data = response.json()
-                attrs = data.get("data", {}).get("attributes", {})
+                # Strapi v5: datos directamente en data, sin attributes
+                attrs = data.get("data", {})
+                if isinstance(attrs, dict) and "attributes" in attrs:
+                    # Strapi v4 format
+                    attrs = attrs.get("attributes", {})
                 
                 if not attrs:
-                    return self._get_default_config()
+                    self._config = self._get_default_config()
+                    return self._config
                 
                 self._config = self._parse_config(attrs)
                 logger.info("OpenAI-compat config loaded from Strapi")
@@ -127,7 +135,8 @@ class ConfigLoader:
                 
         except Exception as e:
             logger.error(f"Error loading config: {e}")
-            return self._get_default_config()
+            self._config = self._get_default_config()
+            return self._config
     
     def _parse_config(self, attrs: Dict[str, Any]) -> OpenAICompatConfig:
         """Parsea la configuración desde Strapi"""
