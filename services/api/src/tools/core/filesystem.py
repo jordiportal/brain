@@ -412,9 +412,9 @@ async def search_files(
 # ============================================
 
 FILESYSTEM_TOOLS = {
-    "read": {
-        "id": "read",
-        "name": "read",
+    "read_file": {
+        "id": "read_file",
+        "name": "read_file",
         "description": "Lee un archivo completo o parcial. Soporta offset y limit para archivos grandes.",
         "parameters": {
             "type": "object",
@@ -436,9 +436,9 @@ FILESYSTEM_TOOLS = {
         },
         "handler": read_file
     },
-    "write": {
-        "id": "write",
-        "name": "write",
+    "write_file": {
+        "id": "write_file",
+        "name": "write_file",
         "description": "Crea o sobrescribe un archivo con el contenido dado. Crea directorios padre si no existen.",
         "parameters": {
             "type": "object",
@@ -456,9 +456,9 @@ FILESYSTEM_TOOLS = {
         },
         "handler": write_file
     },
-    "edit": {
-        "id": "edit",
-        "name": "edit",
+    "edit_file": {
+        "id": "edit_file",
+        "name": "edit_file",
         "description": "Reemplaza texto en un archivo (primera ocurrencia). Útil para ediciones precisas.",
         "parameters": {
             "type": "object",
@@ -480,9 +480,9 @@ FILESYSTEM_TOOLS = {
         },
         "handler": edit_file
     },
-    "list": {
-        "id": "list",
-        "name": "list",
+    "list_directory": {
+        "id": "list_directory",
+        "name": "list_directory",
         "description": "Lista contenido de un directorio. Soporta listado recursivo y filtro por patrón glob.",
         "parameters": {
             "type": "object",
@@ -504,9 +504,9 @@ FILESYSTEM_TOOLS = {
         },
         "handler": list_directory
     },
-    "search": {
-        "id": "search",
-        "name": "search",
+    "search_files": {
+        "id": "search_files",
+        "name": "search_files",
         "description": "Busca archivos por nombre o contenido dentro de archivos (grep-like).",
         "parameters": {
             "type": "object",

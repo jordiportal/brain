@@ -2,7 +2,7 @@
 Brain 2.0 Tool Registry - Registro central de las 15 Core Tools
 
 Core Tools:
-- Filesystem (5): read, write, edit, list, search
+- Filesystem (5): read_file, write_file, edit_file, list_directory, search_files
 - Execution (3): shell, python, javascript
 - Web (2): web_search, web_fetch
 - Reasoning (4): think, reflect, plan, finish
@@ -195,7 +195,7 @@ class ToolRegistry:
         """
         Registra las 15 Core Tools de Brain 2.0
         
-        Filesystem (5): read, write, edit, list, search
+        Filesystem (5): read_file, write_file, edit_file, list_directory, search_files
         Execution (3): shell, python, javascript
         Web (2): web_search, web_fetch
         Reasoning (4): think, reflect, plan, finish
@@ -237,7 +237,7 @@ class ToolRegistry:
         
         # Agrupar por categoría
         categories = {
-            "Filesystem": ["read", "write", "edit", "list", "search"],
+            "Filesystem": ["read_file", "write_file", "edit_file", "list_directory", "search_files"],
             "Execution": ["shell", "python", "javascript"],
             "Web": ["web_search", "web_fetch"],
             "Reasoning": ["think", "reflect", "plan", "finish"],

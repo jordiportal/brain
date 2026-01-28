@@ -43,7 +43,7 @@ logger = structlog.get_logger()
 
 # Lista de tools válidas
 VALID_TOOL_NAMES = {
-    "read", "write", "edit", "list", "search",
+    "read_file", "write_file", "edit_file", "list_directory", "search_files",
     "shell", "python", "javascript",
     "web_search", "web_fetch",
     "think", "reflect", "plan", "finish",
@@ -90,11 +90,11 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 # AVAILABLE TOOLS
 
 ## Filesystem
-- `read`: Read file contents
-- `write`: Create/overwrite files (ALWAYS use this when asked to save something)
-- `edit`: Edit files (replace text)
-- `list`: List directory contents
-- `search`: Search files or content
+- `read_file`: Read file contents
+- `write_file`: Create/overwrite files (ALWAYS use this when asked to save something)
+- `edit_file`: Edit files (replace text)
+- `list_directory`: List directory contents
+- `search_files`: Search files or content
 
 ## Execution
 - `shell`: Execute shell commands
@@ -122,7 +122,7 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 
 1. **CALL `finish` TO END**: Every task MUST end with `finish(final_answer="your answer")`. No exceptions.
 2. **NO TOOL LOOPS**: Do NOT call the same tool more than 3 times. If you've called a tool 3 times, move on or call `finish`.
-3. **AFTER `write` → CHECK DONE**: After writing a file, the task is usually complete. Call `finish`.
+3. **AFTER `write_file` → CHECK DONE**: After writing a file, the task is usually complete. Call `finish`.
 4. **AFTER `python` → REPORT RESULT**: After running Python code, report the result and call `finish`.
 5. **AFTER `shell` → VERIFY AND FINISH**: After shell commands complete successfully, call `finish`.
 6. **FORMAT**: Use markdown in your final answer.
@@ -137,9 +137,9 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 
 # EXAMPLES OF MULTI-STEP TASKS
 
-- "Search X and save to file Y" → web_search → write → finish
-- "Read file X and analyze" → read → think → finish  
-- "Calculate X and save result" → calculate → write → finish
+- "Search X and save to file Y" → web_search → write_file → finish
+- "Read file X and analyze" → read_file → think → finish  
+- "Calculate X and save result" → calculate → write_file → finish
 
 Now, help the user with their request."""
 
@@ -155,11 +155,11 @@ WORKFLOW_MODERATE = """For this MODERATE task:
 1. Use `think` to break down the task into steps
 2. Execute each step using the appropriate tools
 3. IMPORTANT: Complete ALL parts of the request before finishing
-4. If asked to save/write something, you MUST use the `write` tool
+4. If asked to save/write something, you MUST use the `write_file` tool
 5. Use `reflect` if results seem incomplete
 6. Call `finish` with your complete answer
 
-Example: "Search X and save to file Y" → think → web_search → write → finish"""
+Example: "Search X and save to file Y" → think → web_search → write_file → finish"""
 
 WORKFLOW_COMPLEX = """For this COMPLEX task:
 1. Use `plan` to create a structured approach with ALL required steps
@@ -408,11 +408,11 @@ async def build_adaptive_agent(
                         "think": "💭 Pensando",
                         "reflect": "🔍 Reflexionando", 
                         "plan": "📋 Planificando",
-                        "read": "📖 Leyendo archivo",
-                        "write": "✍️ Escribiendo archivo",
-                        "edit": "✏️ Editando archivo",
-                        "list": "📁 Listando directorio",
-                        "search": "🔎 Buscando en archivos",
+                        "read_file": "📖 Leyendo archivo",
+                        "write_file": "✍️ Escribiendo archivo",
+                        "edit_file": "✏️ Editando archivo",
+                        "list_directory": "📁 Listando directorio",
+                        "search_files": "🔎 Buscando en archivos",
                         "shell": "💻 Ejecutando comando",
                         "python": "🐍 Ejecutando Python",
                         "javascript": "📜 Ejecutando JavaScript",
