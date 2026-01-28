@@ -47,7 +47,8 @@ VALID_TOOL_NAMES = {
     "shell", "python", "javascript",
     "web_search", "web_fetch",
     "think", "reflect", "plan", "finish",
-    "calculate"
+    "calculate",
+    "delegate"  # Para subagentes especializados
 }
 
 def is_valid_tool_name(name: str) -> bool:
@@ -86,6 +87,7 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 2. **USE TOOLS**: You have powerful tools available. Use them to accomplish tasks.
 3. **AVOID LOOPS**: Never call the same tool repeatedly without making progress.
 4. **FINISH IMMEDIATELY**: As soon as the task is done, call `finish` with your answer.
+5. **DELEGATE SPECIALIZED TASKS**: For domain-specific tasks, use the `delegate` tool.
 
 # AVAILABLE TOOLS
 
@@ -114,6 +116,31 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 ## Utils
 - `calculate`: Evaluate math expressions
 
+## Delegation (for specialized tasks)
+- `delegate`: Delegate tasks to specialized subagents
+
+# SPECIALIZED SUBAGENTS
+
+Use `delegate(agent="...", task="...")` for domain-specific tasks:
+
+- **media_agent**: Image generation with DALL-E 3, Stable Diffusion, Flux
+  Examples: "Generate an image of...", "Create a logo for...", "Draw..."
+  
+- **sap_agent** (coming soon): SAP S/4HANA and BIW queries
+- **mail_agent** (coming soon): Email management
+- **office_agent** (coming soon): Office document creation
+
+## WHEN TO DELEGATE
+
+✅ DELEGATE when:
+- User asks to generate/create an image
+- Task requires specialized domain knowledge (SAP, email, etc.)
+- The subagent has tools you don't have
+
+❌ DO NOT DELEGATE when:
+- You can complete the task with your core tools
+- It's a simple file, web, or code task
+
 # WORKFLOW
 
 {workflow_instructions}
@@ -125,14 +152,16 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 3. **AFTER `write_file` → CHECK DONE**: After writing a file, the task is usually complete. Call `finish`.
 4. **AFTER `python` → REPORT RESULT**: After running Python code, report the result and call `finish`.
 5. **AFTER `shell` → VERIFY AND FINISH**: After shell commands complete successfully, call `finish`.
-6. **FORMAT**: Use markdown in your final answer.
-7. **FAILURES**: If a tool fails, try once more, then call `finish` with what you have.
+6. **AFTER `delegate` → REPORT RESULT**: Include the subagent's response and any images in your answer.
+7. **FORMAT**: Use markdown in your final answer.
+8. **FAILURES**: If a tool fails, try once more, then call `finish` with what you have.
 
 ## STOP SIGNS - CALL `finish` NOW IF:
 - You have successfully written a file
 - You have executed code and got results
 - You have gathered the information requested
 - You have completed all parts of the task
+- A subagent has completed its task successfully
 - You have called any tool 3+ times
 
 # EXAMPLES OF MULTI-STEP TASKS
@@ -140,6 +169,8 @@ ADAPTIVE_AGENT_SYSTEM_PROMPT = """You are Brain 2.0, an intelligent assistant wi
 - "Search X and save to file Y" → web_search → write_file → finish
 - "Read file X and analyze" → read_file → think → finish  
 - "Calculate X and save result" → calculate → write_file → finish
+- "Generate an image of a cat" → delegate(agent="media_agent", task="...") → finish
+- "Create a logo and save it" → delegate(agent="media_agent", task="...") → write_file → finish
 
 Now, help the user with their request."""
 
@@ -419,6 +450,7 @@ async def build_adaptive_agent(
                         "web_search": "🌐 Buscando en web",
                         "web_fetch": "📥 Obteniendo URL",
                         "calculate": "🔢 Calculando",
+                        "delegate": "🤖 Delegando a subagente",
                         "finish": "✅ Finalizando"
                     }
                     display_name = tool_display_names.get(tool_name, f"🔧 {tool_name}")
@@ -432,8 +464,18 @@ async def build_adaptive_agent(
                         data={"tool": tool_name, "arguments": tool_args}
                     )
                     
+                    # Preparar argumentos para ejecución
+                    exec_args = tool_args.copy()
+                    
+                    # Para delegate, inyectar contexto LLM interno
+                    if tool_name == "delegate":
+                        exec_args["_llm_url"] = llm_url
+                        exec_args["_model"] = model
+                        exec_args["_provider_type"] = provider_type
+                        exec_args["_api_key"] = api_key
+                    
                     # Ejecutar tool
-                    result = await tool_registry.execute(tool_name, **tool_args)
+                    result = await tool_registry.execute(tool_name, **exec_args)
                     
                     # Verificar si es finish
                     if tool_name == "finish":
@@ -460,6 +502,33 @@ async def build_adaptive_agent(
                         "tool": tool_name,
                         "result": result
                     })
+                    
+                    # Manejar imágenes de delegación
+                    if tool_name == "delegate" and result.get("success") and result.get("images"):
+                        for img in result["images"]:
+                            if img.get("url"):
+                                yield StreamEvent(
+                                    event_type="image",
+                                    execution_id=execution_id,
+                                    node_id=f"tool_{tool_name}_{iteration}",
+                                    data={
+                                        "image_url": img["url"],
+                                        "alt_text": img.get("prompt", "Generated image"),
+                                        "provider": img.get("provider"),
+                                        "model": img.get("model")
+                                    }
+                                )
+                            elif img.get("base64"):
+                                yield StreamEvent(
+                                    event_type="image",
+                                    execution_id=execution_id,
+                                    node_id=f"tool_{tool_name}_{iteration}",
+                                    data={
+                                        "image_data": img["base64"],
+                                        "mime_type": img.get("mime_type", "image/png"),
+                                        "alt_text": img.get("prompt", "Generated image")
+                                    }
+                                )
                     
                     # Extraer contenido para herramientas de razonamiento
                     thinking_content = None

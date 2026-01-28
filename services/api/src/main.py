@@ -21,6 +21,7 @@ from src.mcp.router import router as mcp_router
 from src.mcp.client import mcp_client
 from src.browser.service import browser_service
 from src.browser.router import router as browser_router
+from src.engine.chains.agents.router import router as subagents_router
 
 # Configurar logging estructurado
 structlog.configure(
@@ -50,9 +51,17 @@ async def lifespan(app: FastAPI):
     register_all_chains()
     logger.info("Cadenas predefinidas registradas")
     
-    # Cargar herramientas built-in
+    # Cargar herramientas built-in (core tools)
     tool_registry.register_builtin_tools()
     logger.info("Herramientas built-in registradas")
+    
+    # Registrar subagentes especializados
+    try:
+        from src.engine.chains.agents import register_all_subagents
+        register_all_subagents()
+        logger.info("Subagentes especializados registrados")
+    except Exception as e:
+        logger.warning(f"No se pudieron registrar subagentes: {e}")
     
     # Cargar herramientas OpenAPI desde Strapi
     try:
@@ -113,6 +122,7 @@ app.include_router(rag_router, prefix="/api/v1")
 app.include_router(tools_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(browser_router, prefix="/api/v1")
+app.include_router(subagents_router, prefix="/api/v1")
 
 
 # ===========================================

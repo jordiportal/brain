@@ -162,6 +162,7 @@ class ToolRegistry:
         Filtra los parámetros para incluir solo los definidos en el schema.
         
         Esto previene errores cuando el LLM inventa parámetros que no existen.
+        NOTA: Los parámetros que empiezan con _ son internos del sistema y siempre se pasan.
         """
         # Obtener propiedades válidas del schema
         valid_props = set()
@@ -177,7 +178,10 @@ class ToolRegistry:
         invalid = []
         
         for key, value in kwargs.items():
-            if key in valid_props:
+            # Parámetros internos (con _) siempre se pasan
+            if key.startswith("_"):
+                filtered[key] = value
+            elif key in valid_props:
                 filtered[key] = value
             else:
                 invalid.append(key)
@@ -241,7 +245,8 @@ class ToolRegistry:
             "Execution": ["shell", "python", "javascript"],
             "Web": ["web_search", "web_fetch"],
             "Reasoning": ["think", "reflect", "plan", "finish"],
-            "Utils": ["calculate"]
+            "Utils": ["calculate"],
+            "Delegation": ["delegate"]
         }
         
         for category, tool_ids in categories.items():

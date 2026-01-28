@@ -47,6 +47,10 @@ export const routes: Routes = [
       {
         path: 'tools',
         loadComponent: () => import('./features/tools/tools.component').then(m => m.ToolsComponent)
+      },
+      {
+        path: 'subagents',
+        loadComponent: () => import('./features/subagents/subagents.component').then(m => m.SubagentsComponent)
       }
     ]
   },

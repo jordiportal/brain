@@ -290,6 +290,7 @@ export class MainLayoutComponent {
   menuItems: MenuItem[] = [
     { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
     { label: 'Cadenas', icon: 'account_tree', route: '/chains' },
+    { label: 'Subagentes', icon: 'smart_toy', route: '/subagents' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
     { label: 'Testing LLM', icon: 'science', route: '/testing' },
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
