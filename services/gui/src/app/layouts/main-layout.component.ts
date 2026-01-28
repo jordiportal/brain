@@ -292,6 +292,7 @@ export class MainLayoutComponent {
     { label: 'Cadenas', icon: 'account_tree', route: '/chains' },
     { label: 'Subagentes', icon: 'smart_toy', route: '/subagents' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
+    { label: 'API Externa', icon: 'api', route: '/external-api' },
     { label: 'Testing LLM', icon: 'science', route: '/testing' },
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
     { label: 'RAG / Documentos', icon: 'description', route: '/rag' },

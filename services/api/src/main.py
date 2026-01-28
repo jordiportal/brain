@@ -22,6 +22,7 @@ from src.mcp.client import mcp_client
 from src.browser.service import browser_service
 from src.browser.router import router as browser_router
 from src.engine.chains.agents.router import router as subagents_router
+from src.openai_compat.router import router as openai_compat_router
 
 # Configurar logging estructurado
 structlog.configure(
@@ -123,6 +124,9 @@ app.include_router(tools_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(browser_router, prefix="/api/v1")
 app.include_router(subagents_router, prefix="/api/v1")
+
+# OpenAI-Compatible API (sin prefix /api para compatibilidad)
+app.include_router(openai_compat_router)
 
 
 # ===========================================
