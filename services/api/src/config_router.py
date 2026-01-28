@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+from src.db import get_db
 from src.db.repositories import (
     LLMProviderRepository,
     ChainRepository,
@@ -75,6 +76,7 @@ class ApiKeyResponse(BaseModel):
     id: int
     documentId: Optional[str] = None
     name: str
+    key: Optional[str] = None  # Para mostrar prefix en listado
     keyPrefix: Optional[str] = None
     isActive: bool = True
     permissions: Optional[Dict[str, Any]] = None
@@ -82,6 +84,7 @@ class ApiKeyResponse(BaseModel):
     expiresAt: Optional[str] = None
     createdByUser: Optional[str] = None
     notes: Optional[str] = None
+    createdAt: Optional[str] = None
 
 
 # ===========================================
@@ -200,7 +203,7 @@ async def get_brain_chains(active_only: bool = False):
 # ===========================================
 
 @router.get("/api-keys", response_model=List[ApiKeyResponse])
-async def get_api_keys(active_only: bool = True):
+async def get_api_keys(active_only: bool = False):
     """Obtener lista de API keys"""
     try:
         keys = await ApiKeyRepository.get_all(active_only=active_only)
@@ -210,15 +213,142 @@ async def get_api_keys(active_only: bool = True):
                 documentId=k.document_id,
                 name=k.name or "",
                 keyPrefix=k.key_prefix,
+                key=k.key_prefix,  # Solo mostrar el prefix
                 isActive=k.is_active,
                 permissions=k.permissions,
                 usageStats=k.usage_stats,
                 expiresAt=k.expires_at.isoformat() if k.expires_at else None,
                 createdByUser=k.created_by_user,
-                notes=k.notes
+                notes=k.notes,
+                createdAt=k.created_at.isoformat() if k.created_at else None
             )
             for k in keys
         ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateApiKeyRequest(BaseModel):
+    name: str
+    permissions: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+
+class CreateApiKeyResponse(BaseModel):
+    id: int
+    key: str  # La key completa (solo se muestra una vez)
+    keyPrefix: str
+    name: str
+
+
+@router.post("/api-keys", response_model=CreateApiKeyResponse)
+async def create_api_key(request: CreateApiKeyRequest):
+    """Crear nueva API key"""
+    import secrets
+    
+    try:
+        db = get_db()
+        
+        # Generar key aleatoria
+        raw_key = "sk-brain-" + secrets.token_urlsafe(36)
+        key_prefix = raw_key[:20]
+        
+        # Insertar en la base de datos
+        query = """
+            INSERT INTO brain_api_keys (name, key, key_prefix, is_active, permissions, usage_stats, notes, created_at, updated_at)
+            VALUES ($1, $2, $3, true, $4, $5, $6, NOW(), NOW())
+            RETURNING id
+        """
+        
+        import json
+        permissions_json = json.dumps(request.permissions or {
+            "models": ["brain-adaptive", "brain-chat", "brain-rag"],
+            "maxTokensPerRequest": 4096,
+            "rateLimit": 60
+        })
+        usage_stats_json = json.dumps({
+            "totalRequests": 0,
+            "totalTokens": 0,
+            "lastUsed": None
+        })
+        
+        result = await db.fetch_one(
+            query, 
+            request.name, 
+            raw_key,  # Guardar la key completa (o hash en producción)
+            key_prefix, 
+            permissions_json, 
+            usage_stats_json, 
+            request.notes or ""
+        )
+        
+        return CreateApiKeyResponse(
+            id=result["id"],
+            key=raw_key,
+            keyPrefix=key_prefix,
+            name=request.name
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateApiKeyRequest(BaseModel):
+    isActive: Optional[bool] = None
+    permissions: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+
+@router.put("/api-keys/{key_id}")
+async def update_api_key(key_id: int, request: UpdateApiKeyRequest):
+    """Actualizar API key"""
+    try:
+        db = get_db()
+        
+        updates = []
+        values = []
+        param_idx = 1
+        
+        if request.isActive is not None:
+            updates.append(f"is_active = ${param_idx}")
+            values.append(request.isActive)
+            param_idx += 1
+        
+        if request.permissions is not None:
+            import json
+            updates.append(f"permissions = ${param_idx}")
+            values.append(json.dumps(request.permissions))
+            param_idx += 1
+        
+        if request.notes is not None:
+            updates.append(f"notes = ${param_idx}")
+            values.append(request.notes)
+            param_idx += 1
+        
+        if not updates:
+            return {"success": True, "message": "No changes"}
+        
+        updates.append("updated_at = NOW()")
+        values.append(key_id)
+        
+        query = f"""
+            UPDATE brain_api_keys 
+            SET {', '.join(updates)}
+            WHERE id = ${param_idx}
+        """
+        
+        await db.execute(query, *values)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api-keys/{key_id}")
+async def delete_api_key(key_id: int):
+    """Eliminar API key"""
+    try:
+        db = get_db()
+        await db.execute("DELETE FROM brain_api_keys WHERE id = $1", key_id)
+        return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

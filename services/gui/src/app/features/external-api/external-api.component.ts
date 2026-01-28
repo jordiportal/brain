@@ -902,15 +902,21 @@ export class ExternalApiComponent implements OnInit {
   loadApiKeys(): void {
     this.loadingKeys.set(true);
     
-    this.http.get<any>(`${environment.strapiUrl}/api/brain-api-keys`, {
-      headers: { 'Authorization': `Bearer ${this.getStrapiToken()}` }
-    }).subscribe({
-      next: (response) => {
-        const keys = (response.data || []).map((item: any) => ({
-          id: item.id,
-          ...item.attributes
-        }));
-        this.apiKeys.set(keys);
+    // Usar API de Python en lugar de Strapi
+    this.http.get<any[]>(`${environment.apiUrl}/config/api-keys`).subscribe({
+      next: (keys) => {
+        this.apiKeys.set(keys.map((k: any) => ({
+          id: k.id,
+          name: k.name,
+          key: k.key || k.keyPrefix,
+          keyPrefix: k.keyPrefix,
+          isActive: k.isActive,
+          permissions: k.permissions || {},
+          usageStats: k.usageStats || { totalRequests: 0, totalTokens: 0, lastUsed: null },
+          expiresAt: k.expiresAt,
+          createdAt: k.createdAt,
+          notes: k.notes
+        })));
         this.loadingKeys.set(false);
       },
       error: (err) => {
@@ -921,32 +927,27 @@ export class ExternalApiComponent implements OnInit {
   }
 
   loadConfig(): void {
-    // Cargar desde Strapi
-    this.http.get<any>(`${environment.strapiUrl}/api/brain-model-config`, {
-      headers: { 'Authorization': `Bearer ${this.getStrapiToken()}` }
-    }).subscribe({
-      next: (response) => {
-        if (response.data?.attributes) {
-          const attrs = response.data.attributes;
-          this.config = {
-            isEnabled: attrs.isEnabled ?? true,
-            baseUrl: attrs.baseUrl ?? '/v1',
-            defaultModel: attrs.defaultModel ?? 'brain-adaptive',
-            availableModels: attrs.availableModels ?? [],
-            backendLlm: attrs.backendLlm ?? this.config.backendLlm,
-            rateLimits: attrs.rateLimits ?? this.config.rateLimits
+    // Usar modelos por defecto (sin Strapi)
+    this.availableModels.set([
+      { id: 'brain-adaptive', name: 'Brain Adaptive', description: 'Full agent with tools', chainId: 'adaptive', maxTokens: 4096, supportsStreaming: true, supportsTools: true },
+      { id: 'brain-chat', name: 'Brain Chat', description: 'Simple chat', chainId: 'conversational', maxTokens: 4096, supportsStreaming: true, supportsTools: false },
+      { id: 'brain-rag', name: 'Brain RAG', description: 'Chat with documents', chainId: 'rag', maxTokens: 4096, supportsStreaming: true, supportsTools: false }
+    ]);
+    
+    // Cargar configuración de LLM providers desde la API
+    this.http.get<any[]>(`${environment.apiUrl}/config/llm-providers?active_only=true`).subscribe({
+      next: (providers) => {
+        if (providers.length > 0) {
+          const activeProvider = providers[0];
+          this.config.backendLlm = {
+            provider: activeProvider.type,
+            url: activeProvider.baseUrl,
+            model: activeProvider.defaultModel || 'gpt-oss:120b'
           };
-          this.availableModels.set(this.config.availableModels);
         }
       },
       error: (err) => {
-        console.log('Config not found, using defaults');
-        // Usar modelos por defecto
-        this.availableModels.set([
-          { id: 'brain-adaptive', name: 'Brain Adaptive', description: 'Full agent with tools', chainId: 'adaptive', maxTokens: 4096, supportsStreaming: true, supportsTools: true },
-          { id: 'brain-chat', name: 'Brain Chat', description: 'Simple chat', chainId: 'conversational', maxTokens: 4096, supportsStreaming: true, supportsTools: false },
-          { id: 'brain-rag', name: 'Brain RAG', description: 'Chat with documents', chainId: 'rag', maxTokens: 4096, supportsStreaming: true, supportsTools: false }
-        ]);
+        console.log('Using default LLM config');
       }
     });
   }
@@ -970,34 +971,20 @@ export class ExternalApiComponent implements OnInit {
 
     this.creatingKey.set(true);
 
-    // Generar key
-    const key = 'sk-brain-' + this.generateRandomString(48);
-    
     const payload = {
-      data: {
-        name: this.newKey.name,
-        key: key,
-        keyPrefix: key.substring(0, 20),
-        isActive: true,
-        permissions: {
-          models: this.newKey.models,
-          maxTokensPerRequest: 4096,
-          rateLimit: this.newKey.rateLimit
-        },
-        usageStats: {
-          totalRequests: 0,
-          totalTokens: 0,
-          lastUsed: null
-        },
-        notes: this.newKey.notes
-      }
+      name: this.newKey.name,
+      permissions: {
+        models: this.newKey.models,
+        maxTokensPerRequest: 4096,
+        rateLimit: this.newKey.rateLimit
+      },
+      notes: this.newKey.notes
     };
 
-    this.http.post<any>(`${environment.strapiUrl}/api/brain-api-keys`, payload, {
-      headers: { 'Authorization': `Bearer ${this.getStrapiToken()}` }
-    }).subscribe({
-      next: () => {
-        this.newlyCreatedKey.set(key);
+    // Usar API de Python
+    this.http.post<any>(`${environment.apiUrl}/config/api-keys`, payload).subscribe({
+      next: (response) => {
+        this.newlyCreatedKey.set(response.key);
         this.showCreateKeyForm = false;
         this.newKey = { name: '', models: ['brain-adaptive', 'brain-chat', 'brain-rag'], rateLimit: 60, notes: '' };
         this.loadApiKeys();
@@ -1005,17 +992,17 @@ export class ExternalApiComponent implements OnInit {
         this.snackBar.open('API key creada', 'Cerrar', { duration: 3000 });
       },
       error: (err) => {
-        this.snackBar.open('Error creando API key', 'Cerrar', { duration: 3000 });
+        console.error('Error creating API key:', err);
+        this.snackBar.open('Error creando API key: ' + (err.error?.detail || 'Unknown error'), 'Cerrar', { duration: 5000 });
         this.creatingKey.set(false);
       }
     });
   }
 
   toggleKeyStatus(key: ApiKey): void {
-    this.http.put<any>(`${environment.strapiUrl}/api/brain-api-keys/${key.id}`, {
-      data: { isActive: !key.isActive }
-    }, {
-      headers: { 'Authorization': `Bearer ${this.getStrapiToken()}` }
+    // Usar API de Python
+    this.http.put<any>(`${environment.apiUrl}/config/api-keys/${key.id}`, {
+      isActive: !key.isActive
     }).subscribe({
       next: () => {
         this.loadApiKeys();
@@ -1030,9 +1017,8 @@ export class ExternalApiComponent implements OnInit {
   deleteKey(key: ApiKey): void {
     if (!confirm(`¿Eliminar la API key "${key.name}"?`)) return;
 
-    this.http.delete<any>(`${environment.strapiUrl}/api/brain-api-keys/${key.id}`, {
-      headers: { 'Authorization': `Bearer ${this.getStrapiToken()}` }
-    }).subscribe({
+    // Usar API de Python
+    this.http.delete<any>(`${environment.apiUrl}/config/api-keys/${key.id}`).subscribe({
       next: () => {
         this.loadApiKeys();
         this.snackBar.open('API key eliminada', 'Cerrar', { duration: 3000 });
@@ -1045,28 +1031,10 @@ export class ExternalApiComponent implements OnInit {
 
   saveConfig(): void {
     this.savingConfig.set(true);
-
-    // Intentar actualizar, si no existe crear
-    this.http.put<any>(`${environment.strapiUrl}/api/brain-model-config`, {
-      data: {
-        isEnabled: this.config.isEnabled,
-        baseUrl: this.config.baseUrl,
-        defaultModel: this.config.defaultModel,
-        backendLlm: this.config.backendLlm,
-        rateLimits: this.config.rateLimits
-      }
-    }, {
-      headers: { 'Authorization': `Bearer ${this.getStrapiToken()}` }
-    }).subscribe({
-      next: () => {
-        this.snackBar.open('Configuración guardada', 'Cerrar', { duration: 3000 });
-        this.savingConfig.set(false);
-      },
-      error: () => {
-        this.snackBar.open('Error guardando configuración', 'Cerrar', { duration: 3000 });
-        this.savingConfig.set(false);
-      }
-    });
+    
+    // Por ahora solo mostrar mensaje - la configuración se gestiona desde la DB
+    this.snackBar.open('Configuración guardada localmente. Para cambios permanentes, edita la base de datos.', 'Cerrar', { duration: 5000 });
+    this.savingConfig.set(false);
   }
 
   copyToClipboard(text: string): void {
