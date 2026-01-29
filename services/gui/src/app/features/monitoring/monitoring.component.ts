@@ -1,15 +1,52 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { StrapiService } from '../../core/services/strapi.service';
-import { ExecutionLog } from '../../core/models';
+import { MatTabsModule } from '@angular/material/tabs';
+import { MatBadgeModule } from '@angular/material/badge';
+import { MatDividerModule } from '@angular/material/divider';
+import { environment } from '../../../environments/environment';
+
+interface DashboardStats {
+  requests_per_minute: number;
+  avg_latency_ms: number;
+  error_rate: number;
+  active_executions: number;
+  total_requests: number;
+  total_errors: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  hourly_requests: { hour: string; count: number }[];
+  hourly_latency: { hour: string; latency: number }[];
+  top_endpoints: { endpoint: string; request_count: number; avg_latency_ms: number; error_count: number }[];
+  chain_stats: { chain_id: string; execution_count: number; avg_duration_ms: number; total_cost_usd: number; error_count: number }[];
+  active_alerts: number;
+  critical_alerts: number;
+}
+
+interface Alert {
+  id: number;
+  timestamp: string;
+  alert_type: string;
+  severity: string;
+  message: string;
+  acknowledged: boolean;
+}
+
+interface Execution {
+  execution_id: string;
+  chain_id: string;
+  timestamp: string;
+  duration_ms: number;
+  success: boolean;
+  error_message?: string;
+}
 
 @Component({
   selector: 'app-monitoring',
@@ -18,137 +55,309 @@ import { ExecutionLog } from '../../core/models';
     CommonModule,
     MatCardModule,
     MatTableModule,
-    MatPaginatorModule,
     MatButtonModule,
     MatIconModule,
     MatChipsModule,
     MatProgressSpinnerModule,
-    MatTooltipModule
+    MatTooltipModule,
+    MatTabsModule,
+    MatBadgeModule,
+    MatDividerModule
   ],
   template: `
     <div class="monitoring-page">
       <div class="page-header">
         <div>
-          <h1>Monitorización</h1>
-          <p class="subtitle">Historial de ejecuciones y métricas del sistema</p>
+          <h1>Monitorizacion</h1>
+          <p class="subtitle">Metricas, trazas y alertas del sistema</p>
         </div>
-        <button mat-raised-button (click)="loadExecutions()">
-          <mat-icon>refresh</mat-icon>
-          Actualizar
-        </button>
-      </div>
-
-      <!-- Stats Summary -->
-      <div class="stats-row">
-        <mat-card class="stat-mini">
-          <span class="stat-value success">{{ statusCounts().completed }}</span>
-          <span class="stat-label">Completadas</span>
-        </mat-card>
-        <mat-card class="stat-mini">
-          <span class="stat-value running">{{ statusCounts().running }}</span>
-          <span class="stat-label">En ejecución</span>
-        </mat-card>
-        <mat-card class="stat-mini">
-          <span class="stat-value failed">{{ statusCounts().failed }}</span>
-          <span class="stat-label">Fallidas</span>
-        </mat-card>
-        <mat-card class="stat-mini">
-          <span class="stat-value pending">{{ statusCounts().pending }}</span>
-          <span class="stat-label">Pendientes</span>
-        </mat-card>
-      </div>
-
-      <!-- Executions Table -->
-      <mat-card class="table-card">
-        @if (loading()) {
-          <div class="loading-container">
-            <mat-spinner diameter="40"></mat-spinner>
-          </div>
-        } @else {
-          <table mat-table [dataSource]="executions()" class="executions-table">
-            <!-- ID Column -->
-            <ng-container matColumnDef="executionId">
-              <th mat-header-cell *matHeaderCellDef>ID</th>
-              <td mat-cell *matCellDef="let exec">
-                <code>{{ exec.executionId?.slice(0, 8) }}...</code>
-              </td>
-            </ng-container>
-
-            <!-- Chain Column -->
-            <ng-container matColumnDef="chain">
-              <th mat-header-cell *matHeaderCellDef>Cadena</th>
-              <td mat-cell *matCellDef="let exec">
-                {{ exec.brainChain?.name || 'N/A' }}
-              </td>
-            </ng-container>
-
-            <!-- Status Column -->
-            <ng-container matColumnDef="status">
-              <th mat-header-cell *matHeaderCellDef>Estado</th>
-              <td mat-cell *matCellDef="let exec">
-                <mat-chip [class]="exec.status">
-                  <mat-icon>{{ getStatusIcon(exec.status) }}</mat-icon>
-                  {{ getStatusLabel(exec.status) }}
-                </mat-chip>
-              </td>
-            </ng-container>
-
-            <!-- Duration Column -->
-            <ng-container matColumnDef="duration">
-              <th mat-header-cell *matHeaderCellDef>Duración</th>
-              <td mat-cell *matCellDef="let exec">
-                {{ formatDuration(exec.durationMs) }}
-              </td>
-            </ng-container>
-
-            <!-- Tokens Column -->
-            <ng-container matColumnDef="tokens">
-              <th mat-header-cell *matHeaderCellDef>Tokens</th>
-              <td mat-cell *matCellDef="let exec">
-                {{ exec.tokensUsed || '-' }}
-              </td>
-            </ng-container>
-
-            <!-- Date Column -->
-            <ng-container matColumnDef="createdAt">
-              <th mat-header-cell *matHeaderCellDef>Fecha</th>
-              <td mat-cell *matCellDef="let exec">
-                {{ formatDate(exec.createdAt) }}
-              </td>
-            </ng-container>
-
-            <!-- Actions Column -->
-            <ng-container matColumnDef="actions">
-              <th mat-header-cell *matHeaderCellDef></th>
-              <td mat-cell *matCellDef="let exec">
-                <button mat-icon-button matTooltip="Ver detalles">
-                  <mat-icon>visibility</mat-icon>
-                </button>
-                <button mat-icon-button matTooltip="Ver trace">
-                  <mat-icon>timeline</mat-icon>
-                </button>
-              </td>
-            </ng-container>
-
-            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-          </table>
-
-          @if (executions().length === 0) {
-            <div class="empty-table">
-              <mat-icon>history</mat-icon>
-              <p>No hay ejecuciones registradas</p>
-            </div>
+        <div class="header-actions">
+          @if (stats()?.critical_alerts) {
+            <mat-chip class="alert-chip critical">
+              <mat-icon>warning</mat-icon>
+              {{ stats()?.critical_alerts }} alertas criticas
+            </mat-chip>
           }
+          <button mat-raised-button color="primary" (click)="refreshAll()">
+            <mat-icon>refresh</mat-icon>
+            Actualizar
+          </button>
+        </div>
+      </div>
 
-          <mat-paginator
-            [length]="totalExecutions()"
-            [pageSize]="pageSize"
-            [pageSizeOptions]="[10, 25, 50]"
-            (page)="onPageChange($event)">
-          </mat-paginator>
-        }
-      </mat-card>
+      @if (loading()) {
+        <div class="loading-container">
+          <mat-spinner diameter="48"></mat-spinner>
+          <p>Cargando metricas...</p>
+        </div>
+      } @else {
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+          <mat-card class="stat-card">
+            <div class="stat-icon requests">
+              <mat-icon>trending_up</mat-icon>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value">{{ stats()?.requests_per_minute | number:'1.0-0' }}</span>
+              <span class="stat-label">Requests/min</span>
+            </div>
+          </mat-card>
+          
+          <mat-card class="stat-card">
+            <div class="stat-icon latency">
+              <mat-icon>speed</mat-icon>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value">{{ stats()?.avg_latency_ms | number:'1.0-0' }}ms</span>
+              <span class="stat-label">Latencia media</span>
+            </div>
+          </mat-card>
+          
+          <mat-card class="stat-card">
+            <div class="stat-icon" [class.error-high]="(stats()?.error_rate || 0) > 0.05">
+              <mat-icon>error_outline</mat-icon>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" [class.error-value]="(stats()?.error_rate || 0) > 0.05">
+                {{ (stats()?.error_rate || 0) * 100 | number:'1.1-1' }}%
+              </span>
+              <span class="stat-label">Error rate</span>
+            </div>
+          </mat-card>
+          
+          <mat-card class="stat-card">
+            <div class="stat-icon cost">
+              <mat-icon>payments</mat-icon>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value">\${{ stats()?.total_cost_usd | number:'1.2-2' }}</span>
+              <span class="stat-label">Coste LLM (hoy)</span>
+            </div>
+          </mat-card>
+        </div>
+
+        <!-- Secondary Stats -->
+        <div class="secondary-stats">
+          <mat-card class="mini-stat">
+            <mat-icon>api</mat-icon>
+            <div>
+              <span class="value">{{ stats()?.total_requests | number }}</span>
+              <span class="label">Requests totales</span>
+            </div>
+          </mat-card>
+          <mat-card class="mini-stat">
+            <mat-icon>token</mat-icon>
+            <div>
+              <span class="value">{{ formatTokens(stats()?.total_tokens || 0) }}</span>
+              <span class="label">Tokens usados</span>
+            </div>
+          </mat-card>
+          <mat-card class="mini-stat">
+            <mat-icon>error</mat-icon>
+            <div>
+              <span class="value">{{ stats()?.total_errors | number }}</span>
+              <span class="label">Errores totales</span>
+            </div>
+          </mat-card>
+          <mat-card class="mini-stat" [class.has-alerts]="stats()?.active_alerts">
+            <mat-icon>notifications</mat-icon>
+            <div>
+              <span class="value">{{ stats()?.active_alerts }}</span>
+              <span class="label">Alertas activas</span>
+            </div>
+          </mat-card>
+        </div>
+
+        <mat-tab-group>
+          <!-- Tab: Endpoints -->
+          <mat-tab>
+            <ng-template mat-tab-label>
+              <mat-icon>api</mat-icon>
+              Top Endpoints
+            </ng-template>
+            
+            <div class="tab-content">
+              <mat-card>
+                <mat-card-header>
+                  <mat-card-title>Endpoints mas utilizados (24h)</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (stats()?.top_endpoints?.length) {
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Endpoint</th>
+                          <th>Requests</th>
+                          <th>Latencia media</th>
+                          <th>Errores</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (ep of stats()?.top_endpoints; track ep.endpoint) {
+                          <tr>
+                            <td><code>{{ ep.endpoint }}</code></td>
+                            <td>{{ ep.request_count | number }}</td>
+                            <td>{{ ep.avg_latency_ms | number:'1.0-0' }}ms</td>
+                            <td [class.error-cell]="ep.error_count > 0">{{ ep.error_count }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  } @else {
+                    <div class="empty-state">
+                      <mat-icon>inbox</mat-icon>
+                      <p>No hay datos de endpoints</p>
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+            </div>
+          </mat-tab>
+
+          <!-- Tab: Chains -->
+          <mat-tab>
+            <ng-template mat-tab-label>
+              <mat-icon>account_tree</mat-icon>
+              Chains
+            </ng-template>
+            
+            <div class="tab-content">
+              <mat-card>
+                <mat-card-header>
+                  <mat-card-title>Estadisticas de Chains (7 dias)</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (stats()?.chain_stats?.length) {
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Chain</th>
+                          <th>Ejecuciones</th>
+                          <th>Duracion media</th>
+                          <th>Coste</th>
+                          <th>Errores</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (chain of stats()?.chain_stats; track chain.chain_id) {
+                          <tr>
+                            <td><strong>{{ chain.chain_id }}</strong></td>
+                            <td>{{ chain.execution_count | number }}</td>
+                            <td>{{ formatDuration(chain.avg_duration_ms) }}</td>
+                            <td>\${{ chain.total_cost_usd | number:'1.4-4' }}</td>
+                            <td [class.error-cell]="chain.error_count > 0">{{ chain.error_count }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  } @else {
+                    <div class="empty-state">
+                      <mat-icon>inbox</mat-icon>
+                      <p>No hay datos de chains</p>
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+            </div>
+          </mat-tab>
+
+          <!-- Tab: Executions -->
+          <mat-tab>
+            <ng-template mat-tab-label>
+              <mat-icon>history</mat-icon>
+              Ejecuciones
+            </ng-template>
+            
+            <div class="tab-content">
+              <mat-card>
+                <mat-card-header>
+                  <mat-card-title>Ejecuciones recientes</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (executions().length) {
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Chain</th>
+                          <th>Fecha</th>
+                          <th>Duracion</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (exec of executions(); track exec.execution_id) {
+                          <tr>
+                            <td><code>{{ exec.execution_id.slice(0, 8) }}...</code></td>
+                            <td>{{ exec.chain_id }}</td>
+                            <td>{{ formatDate(exec.timestamp) }}</td>
+                            <td>{{ formatDuration(exec.duration_ms) }}</td>
+                            <td>
+                              <mat-chip [class]="exec.success ? 'success' : 'error'">
+                                <mat-icon>{{ exec.success ? 'check_circle' : 'error' }}</mat-icon>
+                                {{ exec.success ? 'OK' : 'Error' }}
+                              </mat-chip>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  } @else {
+                    <div class="empty-state">
+                      <mat-icon>inbox</mat-icon>
+                      <p>No hay ejecuciones recientes</p>
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+            </div>
+          </mat-tab>
+
+          <!-- Tab: Alerts -->
+          <mat-tab>
+            <ng-template mat-tab-label>
+              <mat-icon [matBadge]="stats()?.active_alerts" matBadgeColor="warn" 
+                        [matBadgeHidden]="!stats()?.active_alerts">notifications</mat-icon>
+              Alertas
+            </ng-template>
+            
+            <div class="tab-content">
+              <mat-card>
+                <mat-card-header>
+                  <mat-card-title>Alertas activas</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (alerts().length) {
+                    <div class="alerts-list">
+                      @for (alert of alerts(); track alert.id) {
+                        <div class="alert-item" [class]="alert.severity">
+                          <div class="alert-icon">
+                            <mat-icon>{{ getAlertIcon(alert.severity) }}</mat-icon>
+                          </div>
+                          <div class="alert-content">
+                            <span class="alert-type">{{ alert.alert_type }}</span>
+                            <span class="alert-message">{{ alert.message }}</span>
+                            <span class="alert-time">{{ formatDate(alert.timestamp) }}</span>
+                          </div>
+                          <button mat-icon-button (click)="acknowledgeAlert(alert.id)" 
+                                  matTooltip="Marcar como vista">
+                            <mat-icon>check</mat-icon>
+                          </button>
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <div class="empty-state success">
+                      <mat-icon>check_circle</mat-icon>
+                      <p>No hay alertas activas</p>
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+            </div>
+          </mat-tab>
+        </mat-tab-group>
+      }
     </div>
   `,
   styles: [`
@@ -164,6 +373,12 @@ import { ExecutionLog } from '../../core/models';
       margin-bottom: 24px;
     }
 
+    .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
     h1 {
       margin: 0;
       font-size: 28px;
@@ -176,85 +391,175 @@ import { ExecutionLog } from '../../core/models';
       margin: 4px 0 0;
     }
 
-    .stats-row {
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px;
+      gap: 16px;
+      color: #666;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 16px;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
 
-    .stat-mini {
-      padding: 16px 20px;
-      text-align: center;
+    .stat-card {
+      display: flex;
+      align-items: center;
+      padding: 20px;
       border-radius: 12px;
+      gap: 16px;
+    }
+
+    .stat-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f4f8;
+    }
+
+    .stat-icon mat-icon {
+      font-size: 28px;
+      width: 28px;
+      height: 28px;
+    }
+
+    .stat-icon.requests { background: #e3f2fd; color: #1976d2; }
+    .stat-icon.latency { background: #f3e5f5; color: #7b1fa2; }
+    .stat-icon.error-high { background: #ffebee; color: #c62828; }
+    .stat-icon.cost { background: #e8f5e9; color: #388e3c; }
+
+    .stat-info {
+      display: flex;
+      flex-direction: column;
     }
 
     .stat-value {
-      display: block;
-      font-size: 32px;
+      font-size: 28px;
       font-weight: 700;
-      margin-bottom: 4px;
+      color: #1a1a2e;
     }
 
-    .stat-value.success { color: #4caf50; }
-    .stat-value.running { color: #2196f3; }
-    .stat-value.failed { color: #f44336; }
-    .stat-value.pending { color: #ff9800; }
+    .stat-value.error-value {
+      color: #c62828;
+    }
 
     .stat-label {
       font-size: 13px;
       color: #666;
     }
 
-    .table-card {
-      border-radius: 12px;
-      overflow: hidden;
+    /* Secondary Stats */
+    .secondary-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
     }
 
-    .loading-container {
+    .mini-stat {
       display: flex;
-      justify-content: center;
-      padding: 48px;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 8px;
     }
 
-    .executions-table {
+    .mini-stat mat-icon {
+      color: #666;
+    }
+
+    .mini-stat .value {
+      display: block;
+      font-size: 18px;
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+
+    .mini-stat .label {
+      display: block;
+      font-size: 11px;
+      color: #999;
+    }
+
+    .mini-stat.has-alerts {
+      background: #fff3e0;
+    }
+
+    .mini-stat.has-alerts mat-icon {
+      color: #ef6c00;
+    }
+
+    /* Alert chip */
+    .alert-chip.critical {
+      background: #ffebee !important;
+      color: #c62828 !important;
+    }
+
+    .alert-chip mat-icon {
+      font-size: 16px;
+      margin-right: 4px;
+    }
+
+    /* Tabs */
+    mat-tab-group {
+      margin-top: 8px;
+    }
+
+    .tab-content {
+      padding: 16px 0;
+    }
+
+    /* Data Table */
+    .data-table {
       width: 100%;
+      border-collapse: collapse;
     }
 
-    code {
+    .data-table th,
+    .data-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+
+    .data-table th {
+      font-weight: 600;
+      color: #666;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .data-table code {
       background: #f5f5f5;
       padding: 2px 6px;
       border-radius: 4px;
       font-size: 12px;
     }
 
-    mat-chip {
-      font-size: 12px;
+    .data-table .error-cell {
+      color: #c62828;
+      font-weight: 600;
     }
 
-    mat-chip.completed {
+    /* Execution chips */
+    mat-chip.success {
       background: #e8f5e9 !important;
       color: #388e3c !important;
     }
 
-    mat-chip.running {
-      background: #e3f2fd !important;
-      color: #1976d2 !important;
-    }
-
-    mat-chip.failed {
+    mat-chip.error {
       background: #ffebee !important;
       color: #c62828 !important;
-    }
-
-    mat-chip.pending {
-      background: #fff3e0 !important;
-      color: #ef6c00 !important;
-    }
-
-    mat-chip.cancelled {
-      background: #fafafa !important;
-      color: #757575 !important;
     }
 
     mat-chip mat-icon {
@@ -264,109 +569,208 @@ import { ExecutionLog } from '../../core/models';
       margin-right: 4px;
     }
 
-    .empty-table {
-      text-align: center;
-      padding: 48px;
-      color: #666;
+    /* Alerts List */
+    .alerts-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
-    .empty-table mat-icon {
+    .alert-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+
+    .alert-item.critical {
+      background: #ffebee;
+      border-left: 4px solid #c62828;
+    }
+
+    .alert-item.warning {
+      background: #fff3e0;
+      border-left: 4px solid #ef6c00;
+    }
+
+    .alert-item.info {
+      background: #e3f2fd;
+      border-left: 4px solid #1976d2;
+    }
+
+    .alert-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .alert-item.critical .alert-icon { background: #ffcdd2; color: #c62828; }
+    .alert-item.warning .alert-icon { background: #ffe0b2; color: #ef6c00; }
+    .alert-item.info .alert-icon { background: #bbdefb; color: #1976d2; }
+
+    .alert-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .alert-type {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #999;
+    }
+
+    .alert-message {
+      font-size: 14px;
+      color: #333;
+    }
+
+    .alert-time {
+      font-size: 11px;
+      color: #999;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: #999;
+    }
+
+    .empty-state mat-icon {
       font-size: 48px;
       width: 48px;
       height: 48px;
-      color: #ccc;
       margin-bottom: 8px;
     }
 
-    @media (max-width: 768px) {
-      .stats-row {
+    .empty-state.success mat-icon {
+      color: #4caf50;
+    }
+
+    @media (max-width: 1024px) {
+      .stats-grid {
         grid-template-columns: repeat(2, 1fr);
+      }
+      .secondary-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 600px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+      .secondary-stats {
+        grid-template-columns: 1fr;
       }
     }
   `]
 })
-export class MonitoringComponent implements OnInit {
-  executions = signal<ExecutionLog[]>([]);
-  totalExecutions = signal(0);
+export class MonitoringComponent implements OnInit, OnDestroy {
+  private http = inject(HttpClient);
+  
+  stats = signal<DashboardStats | null>(null);
+  alerts = signal<Alert[]>([]);
+  executions = signal<Execution[]>([]);
   loading = signal(true);
-  pageSize = 10;
-  currentPage = 1;
-
-  displayedColumns = ['executionId', 'chain', 'status', 'duration', 'tokens', 'createdAt', 'actions'];
-
-  statusCounts = signal({ completed: 0, running: 0, failed: 0, pending: 0 });
-
-  constructor(private strapiService: StrapiService) {}
+  
+  private refreshInterval: any;
 
   ngOnInit(): void {
-    this.loadExecutions();
+    this.refreshAll();
+    // Auto-refresh cada 30 segundos
+    this.refreshInterval = setInterval(() => this.refreshAll(), 30000);
   }
 
-  loadExecutions(): void {
+  ngOnDestroy(): void {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+  }
+
+  refreshAll(): void {
     this.loading.set(true);
-    this.strapiService.getExecutionLogs({ page: this.currentPage, pageSize: this.pageSize }).subscribe({
-      next: (response) => {
-        this.executions.set(response.data);
-        this.totalExecutions.set(response.meta.pagination.total);
-        this.calculateStatusCounts(response.data);
-        this.loading.set(false);
+    
+    // Cargar dashboard stats
+    this.http.get<DashboardStats>(`${environment.apiUrl}/monitoring/dashboard`)
+      .subscribe({
+        next: (data) => {
+          this.stats.set(data);
+          this.loading.set(false);
+        },
+        error: (err) => {
+          console.error('Error loading dashboard:', err);
+          this.loading.set(false);
+        }
+      });
+    
+    // Cargar alertas activas
+    this.http.get<{ alerts: Alert[] }>(`${environment.apiUrl}/monitoring/alerts?acknowledged=false&limit=10`)
+      .subscribe({
+        next: (data) => this.alerts.set(data.alerts),
+        error: (err) => console.error('Error loading alerts:', err)
+      });
+    
+    // Cargar ejecuciones recientes
+    this.http.get<{ executions: Execution[] }>(`${environment.apiUrl}/monitoring/traces/recent/executions?limit=20`)
+      .subscribe({
+        next: (data) => this.executions.set(data.executions),
+        error: (err) => console.error('Error loading executions:', err)
+      });
+  }
+
+  acknowledgeAlert(alertId: number): void {
+    this.http.put(`${environment.apiUrl}/monitoring/alerts/${alertId}/acknowledge`, {
+      acknowledged_by: 'admin'
+    }).subscribe({
+      next: () => {
+        // Remover de la lista local
+        this.alerts.update(alerts => alerts.filter(a => a.id !== alertId));
+        // Actualizar contador
+        if (this.stats()) {
+          this.stats.update(s => s ? { ...s, active_alerts: s.active_alerts - 1 } : null);
+        }
       },
-      error: () => this.loading.set(false)
+      error: (err) => console.error('Error acknowledging alert:', err)
     });
-  }
-
-  onPageChange(event: PageEvent): void {
-    this.currentPage = event.pageIndex + 1;
-    this.pageSize = event.pageSize;
-    this.loadExecutions();
-  }
-
-  calculateStatusCounts(executions: ExecutionLog[]): void {
-    const counts = { completed: 0, running: 0, failed: 0, pending: 0 };
-    executions.forEach(e => {
-      if (e.status in counts) {
-        counts[e.status as keyof typeof counts]++;
-      }
-    });
-    this.statusCounts.set(counts);
-  }
-
-  getStatusIcon(status: string): string {
-    const icons: Record<string, string> = {
-      completed: 'check_circle',
-      running: 'sync',
-      failed: 'error',
-      pending: 'schedule',
-      cancelled: 'cancel'
-    };
-    return icons[status] || 'help';
-  }
-
-  getStatusLabel(status: string): string {
-    const labels: Record<string, string> = {
-      completed: 'Completado',
-      running: 'En ejecución',
-      failed: 'Fallido',
-      pending: 'Pendiente',
-      cancelled: 'Cancelado'
-    };
-    return labels[status] || status;
   }
 
   formatDuration(ms: number | undefined): string {
     if (!ms) return '-';
-    if (ms < 1000) return `${ms}ms`;
+    if (ms < 1000) return `${ms.toFixed(0)}ms`;
     if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
     return `${(ms / 60000).toFixed(1)}m`;
   }
 
   formatDate(date: string): string {
+    if (!date) return '-';
     return new Date(date).toLocaleString('es-ES', {
       day: '2-digit',
       month: '2-digit',
-      year: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     });
+  }
+
+  formatTokens(tokens: number): string {
+    if (tokens < 1000) return tokens.toString();
+    if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
+    return `${(tokens / 1000000).toFixed(1)}M`;
+  }
+
+  getAlertIcon(severity: string): string {
+    const icons: Record<string, string> = {
+      critical: 'error',
+      warning: 'warning',
+      info: 'info'
+    };
+    return icons[severity] || 'notification_important';
   }
 }

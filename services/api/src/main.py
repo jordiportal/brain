@@ -26,6 +26,8 @@ from src.engine.chains.agents.router import router as subagents_router
 from src.openai_compat.router import router as openai_compat_router
 from src.config_router import router as config_router
 from src.auth_router import router as auth_router
+from src.monitoring.router import router as monitoring_router
+from src.middleware.monitoring import MonitoringMiddleware
 
 # Configurar logging estructurado
 structlog.configure(
@@ -128,6 +130,9 @@ app.add_middleware(
     max_age=3600,  # Cache preflight por 1 hora
 )
 
+# Middleware de monitorización (captura métricas de todas las requests)
+app.add_middleware(MonitoringMiddleware)
+
 # Incluir routers
 app.include_router(llm_router, prefix="/api/v1")
 app.include_router(chains_router, prefix="/api/v1")
@@ -137,6 +142,7 @@ app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(browser_router, prefix="/api/v1")
 app.include_router(subagents_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
+app.include_router(monitoring_router, prefix="/api/v1")
 
 # Auth Router (sin prefix para compatibilidad con Strapi)
 app.include_router(auth_router)

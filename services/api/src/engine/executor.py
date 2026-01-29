@@ -4,6 +4,8 @@ Ejecutor de cadenas y grafos
 
 import json
 import uuid
+import asyncio
+import time
 from datetime import datetime
 from typing import AsyncGenerator, Optional, Any, Dict
 import httpx
@@ -25,6 +27,43 @@ from .registry import chain_registry
 from src.providers import get_active_llm_provider
 
 logger = structlog.get_logger()
+
+
+# ============================================
+# Monitoring Helper
+# ============================================
+
+async def _trace_execution(
+    execution_id: str,
+    chain_id: str,
+    event_type: str,
+    duration_ms: float = None,
+    success: bool = None,
+    error_message: str = None,
+    metadata: dict = None
+):
+    """Helper para registrar trazas de ejecución"""
+    try:
+        from src.monitoring import monitoring_service
+        
+        if event_type == "chain_start":
+            await monitoring_service.trace_start(
+                execution_id=execution_id,
+                chain_id=chain_id,
+                metadata=metadata
+            )
+        elif event_type == "chain_end":
+            await monitoring_service.trace_end(
+                execution_id=execution_id,
+                chain_id=chain_id,
+                duration_ms=duration_ms,
+                success=success,
+                error_message=error_message,
+                metadata=metadata
+            )
+    except Exception as e:
+        # No fallar si hay error en monitorización
+        logger.warning(f"Error tracing execution: {e}")
 
 
 class ChainExecutor:
@@ -108,6 +147,15 @@ class ChainExecutor:
             started_at=datetime.utcnow()
         )
         
+        # Trazar inicio de ejecución
+        start_time = time.perf_counter()
+        asyncio.create_task(_trace_execution(
+            execution_id=execution_state.execution_id,
+            chain_id=chain_id,
+            event_type="chain_start",
+            metadata={"model": request.model, "provider": request.llm_provider_type}
+        ))
+        
         try:
             # Configurar LLM según proveedor
             llm_url = request.llm_provider_url
@@ -166,11 +214,32 @@ class ChainExecutor:
                     (execution_state.completed_at - execution_state.started_at).total_seconds() * 1000
                 )
             
+            # Trazar fin exitoso
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            asyncio.create_task(_trace_execution(
+                execution_id=execution_state.execution_id,
+                chain_id=chain_id,
+                event_type="chain_end",
+                duration_ms=duration_ms,
+                success=True
+            ))
+            
         except Exception as e:
             logger.error(f"Error ejecutando cadena: {e}", chain_id=chain_id)
             execution_state.status = ExecutionStatus.FAILED
             execution_state.error = str(e)
             execution_state.completed_at = datetime.utcnow()
+            
+            # Trazar error
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            asyncio.create_task(_trace_execution(
+                execution_id=execution_state.execution_id,
+                chain_id=chain_id,
+                event_type="chain_end",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(e)
+            ))
         
         return ExecutionResult(
             execution_id=execution_state.execution_id,
@@ -214,6 +283,15 @@ class ChainExecutor:
             return
         
         execution_id = str(uuid.uuid4())
+        start_time = time.perf_counter()
+        
+        # Trazar inicio de ejecución
+        asyncio.create_task(_trace_execution(
+            execution_id=execution_id,
+            chain_id=chain_id,
+            event_type="chain_start",
+            metadata={"model": request.model, "provider": request.llm_provider_type, "stream": True}
+        ))
         
         # Evento de inicio
         yield StreamEvent(
@@ -282,6 +360,16 @@ class ChainExecutor:
                     chain_config.max_memory_messages
                 )
             
+            # Trazar fin exitoso
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            asyncio.create_task(_trace_execution(
+                execution_id=execution_id,
+                chain_id=chain_id,
+                event_type="chain_end",
+                duration_ms=duration_ms,
+                success=True
+            ))
+            
             # Evento de fin
             yield StreamEvent(
                 event_type="end",
@@ -291,6 +379,18 @@ class ChainExecutor:
             
         except Exception as e:
             logger.error(f"Error en streaming: {e}", chain_id=chain_id)
+            
+            # Trazar error
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            asyncio.create_task(_trace_execution(
+                execution_id=execution_id,
+                chain_id=chain_id,
+                event_type="chain_end",
+                duration_ms=duration_ms,
+                success=False,
+                error_message=str(e)
+            ))
+            
             yield StreamEvent(
                 event_type="error",
                 execution_id=execution_id,
