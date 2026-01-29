@@ -217,6 +217,174 @@ class ChainUpdateRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class ChainLLMConfigRequest(BaseModel):
+    """Request para actualizar configuración de LLM de una cadena"""
+    provider_id: Optional[int] = None
+    model: Optional[str] = None
+
+
+class ChainPromptUpdateRequest(BaseModel):
+    """Request para actualizar el system prompt de una cadena"""
+    system_prompt: str
+
+
+@router.put("/{chain_id}/llm-config")
+async def update_chain_llm_config(chain_id: str, request: ChainLLMConfigRequest):
+    """Actualizar configuración de LLM por defecto de una cadena"""
+    chain = chain_registry.get(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
+    
+    from ..db.repositories.chains import ChainRepository
+    
+    success = await ChainRepository.update_llm_config(
+        slug=chain_id,
+        provider_id=request.provider_id,
+        model=request.model
+    )
+    
+    if success:
+        return {
+            "status": "ok",
+            "message": f"Configuración de LLM actualizada para {chain_id}",
+            "provider_id": request.provider_id,
+            "model": request.model
+        }
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="Error actualizando configuración de LLM"
+        )
+
+
+@router.put("/{chain_id}/prompt")
+async def update_chain_prompt(chain_id: str, request: ChainPromptUpdateRequest):
+    """Actualizar el system prompt de una cadena"""
+    chain = chain_registry.get(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
+    
+    from ..db.repositories.chains import ChainRepository
+    
+    success = await ChainRepository.update_system_prompt(
+        slug=chain_id,
+        system_prompt=request.system_prompt
+    )
+    
+    if success:
+        return {
+            "status": "ok",
+            "message": f"System prompt actualizado para {chain_id}"
+        }
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="Error actualizando system prompt"
+        )
+
+
+@router.get("/{chain_id}/details")
+async def get_chain_details(chain_id: str):
+    """
+    Obtener detalles completos de una cadena incluyendo:
+    - Configuración y prompts
+    - Tools disponibles
+    - Subagentes disponibles
+    """
+    chain = chain_registry.get(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
+    
+    # Obtener tools disponibles
+    from ..tools import tool_registry as tr
+    tr.register_core_tools()
+    all_tools = tr.list()
+    tools_info = [
+        {
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "type": t.type.value if hasattr(t.type, 'value') else str(t.type),
+            "category": getattr(t, 'category', 'general')
+        }
+        for t in all_tools
+    ]
+    
+    # Obtener subagentes disponibles
+    from .chains.agents import subagent_registry, register_all_subagents
+    
+    subagents_info = []
+    try:
+        if not subagent_registry.is_initialized():
+            register_all_subagents()
+        
+        # Mapeo de iconos por agente
+        agent_icons = {
+            "media_agent": "image",
+            "sap_agent": "storage",
+            "mail_agent": "email",
+            "office_agent": "description"
+        }
+        
+        for agent in subagent_registry.list():
+            subagents_info.append({
+                "id": agent.id,
+                "name": agent.name,
+                "description": agent.description,
+                "version": agent.version,
+                "domain_tools": agent.domain_tools,
+                "status": "active",
+                "icon": agent_icons.get(agent.id, "smart_toy")
+            })
+    except Exception:
+        # Si falla, continuar sin subagentes
+        pass
+    
+    # Extraer system prompt del primer nodo LLM
+    system_prompt = ""
+    for node in chain.nodes:
+        if node.system_prompt:
+            system_prompt = node.system_prompt
+            break
+    
+    # Obtener configuración de LLM por defecto desde la DB (si existe)
+    default_llm = None
+    try:
+        from ..db.repositories.chains import ChainRepository
+        db_chain = await ChainRepository.get_by_slug(chain_id)
+        if db_chain and db_chain.config:
+            default_llm = {
+                "provider_id": db_chain.config.get("default_llm_provider_id"),
+                "model": db_chain.config.get("default_llm_model")
+            }
+    except Exception:
+        pass
+    
+    return {
+        "chain": {
+            "id": chain.id,
+            "name": chain.name,
+            "description": chain.description,
+            "type": chain.type,
+            "version": chain.version,
+            "config": chain.config.model_dump(),
+            "nodes": [
+                {
+                    "id": n.id,
+                    "name": n.name,
+                    "type": n.type.value,
+                    "system_prompt": n.system_prompt
+                }
+                for n in chain.nodes
+            ]
+        },
+        "system_prompt": system_prompt,
+        "tools": tools_info,
+        "subagents": subagents_info,
+        "default_llm": default_llm
+    }
+
+
 @router.get("/{chain_id}/full")
 async def get_chain_full(chain_id: str):
     """Obtener definición completa de una cadena para edición"""

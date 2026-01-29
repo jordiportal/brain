@@ -110,6 +110,67 @@ class ChainRepository:
         return ChainRepository._row_to_chain(row)
     
     @staticmethod
+    async def update_llm_config(slug: str, provider_id: Optional[int], model: Optional[str]) -> bool:
+        """Update default LLM configuration for a chain."""
+        db = get_db()
+        
+        try:
+            # Obtener la cadena actual
+            chain = await ChainRepository.get_by_slug(slug)
+            if not chain:
+                return False
+            
+            # Actualizar config con los nuevos valores de LLM
+            current_config = chain.config or {}
+            current_config["default_llm_provider_id"] = provider_id
+            current_config["default_llm_model"] = model
+            
+            # Guardar en la base de datos
+            query = """
+                UPDATE brain_chains 
+                SET config = $1::jsonb, updated_at = NOW()
+                WHERE slug = $2
+            """
+            
+            await db.execute(query, json.dumps(current_config), slug)
+            logger.info(f"Updated LLM config for chain {slug}: provider_id={provider_id}, model={model}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating LLM config for chain {slug}: {e}")
+            return False
+    
+    @staticmethod
+    async def update_system_prompt(slug: str, system_prompt: str) -> bool:
+        """Update system prompt for a chain."""
+        db = get_db()
+        
+        try:
+            # Obtener la cadena actual
+            chain = await ChainRepository.get_by_slug(slug)
+            if not chain:
+                return False
+            
+            # Actualizar prompts con el nuevo system prompt
+            current_prompts = chain.prompts or {}
+            current_prompts["system"] = system_prompt
+            
+            # Guardar en la base de datos
+            query = """
+                UPDATE brain_chains 
+                SET prompts = $1::jsonb, updated_at = NOW()
+                WHERE slug = $2
+            """
+            
+            await db.execute(query, json.dumps(current_prompts), slug)
+            logger.info(f"Updated system prompt for chain {slug}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating system prompt for chain {slug}: {e}")
+            return False
+
+    @staticmethod
     def _row_to_chain(row) -> BrainChain:
         """Convert database row to BrainChain model."""
         # Parse JSONB fields

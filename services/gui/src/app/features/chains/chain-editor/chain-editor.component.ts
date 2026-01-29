@@ -13,10 +13,15 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatExpansionModule } from '@angular/material/expansion';
+import { MatTabsModule } from '@angular/material/tabs';
 import { NgxGraphModule } from '@swimlane/ngx-graph';
 import { Subject } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
+import { StrapiService } from '../../../core/services/strapi.service';
+import { ApiService } from '../../../core/services/api.service';
+import { LlmProvider } from '../../../core/models';
 
 interface ChainNode {
   id: string;
@@ -43,6 +48,8 @@ interface ChainConfig {
   rag_collection?: string;
   rag_top_k?: number;
   model?: string;
+  default_llm_provider_id?: number;
+  default_llm_model?: string;
 }
 
 interface ChainFull {
@@ -54,6 +61,35 @@ interface ChainFull {
   nodes: ChainNode[];
   edges: ChainEdge[];
   config: ChainConfig;
+}
+
+interface ToolInfo {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  category: string;
+}
+
+interface SubagentInfo {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  domain_tools: string[];
+  status: string;
+  icon: string;
+}
+
+interface ChainDetails {
+  chain: ChainFull;
+  system_prompt: string;
+  tools: ToolInfo[];
+  subagents: SubagentInfo[];
+  default_llm: {
+    provider_id: number | null;
+    model: string | null;
+  } | null;
 }
 
 @Component({
@@ -74,6 +110,8 @@ interface ChainFull {
     MatTooltipModule,
     MatDividerModule,
     MatChipsModule,
+    MatExpansionModule,
+    MatTabsModule,
     NgxGraphModule
   ],
   template: `
@@ -111,246 +149,324 @@ interface ChainFull {
           <p>Cargando cadena...</p>
         </div>
       } @else if (chain) {
-        <div class="editor-content">
-          <!-- Graph Panel -->
-          <div class="graph-panel">
-            <div class="panel-header">
-              <h3>
-                <mat-icon>account_tree</mat-icon>
-                Grafo de Ejecución
-              </h3>
-              <div class="graph-controls">
-                <button mat-icon-button matTooltip="Centrar" (click)="centerGraph()">
-                  <mat-icon>center_focus_strong</mat-icon>
-                </button>
-                <button mat-icon-button matTooltip="Zoom In" (click)="zoomIn()">
-                  <mat-icon>zoom_in</mat-icon>
-                </button>
-                <button mat-icon-button matTooltip="Zoom Out" (click)="zoomOut()">
-                  <mat-icon>zoom_out</mat-icon>
-                </button>
+        <!-- Vista para tipo AGENT -->
+        @if (isAgentType()) {
+          <div class="agent-dashboard">
+            <!-- Configuracion LLM -->
+            <div class="llm-config-bar">
+              <div class="llm-selector">
+                <mat-form-field appearance="outline">
+                  <mat-label>Proveedor LLM por defecto</mat-label>
+                  <mat-select [(ngModel)]="selectedProviderId" (selectionChange)="onProviderChange()">
+                    @for (provider of llmProviders(); track provider.id) {
+                      <mat-option [value]="provider.id">
+                        {{ provider.name }} ({{ provider.type }})
+                      </mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+                
+                <mat-form-field appearance="outline">
+                  <mat-label>Modelo por defecto</mat-label>
+                  <mat-select [(ngModel)]="selectedModel" (selectionChange)="markDirty()" [disabled]="loadingModels()">
+                    @if (loadingModels()) {
+                      <mat-option disabled>Cargando...</mat-option>
+                    }
+                    @for (model of availableModels(); track model) {
+                      <mat-option [value]="model">{{ model }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
               </div>
             </div>
-            
-            <div class="graph-container">
-              <ngx-graph
-                [links]="graphLinks"
-                [nodes]="graphNodes"
-                [layoutSettings]="layoutSettings"
-                layout="dagre"
-                [zoomToFit$]="zoomToFit$"
-                [center$]="center$"
-                [autoZoom]="true"
-                [autoCenter]="true">
-                
-                <!-- Node Template -->
-                <ng-template #nodeTemplate let-node>
-                  <svg:g class="node" 
-                         [class.selected]="selectedNode?.id === node.id"
-                         (click)="selectNode(node)">
-                    <svg:rect 
-                      [attr.width]="node.dimension?.width || 160"
-                      [attr.height]="node.dimension?.height || 60"
-                      [attr.fill]="getNodeColor(node.data?.type)"
-                      rx="8"
-                      ry="8"
-                      class="node-rect"/>
-                    <svg:text 
-                      [attr.x]="(node.dimension?.width || 160) / 2" 
-                      [attr.y]="20"
-                      text-anchor="middle"
-                      class="node-label">
-                      {{ node.label }}
-                    </svg:text>
-                    <svg:text 
-                      [attr.x]="(node.dimension?.width || 160) / 2" 
-                      [attr.y]="40"
-                      text-anchor="middle"
-                      class="node-type">
-                      {{ node.data?.type | uppercase }}
-                    </svg:text>
-                    <!-- Icon -->
-                    <svg:text 
-                      [attr.x]="15" 
-                      [attr.y]="38"
-                      class="node-icon">
-                      {{ getNodeIconChar(node.data?.type) }}
-                    </svg:text>
-                  </svg:g>
-                </ng-template>
 
-                <!-- Link Template -->
-                <ng-template #linkTemplate let-link>
-                  <svg:g class="link-group">
-                    <svg:path 
-                      [attr.d]="link.line"
-                      stroke="#94a3b8"
-                      stroke-width="2"
-                      fill="none"
-                      marker-end="url(#arrow)"/>
-                  </svg:g>
-                </ng-template>
+            <div class="dashboard-content">
+              <!-- Panel izquierdo: System Prompt -->
+              <div class="prompt-panel">
+                <div class="panel-header">
+                  <h3>
+                    <mat-icon>description</mat-icon>
+                    System Prompt
+                  </h3>
+                  <div class="prompt-actions">
+                    <button mat-icon-button matTooltip="Expandir" (click)="expandPrompt = !expandPrompt">
+                      <mat-icon>{{ expandPrompt ? 'fullscreen_exit' : 'fullscreen' }}</mat-icon>
+                    </button>
+                  </div>
+                </div>
+                <div class="prompt-editor" [class.expanded]="expandPrompt">
+                  <textarea 
+                    [(ngModel)]="systemPrompt" 
+                    (ngModelChange)="markDirty()"
+                    placeholder="Define el comportamiento del agente..."
+                    class="prompt-textarea"></textarea>
+                </div>
+                <div class="prompt-stats">
+                  <span>{{ systemPrompt.length }} caracteres</span>
+                  <span>{{ systemPrompt.split('\\n').length }} lineas</span>
+                </div>
+              </div>
 
-              </ngx-graph>
+              <!-- Panel derecho: Tools y Subagentes -->
+              <div class="info-panels">
+                <!-- Tools Section -->
+                <mat-card class="tools-section">
+                  <mat-card-header>
+                    <mat-icon mat-card-avatar>build</mat-icon>
+                    <mat-card-title>Core Tools ({{ tools().length }})</mat-card-title>
+                    <mat-card-subtitle>Herramientas disponibles para el agente</mat-card-subtitle>
+                  </mat-card-header>
+                  <mat-card-content>
+                    <div class="tools-grid">
+                      @for (tool of tools(); track tool.id) {
+                        <div class="tool-item" [matTooltip]="tool.description">
+                          <mat-icon>{{ getToolIcon(tool.type) }}</mat-icon>
+                          <span class="tool-name">{{ tool.name }}</span>
+                        </div>
+                      }
+                    </div>
+                  </mat-card-content>
+                </mat-card>
 
-              <!-- Arrow marker definition -->
-              <svg style="position: absolute; width: 0; height: 0;">
-                <defs>
-                  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
-                          markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
-                  </marker>
-                </defs>
-              </svg>
-            </div>
+                <!-- Subagents Section -->
+                <mat-card class="subagents-section">
+                  <mat-card-header>
+                    <mat-icon mat-card-avatar>smart_toy</mat-icon>
+                    <mat-card-title>Subagentes ({{ subagents().length }})</mat-card-title>
+                    <mat-card-subtitle>Agentes especializados para delegacion</mat-card-subtitle>
+                  </mat-card-header>
+                  <mat-card-content>
+                    @if (subagents().length > 0) {
+                      <div class="subagents-list">
+                        @for (agent of subagents(); track agent.id) {
+                          <div class="subagent-item" [class]="agent.status">
+                            <mat-icon>{{ agent.icon }}</mat-icon>
+                            <div class="subagent-info">
+                              <span class="subagent-name">{{ agent.name }}</span>
+                              <span class="subagent-desc">{{ agent.description }}</span>
+                            </div>
+                            <mat-chip class="status-chip" [class]="agent.status">
+                              {{ agent.status }}
+                            </mat-chip>
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <div class="empty-subagents">
+                        <mat-icon>info</mat-icon>
+                        <span>No hay subagentes registrados</span>
+                      </div>
+                    }
+                  </mat-card-content>
+                </mat-card>
 
-            <!-- Node Legend -->
-            <div class="node-legend">
-              <span class="legend-item"><span class="dot input"></span> Input</span>
-              <span class="legend-item"><span class="dot llm"></span> LLM</span>
-              <span class="legend-item"><span class="dot rag"></span> RAG</span>
-              <span class="legend-item"><span class="dot tool"></span> Tool</span>
-              <span class="legend-item"><span class="dot output"></span> Output</span>
+                <!-- Config Section -->
+                <mat-card class="config-section">
+                  <mat-card-header>
+                    <mat-icon mat-card-avatar>settings</mat-icon>
+                    <mat-card-title>Configuracion</mat-card-title>
+                  </mat-card-header>
+                  <mat-card-content>
+                    <div class="config-grid">
+                      <mat-form-field appearance="outline">
+                        <mat-label>Temperatura</mat-label>
+                        <input matInput type="number" step="0.1" min="0" max="2"
+                               [(ngModel)]="chain!.config.temperature" 
+                               (ngModelChange)="markDirty()">
+                      </mat-form-field>
+                      
+                      <mat-form-field appearance="outline">
+                        <mat-label>Max Memory Messages</mat-label>
+                        <input matInput type="number" 
+                               [(ngModel)]="chain!.config.max_memory_messages" 
+                               (ngModelChange)="markDirty()">
+                      </mat-form-field>
+                    </div>
+                  </mat-card-content>
+                </mat-card>
+              </div>
             </div>
           </div>
-
-          <!-- Properties Panel -->
-          <div class="properties-panel">
-            @if (selectedNode) {
+        } @else {
+          <!-- Vista de GRAFO para otros tipos -->
+          <div class="editor-content">
+            <!-- Graph Panel -->
+            <div class="graph-panel">
               <div class="panel-header">
                 <h3>
-                  <mat-icon>tune</mat-icon>
-                  Propiedades del Nodo
+                  <mat-icon>account_tree</mat-icon>
+                  Grafo de Ejecucion
                 </h3>
-                <button mat-icon-button matTooltip="Deseleccionar" (click)="selectedNode = null">
-                  <mat-icon>close</mat-icon>
-                </button>
+                <div class="graph-controls">
+                  <button mat-icon-button matTooltip="Centrar" (click)="centerGraph()">
+                    <mat-icon>center_focus_strong</mat-icon>
+                  </button>
+                  <button mat-icon-button matTooltip="Zoom In" (click)="zoomIn()">
+                    <mat-icon>zoom_in</mat-icon>
+                  </button>
+                  <button mat-icon-button matTooltip="Zoom Out" (click)="zoomOut()">
+                    <mat-icon>zoom_out</mat-icon>
+                  </button>
+                </div>
+              </div>
+              
+              <div class="graph-container">
+                <ngx-graph
+                  [links]="graphLinks"
+                  [nodes]="graphNodes"
+                  [layoutSettings]="layoutSettings"
+                  layout="dagre"
+                  [zoomToFit$]="zoomToFit$"
+                  [center$]="center$"
+                  [autoZoom]="true"
+                  [autoCenter]="true">
+                  
+                  <ng-template #nodeTemplate let-node>
+                    <svg:g class="node" 
+                           [class.selected]="selectedNode?.id === node.id"
+                           (click)="selectNode(node)">
+                      <svg:rect 
+                        [attr.width]="node.dimension?.width || 160"
+                        [attr.height]="node.dimension?.height || 60"
+                        [attr.fill]="getNodeColor(node.data?.type)"
+                        rx="8"
+                        ry="8"
+                        class="node-rect"/>
+                      <svg:text 
+                        [attr.x]="(node.dimension?.width || 160) / 2" 
+                        [attr.y]="20"
+                        text-anchor="middle"
+                        class="node-label">
+                        {{ node.label }}
+                      </svg:text>
+                      <svg:text 
+                        [attr.x]="(node.dimension?.width || 160) / 2" 
+                        [attr.y]="40"
+                        text-anchor="middle"
+                        class="node-type">
+                        {{ node.data?.type | uppercase }}
+                      </svg:text>
+                    </svg:g>
+                  </ng-template>
+
+                  <ng-template #linkTemplate let-link>
+                    <svg:g class="link-group">
+                      <svg:path 
+                        [attr.d]="link.line"
+                        stroke="#94a3b8"
+                        stroke-width="2"
+                        fill="none"
+                        marker-end="url(#arrow)"/>
+                    </svg:g>
+                  </ng-template>
+
+                </ngx-graph>
+
+                <svg style="position: absolute; width: 0; height: 0;">
+                  <defs>
+                    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+                            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+                    </marker>
+                  </defs>
+                </svg>
               </div>
 
-              <div class="properties-content">
-                <div class="node-info">
-                  <mat-chip [class]="selectedNode.type">{{ selectedNode.type | uppercase }}</mat-chip>
-                  <span class="node-id">ID: {{ selectedNode.id }}</span>
+              <div class="node-legend">
+                <span class="legend-item"><span class="dot input"></span> Input</span>
+                <span class="legend-item"><span class="dot llm"></span> LLM</span>
+                <span class="legend-item"><span class="dot rag"></span> RAG</span>
+                <span class="legend-item"><span class="dot tool"></span> Tool</span>
+                <span class="legend-item"><span class="dot output"></span> Output</span>
+              </div>
+            </div>
+
+            <!-- Properties Panel -->
+            <div class="properties-panel">
+              @if (selectedNode) {
+                <div class="panel-header">
+                  <h3>
+                    <mat-icon>tune</mat-icon>
+                    Propiedades del Nodo
+                  </h3>
+                  <button mat-icon-button matTooltip="Deseleccionar" (click)="selectedNode = null">
+                    <mat-icon>close</mat-icon>
+                  </button>
                 </div>
 
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Nombre</mat-label>
-                  <input matInput [(ngModel)]="selectedNode.name" (ngModelChange)="markDirty()">
-                </mat-form-field>
+                <div class="properties-content">
+                  <div class="node-info">
+                    <mat-chip [class]="selectedNode.type">{{ selectedNode.type | uppercase }}</mat-chip>
+                    <span class="node-id">ID: {{ selectedNode.id }}</span>
+                  </div>
 
-                @if (selectedNode.type === 'llm' || selectedNode.type === 'tool' || selectedNode.type === 'output') {
                   <mat-form-field appearance="outline" class="full-width">
-                    <mat-label>System Prompt</mat-label>
+                    <mat-label>Nombre</mat-label>
+                    <input matInput [(ngModel)]="selectedNode.name" (ngModelChange)="markDirty()">
+                  </mat-form-field>
+
+                  @if (selectedNode.type === 'llm' || selectedNode.type === 'tool' || selectedNode.type === 'output') {
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>System Prompt</mat-label>
+                      <textarea matInput 
+                                [(ngModel)]="selectedNode.system_prompt" 
+                                (ngModelChange)="markDirty()"
+                                rows="8"
+                                placeholder="Define el comportamiento del nodo..."></textarea>
+                    </mat-form-field>
+                  }
+                </div>
+              } @else {
+                <div class="panel-header">
+                  <h3>
+                    <mat-icon>settings</mat-icon>
+                    Configuracion de Cadena
+                  </h3>
+                </div>
+
+                <div class="properties-content">
+                  <mat-form-field appearance="outline" class="full-width">
+                    <mat-label>Nombre</mat-label>
+                    <input matInput [(ngModel)]="chain!.name" (ngModelChange)="markDirty()">
+                  </mat-form-field>
+
+                  <mat-form-field appearance="outline" class="full-width">
+                    <mat-label>Descripcion</mat-label>
                     <textarea matInput 
-                              [(ngModel)]="selectedNode.system_prompt" 
+                              [(ngModel)]="chain!.description" 
                               (ngModelChange)="markDirty()"
-                              rows="8"
-                              placeholder="Define el comportamiento del nodo..."></textarea>
-                    <mat-hint>Define las instrucciones para el LLM</mat-hint>
-                  </mat-form-field>
-                }
-
-                @if (selectedNode.type === 'rag') {
-                  <mat-form-field appearance="outline" class="full-width">
-                    <mat-label>Colección</mat-label>
-                    <input matInput [(ngModel)]="selectedNode.collection" (ngModelChange)="markDirty()">
-                    <mat-hint>Colección de documentos para búsqueda</mat-hint>
+                              rows="3"></textarea>
                   </mat-form-field>
 
+                  <mat-divider></mat-divider>
+
+                  <h4>Parametros de Ejecucion</h4>
+
                   <mat-form-field appearance="outline" class="full-width">
-                    <mat-label>Top K</mat-label>
-                    <input matInput type="number" [(ngModel)]="selectedNode.top_k" (ngModelChange)="markDirty()">
-                    <mat-hint>Número de documentos a recuperar</mat-hint>
-                  </mat-form-field>
-                }
-
-                @if (selectedNode.type === 'tool') {
-                  <mat-form-field appearance="outline" class="full-width">
-                    <mat-label>Tools</mat-label>
-                    <mat-select [(ngModel)]="selectedNode.tools" (ngModelChange)="markDirty()" multiple>
-                      <mat-option value="calculator">Calculator</mat-option>
-                      <mat-option value="web_search">Web Search</mat-option>
-                      <mat-option value="file_reader">File Reader</mat-option>
-                      <mat-option value="code_executor">Code Executor</mat-option>
-                    </mat-select>
-                    <mat-hint>Herramientas disponibles para el agente</mat-hint>
-                  </mat-form-field>
-                }
-              </div>
-            } @else {
-              <!-- Chain Config -->
-              <div class="panel-header">
-                <h3>
-                  <mat-icon>settings</mat-icon>
-                  Configuración de Cadena
-                </h3>
-              </div>
-
-              <div class="properties-content">
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Nombre</mat-label>
-                  <input matInput [(ngModel)]="chain!.name" (ngModelChange)="markDirty()">
-                </mat-form-field>
-
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Descripción</mat-label>
-                  <textarea matInput 
-                            [(ngModel)]="chain!.description" 
-                            (ngModelChange)="markDirty()"
-                            rows="3"></textarea>
-                </mat-form-field>
-
-                <mat-divider></mat-divider>
-
-                <h4>Parámetros de Ejecución</h4>
-
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Temperatura</mat-label>
-                  <input matInput type="number" step="0.1" min="0" max="2"
-                         [(ngModel)]="chain!.config.temperature" 
-                         (ngModelChange)="markDirty()">
-                  <mat-hint>0 = determinista, 2 = creativo</mat-hint>
-                </mat-form-field>
-
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>System Prompt Global</mat-label>
-                  <textarea matInput 
-                            [(ngModel)]="chain!.config.system_prompt" 
-                            (ngModelChange)="markDirty()"
-                            rows="4"
-                            placeholder="Prompt global para todos los nodos LLM..."></textarea>
-                </mat-form-field>
-
-                @if (chain!.type === 'rag') {
-                  <mat-form-field appearance="outline" class="full-width">
-                    <mat-label>Colección RAG</mat-label>
-                    <input matInput [(ngModel)]="chain!.config.rag_collection" (ngModelChange)="markDirty()">
+                    <mat-label>Temperatura</mat-label>
+                    <input matInput type="number" step="0.1" min="0" max="2"
+                           [(ngModel)]="chain!.config.temperature" 
+                           (ngModelChange)="markDirty()">
                   </mat-form-field>
 
                   <mat-form-field appearance="outline" class="full-width">
-                    <mat-label>RAG Top K</mat-label>
-                    <input matInput type="number" [(ngModel)]="chain!.config.rag_top_k" (ngModelChange)="markDirty()">
+                    <mat-label>Max Memory Messages</mat-label>
+                    <input matInput type="number" 
+                           [(ngModel)]="chain!.config.max_memory_messages" 
+                           (ngModelChange)="markDirty()">
                   </mat-form-field>
-                }
+                </div>
+              }
 
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Max Memory Messages</mat-label>
-                  <input matInput type="number" 
-                         [(ngModel)]="chain!.config.max_memory_messages" 
-                         (ngModelChange)="markDirty()">
-                </mat-form-field>
-              </div>
-            }
-
-            <!-- Help Section -->
-            <div class="help-section">
-              <mat-icon>info</mat-icon>
-              <div>
-                <strong>Tip:</strong> Haz clic en un nodo del grafo para editar sus propiedades específicas.
+              <div class="help-section">
+                <mat-icon>info</mat-icon>
+                <div>
+                  <strong>Tip:</strong> Haz clic en un nodo del grafo para editar sus propiedades.
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        }
       }
     </div>
   `,
@@ -391,6 +507,7 @@ interface ChainFull {
     .type-icon.conversational { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .type-icon.rag { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
     .type-icon.tools { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .type-icon.agent { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
 
     .chain-title h2 {
       margin: 0;
@@ -419,6 +536,235 @@ interface ChainFull {
       color: #64748b;
     }
 
+    /* Agent Dashboard Styles */
+    .agent-dashboard {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .llm-config-bar {
+      padding: 12px 24px;
+      background: white;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .llm-selector {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .llm-selector mat-form-field {
+      min-width: 200px;
+    }
+
+    .dashboard-content {
+      flex: 1;
+      display: flex;
+      gap: 24px;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .prompt-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    .prompt-panel .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .prompt-panel .panel-header h3 {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .prompt-editor {
+      flex: 1;
+      padding: 16px;
+      overflow: hidden;
+    }
+
+    .prompt-editor.expanded {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 1000;
+      background: white;
+      padding: 24px;
+    }
+
+    .prompt-textarea {
+      width: 100%;
+      height: 100%;
+      min-height: 400px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: none;
+      background: #f8fafc;
+    }
+
+    .prompt-textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .prompt-stats {
+      display: flex;
+      gap: 16px;
+      padding: 8px 16px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .info-panels {
+      width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    .tools-section, .subagents-section, .config-section {
+      border-radius: 12px;
+    }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .tool-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f1f5f9;
+      border-radius: 8px;
+      cursor: default;
+    }
+
+    .tool-item mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #667eea;
+    }
+
+    .tool-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: #334155;
+    }
+
+    .subagents-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .subagent-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 8px;
+      border-left: 3px solid #e2e8f0;
+    }
+
+    .subagent-item.active {
+      border-left-color: #10b981;
+    }
+
+    .subagent-item.coming_soon {
+      border-left-color: #f59e0b;
+      opacity: 0.7;
+    }
+
+    .subagent-item mat-icon {
+      font-size: 24px;
+      width: 24px;
+      height: 24px;
+      color: #667eea;
+    }
+
+    .subagent-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .subagent-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: #1e293b;
+    }
+
+    .subagent-desc {
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    .status-chip {
+      font-size: 10px !important;
+      min-height: 20px !important;
+      padding: 0 8px !important;
+    }
+
+    .status-chip.active {
+      background: #d1fae5 !important;
+      color: #047857 !important;
+    }
+
+    .status-chip.coming_soon {
+      background: #fef3c7 !important;
+      color: #b45309 !important;
+    }
+
+    .empty-subagents {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 16px;
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    /* Graph styles (existing) */
     .editor-content {
       display: flex;
       flex: 1;
@@ -485,10 +831,6 @@ interface ChainFull {
       stroke-width: 3;
     }
 
-    :host ::ng-deep .node:hover .node-rect {
-      filter: brightness(1.1);
-    }
-
     :host ::ng-deep .node-label {
       fill: white;
       font-size: 12px;
@@ -498,11 +840,6 @@ interface ChainFull {
     :host ::ng-deep .node-type {
       fill: rgba(255,255,255,0.7);
       font-size: 10px;
-    }
-
-    :host ::ng-deep .node-icon {
-      fill: rgba(255,255,255,0.9);
-      font-size: 18px;
     }
 
     .node-legend {
@@ -565,10 +902,6 @@ interface ChainFull {
       font-weight: 600;
     }
 
-    mat-chip {
-      font-size: 11px !important;
-    }
-
     mat-chip.input { background: #dbeafe !important; color: #1d4ed8 !important; }
     mat-chip.llm { background: #ede9fe !important; color: #6d28d9 !important; }
     mat-chip.rag { background: #d1fae5 !important; color: #047857 !important; }
@@ -598,6 +931,8 @@ export class ChainEditorComponent implements OnInit {
 
   private http = inject(HttpClient);
   private snackBar = inject(MatSnackBar);
+  private strapiService = inject(StrapiService);
+  private apiService = inject(ApiService);
 
   chain: ChainFull | null = null;
   selectedNode: ChainNode | null = null;
@@ -605,14 +940,24 @@ export class ChainEditorComponent implements OnInit {
   saving = signal(false);
   dirty = signal(false);
 
+  // Agent dashboard data
+  systemPrompt = '';
+  tools = signal<ToolInfo[]>([]);
+  subagents = signal<SubagentInfo[]>([]);
+  expandPrompt = false;
+
+  // LLM config
+  llmProviders = signal<LlmProvider[]>([]);
+  availableModels = signal<string[]>([]);
+  selectedProviderId: number | null = null;
+  selectedModel: string = '';
+  loadingModels = signal(false);
+
   // Graph data
   graphNodes: any[] = [];
   graphLinks: any[] = [];
-
-  // Graph controls
   center$ = new Subject<boolean>();
   zoomToFit$ = new Subject<boolean>();
-
   layoutSettings = {
     orientation: 'TB',
     marginX: 50,
@@ -621,19 +966,58 @@ export class ChainEditorComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadChain();
+    this.loadLlmProviders();
+  }
+
+  isAgentType(): boolean {
+    return this.chain?.type === 'agent';
   }
 
   loadChain(): void {
     this.loading.set(true);
     
+    // Usar el nuevo endpoint /details para agentes
+    this.http.get<ChainDetails>(`${environment.apiUrl}/chains/${this.chainId}/details`)
+      .subscribe({
+        next: (response) => {
+          this.chain = response.chain;
+          this.systemPrompt = response.system_prompt || '';
+          this.tools.set(response.tools || []);
+          this.subagents.set(response.subagents || []);
+          
+          // Configurar LLM por defecto
+          if (response.default_llm) {
+            this.selectedProviderId = response.default_llm.provider_id;
+            this.selectedModel = response.default_llm.model || '';
+          }
+          
+          this.buildGraph();
+          this.loading.set(false);
+          
+          setTimeout(() => this.centerGraph(), 100);
+        },
+        error: (err) => {
+          console.error('Error loading chain details:', err);
+          // Fallback al endpoint anterior
+          this.loadChainFallback();
+        }
+      });
+  }
+
+  loadChainFallback(): void {
     this.http.get<any>(`${environment.apiUrl}/chains/${this.chainId}/full`)
       .subscribe({
         next: (response) => {
           this.chain = response.chain;
+          
+          // Extraer system prompt del primer nodo
+          if (this.chain?.nodes?.length > 0) {
+            this.systemPrompt = this.chain.nodes[0].system_prompt || '';
+          }
+          
           this.buildGraph();
           this.loading.set(false);
           
-          // Center after load
           setTimeout(() => this.centerGraph(), 100);
         },
         error: (err) => {
@@ -644,10 +1028,75 @@ export class ChainEditorComponent implements OnInit {
       });
   }
 
+  loadLlmProviders(): void {
+    this.strapiService.getLlmProviders().subscribe({
+      next: (providers) => {
+        this.llmProviders.set(providers);
+        
+        // Si hay un proveedor seleccionado, cargar sus modelos
+        if (this.selectedProviderId) {
+          const provider = providers.find(p => p.id === this.selectedProviderId);
+          if (provider) {
+            this.loadModelsForProvider(provider);
+          }
+        } else if (providers.length > 0) {
+          // Seleccionar el primer proveedor activo
+          const activeProvider = providers.find(p => p.isActive) || providers[0];
+          this.selectedProviderId = activeProvider.id;
+          this.loadModelsForProvider(activeProvider);
+        }
+      },
+      error: (err) => {
+        console.error('Error loading LLM providers:', err);
+      }
+    });
+  }
+
+  onProviderChange(): void {
+    const provider = this.llmProviders().find(p => p.id === this.selectedProviderId);
+    if (provider) {
+      this.loadModelsForProvider(provider);
+      this.markDirty();
+    }
+  }
+
+  loadModelsForProvider(provider: LlmProvider): void {
+    this.loadingModels.set(true);
+    this.availableModels.set([]);
+    
+    this.apiService.getLlmModels({
+      providerUrl: provider.baseUrl,
+      providerType: provider.type,
+      apiKey: provider.apiKey
+    }).subscribe({
+      next: (response) => {
+        const models = response.models?.map(m => m.name) || [];
+        this.availableModels.set(models);
+        
+        // Seleccionar modelo por defecto si no hay uno seleccionado
+        if (!this.selectedModel && models.length > 0) {
+          this.selectedModel = provider.defaultModel && models.includes(provider.defaultModel) 
+            ? provider.defaultModel 
+            : models[0];
+        }
+        
+        this.loadingModels.set(false);
+      },
+      error: (err) => {
+        console.error('Error loading models:', err);
+        // Fallback al modelo por defecto del proveedor
+        if (provider.defaultModel) {
+          this.availableModels.set([provider.defaultModel]);
+          this.selectedModel = provider.defaultModel;
+        }
+        this.loadingModels.set(false);
+      }
+    });
+  }
+
   buildGraph(): void {
     if (!this.chain) return;
 
-    // Build nodes
     this.graphNodes = this.chain.nodes.map(node => ({
       id: node.id,
       label: node.name,
@@ -655,7 +1104,6 @@ export class ChainEditorComponent implements OnInit {
       dimension: { width: 160, height: 60 }
     }));
 
-    // Build links
     this.graphLinks = this.chain.edges.map((edge, i) => ({
       id: `link-${i}`,
       source: edge.source,
@@ -686,7 +1134,13 @@ export class ChainEditorComponent implements OnInit {
 
     this.saving.set(true);
 
-    // If a node is selected, update it in the chain
+    // Si es tipo agent, guardar la configuración de LLM
+    if (this.isAgentType()) {
+      this.saveLlmConfig();
+      this.saveSystemPrompt();
+    }
+
+    // Si hay un nodo seleccionado, actualizarlo
     if (this.selectedNode) {
       const idx = this.chain.nodes.findIndex(n => n.id === this.selectedNode!.id);
       if (idx >= 0) {
@@ -694,7 +1148,6 @@ export class ChainEditorComponent implements OnInit {
       }
     }
 
-    // Prepare update payload
     const payload = {
       name: this.chain.name,
       description: this.chain.description,
@@ -712,10 +1165,41 @@ export class ChainEditorComponent implements OnInit {
         },
         error: (err) => {
           console.error('Error saving chain:', err);
-          this.snackBar.open('Error al guardar. Verifica permisos en Strapi.', 'Cerrar', { duration: 5000 });
+          this.snackBar.open('Error al guardar la cadena', 'Cerrar', { duration: 5000 });
           this.saving.set(false);
         }
       });
+  }
+
+  saveLlmConfig(): void {
+    if (!this.selectedProviderId) return;
+
+    this.http.put(`${environment.apiUrl}/chains/${this.chainId}/llm-config`, {
+      provider_id: this.selectedProviderId,
+      model: this.selectedModel
+    }).subscribe({
+      next: () => {
+        console.log('LLM config saved');
+      },
+      error: (err) => {
+        console.error('Error saving LLM config:', err);
+      }
+    });
+  }
+
+  saveSystemPrompt(): void {
+    if (!this.systemPrompt) return;
+
+    this.http.put(`${environment.apiUrl}/chains/${this.chainId}/prompt`, {
+      system_prompt: this.systemPrompt
+    }).subscribe({
+      next: () => {
+        console.log('System prompt saved');
+      },
+      error: (err) => {
+        console.error('Error saving system prompt:', err);
+      }
+    });
   }
 
   centerGraph(): void {
@@ -723,7 +1207,6 @@ export class ChainEditorComponent implements OnInit {
   }
 
   zoomIn(): void {
-    // ngx-graph doesn't have direct zoom control, use fit
     this.zoomToFit$.next(true);
   }
 
@@ -744,25 +1227,26 @@ export class ChainEditorComponent implements OnInit {
     return colors[type] || '#64748b';
   }
 
-  getNodeIconChar(type: string): string {
-    const icons: Record<string, string> = {
-      input: '▶',
-      llm: '🧠',
-      rag: '🔍',
-      tool: '🔧',
-      output: '◀',
-      planner: '📋',
-      synthesizer: '✨'
-    };
-    return icons[type] || '●';
-  }
-
   getTypeIcon(): string {
     const icons: Record<string, string> = {
       conversational: 'chat',
       rag: 'search',
-      tools: 'build'
+      tools: 'build',
+      agent: 'psychology'
     };
     return icons[this.chain?.type || ''] || 'psychology';
+  }
+
+  getToolIcon(type: string): string {
+    const icons: Record<string, string> = {
+      builtin: 'extension',
+      filesystem: 'folder',
+      execution: 'terminal',
+      web: 'language',
+      reasoning: 'psychology',
+      utils: 'calculate',
+      delegation: 'share'
+    };
+    return icons[type] || 'extension';
   }
 }
