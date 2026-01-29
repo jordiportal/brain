@@ -1011,8 +1011,8 @@ export class ChainEditorComponent implements OnInit {
           this.chain = response.chain;
           
           // Extraer system prompt del primer nodo
-          if (this.chain?.nodes?.length > 0) {
-            this.systemPrompt = this.chain.nodes[0].system_prompt || '';
+          if (this.chain && this.chain.nodes && this.chain.nodes.length > 0) {
+            this.systemPrompt = this.chain.nodes[0]?.system_prompt || '';
           }
           
           this.buildGraph();
