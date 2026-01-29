@@ -1097,14 +1097,14 @@ export class ChainEditorComponent implements OnInit {
   buildGraph(): void {
     if (!this.chain) return;
 
-    this.graphNodes = this.chain.nodes.map(node => ({
+    this.graphNodes = (this.chain.nodes || []).map(node => ({
       id: node.id,
       label: node.name,
       data: { type: node.type },
       dimension: { width: 160, height: 60 }
     }));
 
-    this.graphLinks = this.chain.edges.map((edge, i) => ({
+    this.graphLinks = (this.chain.edges || []).map((edge, i) => ({
       id: `link-${i}`,
       source: edge.source,
       target: edge.target,

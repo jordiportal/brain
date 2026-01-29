@@ -376,6 +376,10 @@ async def get_chain_details(chain_id: str):
                     "system_prompt": n.system_prompt
                 }
                 for n in chain.nodes
+            ],
+            "edges": [
+                {"source": e.source, "target": e.target, "condition": e.condition}
+                for e in chain.edges
             ]
         },
         "system_prompt": system_prompt,
