@@ -81,6 +81,10 @@ class ChainConfig(BaseModel):
     memory_key: str = "chat_history"
     max_memory_messages: int = 20
     
+    # Agent iteration config
+    max_iterations: int = 15  # Límite de iteraciones del agente (configurable)
+    ask_before_continue: bool = True  # Preguntar al usuario antes de superar el límite
+    
     # Otros
     timeout: int = 300  # segundos
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -15,6 +15,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatTabsModule } from '@angular/material/tabs';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { NgxGraphModule } from '@swimlane/ngx-graph';
 import { Subject } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
@@ -50,6 +51,8 @@ interface ChainConfig {
   model?: string;
   default_llm_provider_id?: number;
   default_llm_model?: string;
+  max_iterations?: number;
+  ask_before_continue?: boolean;
 }
 
 interface ChainFull {
@@ -112,6 +115,7 @@ interface ChainDetails {
     MatChipsModule,
     MatExpansionModule,
     MatTabsModule,
+    MatCheckboxModule,
     NgxGraphModule
   ],
   template: `
@@ -281,6 +285,30 @@ interface ChainDetails {
                                [(ngModel)]="chain!.config.max_memory_messages" 
                                (ngModelChange)="markDirty()">
                       </mat-form-field>
+                    </div>
+                    
+                    <mat-divider></mat-divider>
+                    
+                    <h4 class="config-subtitle">Control de Iteraciones</h4>
+                    <p class="config-hint">Define cuantas iteraciones puede hacer el agente antes de preguntar si continuar</p>
+                    
+                    <div class="config-grid">
+                      <mat-form-field appearance="outline">
+                        <mat-label>Max Iteraciones</mat-label>
+                        <input matInput type="number" min="5" max="50"
+                               [(ngModel)]="chain!.config.max_iterations" 
+                               (ngModelChange)="markDirty()">
+                        <mat-hint>5-50 iteraciones</mat-hint>
+                      </mat-form-field>
+                      
+                      <div class="checkbox-field">
+                        <mat-checkbox 
+                               [(ngModel)]="chain!.config.ask_before_continue" 
+                               (ngModelChange)="markDirty()">
+                          Preguntar antes de continuar
+                        </mat-checkbox>
+                        <span class="checkbox-hint">Si esta activo, pregunta al usuario cuando alcance el limite</span>
+                      </div>
                     </div>
                   </mat-card-content>
                 </mat-card>
@@ -762,6 +790,32 @@ interface ChainDetails {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 16px;
+    }
+
+    .config-subtitle {
+      margin: 16px 0 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    .config-hint {
+      margin: 0 0 12px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .checkbox-field {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .checkbox-hint {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-left: 32px;
     }
 
     /* Graph styles (existing) */

@@ -69,6 +69,32 @@ def is_valid_tool_name(name: str) -> bool:
     return name.lower() in VALID_TOOL_NAMES
 
 
+# Comandos que indican que el usuario quiere continuar
+CONTINUE_COMMANDS = {
+    "continúa", "continua", "continue", "sigue", "adelante",
+    "sí", "si", "yes", "ok", "vale", "prosigue", "go on",
+    "sigue adelante", "continúa por favor", "sí continúa"
+}
+
+def _is_continue_command(query: str) -> bool:
+    """
+    Detecta si la query es un comando para continuar una tarea pausada.
+    """
+    query_lower = query.lower().strip()
+    
+    # Verificar comandos exactos o muy cortos
+    if query_lower in CONTINUE_COMMANDS:
+        return True
+    
+    # Verificar si contiene palabras clave de continuación
+    continue_keywords = ["continúa", "continua", "sigue", "continue"]
+    for keyword in continue_keywords:
+        if keyword in query_lower and len(query_lower) < 50:
+            return True
+    
+    return False
+
+
 # ============================================
 # System Prompts por Proveedor (en Español)
 # ============================================
@@ -430,11 +456,15 @@ async def build_adaptive_agent(
     
     query = input_data.get("message", input_data.get("query", ""))
     
+    # Detectar si es una orden de continuar desde límite anterior
+    is_continue_request = _is_continue_command(query)
+    
     logger.info(
         "🧠 Brain 2.0 Adaptive Agent starting",
         query=query[:100],
         model=model,
-        provider=provider_type
+        provider=provider_type,
+        is_continue=is_continue_request
     )
     
     # ========== FASE 1: ANÁLISIS DE COMPLEJIDAD ==========
@@ -506,10 +536,30 @@ async def build_adaptive_agent(
     
     # ========== FASE 3: LOOP DE TOOL CALLING ==========
     
-    max_iterations = reasoning_config.max_iterations
+    # Usar max_iterations de la config (configurable por usuario) o el default del reasoning
+    base_max_iterations = config.max_iterations if hasattr(config, 'max_iterations') and config.max_iterations else reasoning_config.max_iterations
+    ask_before_continue = config.ask_before_continue if hasattr(config, 'ask_before_continue') else True
+    
+    # Si es un comando de continuar, aumentar el límite
+    if is_continue_request:
+        max_iterations = base_max_iterations * 2  # Dar el doble de iteraciones
+        logger.info(f"🔄 Continue request detected, increasing max_iterations to {max_iterations}")
+        
+        # Emitir evento informando que continúa
+        yield StreamEvent(
+            event_type="node_start",
+            execution_id=execution_id,
+            node_id="continue_execution",
+            node_name="Continuando ejecución",
+            data={"extended_iterations": max_iterations}
+        )
+    else:
+        max_iterations = base_max_iterations
+    
     tool_results = []
     iteration = 0
     final_answer = None
+    iteration_limit_reached = False
     
     # Detección de loops
     consecutive_same_tool = 0
@@ -793,6 +843,74 @@ If you need something else, use a DIFFERENT tool."""
             continue
     
     # ========== FASE 4: FINALIZACIÓN ==========
+    
+    # Verificar si llegamos al límite sin finalizar
+    if final_answer is None and iteration >= max_iterations:
+        iteration_limit_reached = True
+        logger.info(f"⚠️ Iteration limit reached ({max_iterations})")
+        
+        # Construir resumen de lo que se hizo
+        tools_summary = ", ".join([tr["tool"] for tr in tool_results]) if tool_results else "ninguna"
+        
+        if ask_before_continue:
+            # Emitir evento especial para que el frontend pregunte al usuario
+            continue_message = f"""He llegado al límite de {max_iterations} iteraciones configurado.
+
+**Progreso actual:**
+- Iteraciones usadas: {iteration}
+- Herramientas utilizadas: {tools_summary}
+- Tareas completadas: {len(tool_results)} acciones
+
+¿Quieres que continúe trabajando en la tarea? Responde **"continúa"** para seguir o **"finaliza"** para obtener un resumen de lo realizado."""
+            
+            yield StreamEvent(
+                event_type="iteration_limit",
+                execution_id=execution_id,
+                node_id="limit_reached",
+                node_name="Límite de iteraciones alcanzado",
+                content=continue_message,
+                data={
+                    "iterations_used": iteration,
+                    "max_iterations": max_iterations,
+                    "tools_used": [tr["tool"] for tr in tool_results],
+                    "can_continue": True
+                }
+            )
+            
+            # Emitir también como token para que el usuario vea el mensaje
+            yield StreamEvent(
+                event_type="token",
+                execution_id=execution_id,
+                node_id="",
+                content=continue_message
+            )
+            
+            # Finalizar esta ejecución - el usuario puede continuar con un nuevo mensaje
+            yield StreamEvent(
+                event_type="response_complete",
+                execution_id=execution_id,
+                node_id="adaptive_agent",
+                content=continue_message,
+                data={
+                    "complexity": complexity_analysis.level.value,
+                    "iterations": iteration,
+                    "tools_used": [tr["tool"] for tr in tool_results],
+                    "iteration_limit_reached": True,
+                    "can_continue": True
+                }
+            )
+            
+            yield {
+                "_result": {
+                    "response": continue_message,
+                    "complexity": complexity_analysis.level.value,
+                    "reasoning_mode": reasoning_config.mode.value,
+                    "iterations": iteration,
+                    "tools_used": [tr["tool"] for tr in tool_results],
+                    "iteration_limit_reached": True
+                }
+            }
+            return
     
     if final_answer is None:
         # Intentar forzar una respuesta final del LLM
