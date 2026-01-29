@@ -438,53 +438,65 @@ async def get_chain_full(chain_id: str):
 
 @router.put("/{chain_id}")
 async def update_chain(chain_id: str, update: ChainUpdateRequest):
-    """Actualizar configuración de una cadena (guarda en Strapi)"""
+    """Actualizar configuración de una cadena (guarda en PostgreSQL)"""
     chain = chain_registry.get(chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
     
-    # Preparar datos para guardar
-    chain_data = {
-        "id": chain.id,
-        "slug": chain.id,
-        "name": update.name or chain.name,
-        "type": chain.type,
-        "description": update.description or chain.description,
-        "version": chain.version,
-        "nodes": update.nodes or [
-            {
-                "id": n.id,
-                "type": n.type.value,
-                "name": n.name,
-                "system_prompt": n.system_prompt,
-                "config": n.config,
-                "collection": n.collection,
-                "top_k": n.top_k,
-                "tools": n.tools
-            }
-            for n in chain.nodes
-        ],
-        "edges": [
-            {"source": e.source, "target": e.target, "condition": e.condition}
-            for e in chain.edges
-        ],
-        "config": update.config or chain.config.model_dump(),
-        "isActive": True
-    }
+    from ..db.repositories.chains import ChainRepository
     
-    # Guardar en Strapi
-    saved = await chain_persistence.save_chain(chain_data)
+    # Preparar datos para guardar
+    nodes_data = update.nodes or [
+        {
+            "id": n.id,
+            "type": n.type.value,
+            "name": n.name,
+            "system_prompt": n.system_prompt,
+            "config": n.config,
+            "collection": n.collection,
+            "top_k": n.top_k,
+            "tools": n.tools
+        }
+        for n in chain.nodes
+    ]
+    
+    edges_data = [
+        {"source": e.source, "target": e.target, "condition": e.condition}
+        for e in chain.edges
+    ]
+    
+    config_data = update.config or chain.config.model_dump()
+    
+    # Guardar en PostgreSQL usando upsert
+    saved = await ChainRepository.upsert(
+        slug=chain_id,
+        name=update.name or chain.name,
+        chain_type=chain.type,
+        description=update.description or chain.description,
+        version=chain.version,
+        nodes=nodes_data,
+        edges=edges_data,
+        config=config_data
+    )
     
     if saved:
         return {
             "status": "ok",
             "message": f"Cadena {chain_id} actualizada",
-            "chain": chain_data
+            "chain": {
+                "id": chain_id,
+                "name": update.name or chain.name,
+                "type": chain.type,
+                "description": update.description or chain.description,
+                "nodes": nodes_data,
+                "edges": edges_data,
+                "config": config_data
+            }
         }
     else:
         raise HTTPException(
             status_code=500,
-            detail="Error guardando cadena en Strapi. Verifica permisos."
+            detail="Error guardando cadena en la base de datos"
         )
 
 

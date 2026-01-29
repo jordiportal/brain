@@ -110,29 +110,83 @@ class ChainRepository:
         return ChainRepository._row_to_chain(row)
     
     @staticmethod
+    async def upsert(slug: str, name: str, chain_type: str, description: str = "",
+                     version: str = "1.0.0", nodes: Optional[List] = None,
+                     edges: Optional[List] = None, config: Optional[dict] = None,
+                     prompts: Optional[dict] = None) -> bool:
+        """Create or update a chain by slug."""
+        db = get_db()
+        
+        try:
+            # Verificar si existe
+            existing = await ChainRepository.get_by_slug(slug)
+            
+            if existing:
+                # Update
+                query = """
+                    UPDATE brain_chains 
+                    SET name = $1, type = $2, description = $3, version = $4,
+                        nodes = $5::jsonb, edges = $6::jsonb, config = $7::jsonb,
+                        prompts = $8::jsonb, updated_at = NOW()
+                    WHERE slug = $9
+                """
+                await db.execute(query, 
+                    name, chain_type, description, version,
+                    json.dumps(nodes or []), json.dumps(edges or []),
+                    json.dumps(config or {}), json.dumps(prompts or {}),
+                    slug
+                )
+                logger.info(f"Updated chain {slug}")
+            else:
+                # Insert
+                query = """
+                    INSERT INTO brain_chains (slug, name, type, description, version,
+                        nodes, edges, config, prompts, is_active, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb,
+                        true, NOW(), NOW())
+                """
+                await db.execute(query,
+                    slug, name, chain_type, description, version,
+                    json.dumps(nodes or []), json.dumps(edges or []),
+                    json.dumps(config or {}), json.dumps(prompts or {})
+                )
+                logger.info(f"Created chain {slug}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error upserting chain {slug}: {e}")
+            return False
+    
+    @staticmethod
     async def update_llm_config(slug: str, provider_id: Optional[int], model: Optional[str]) -> bool:
         """Update default LLM configuration for a chain."""
         db = get_db()
         
         try:
-            # Obtener la cadena actual
+            # Obtener la cadena actual o crear config base
             chain = await ChainRepository.get_by_slug(slug)
-            if not chain:
-                return False
-            
-            # Actualizar config con los nuevos valores de LLM
-            current_config = chain.config or {}
+            current_config = (chain.config if chain else {}) or {}
             current_config["default_llm_provider_id"] = provider_id
             current_config["default_llm_model"] = model
             
-            # Guardar en la base de datos
-            query = """
-                UPDATE brain_chains 
-                SET config = $1::jsonb, updated_at = NOW()
-                WHERE slug = $2
-            """
+            if chain:
+                # Update existing
+                query = """
+                    UPDATE brain_chains 
+                    SET config = $1::jsonb, updated_at = NOW()
+                    WHERE slug = $2
+                """
+                await db.execute(query, json.dumps(current_config), slug)
+            else:
+                # Create new chain with minimal info
+                await ChainRepository.upsert(
+                    slug=slug,
+                    name=slug.replace("_", " ").title(),
+                    chain_type="agent",
+                    config=current_config
+                )
             
-            await db.execute(query, json.dumps(current_config), slug)
             logger.info(f"Updated LLM config for chain {slug}: provider_id={provider_id}, model={model}")
             return True
             
@@ -146,23 +200,28 @@ class ChainRepository:
         db = get_db()
         
         try:
-            # Obtener la cadena actual
+            # Obtener la cadena actual o crear prompts base
             chain = await ChainRepository.get_by_slug(slug)
-            if not chain:
-                return False
-            
-            # Actualizar prompts con el nuevo system prompt
-            current_prompts = chain.prompts or {}
+            current_prompts = (chain.prompts if chain else {}) or {}
             current_prompts["system"] = system_prompt
             
-            # Guardar en la base de datos
-            query = """
-                UPDATE brain_chains 
-                SET prompts = $1::jsonb, updated_at = NOW()
-                WHERE slug = $2
-            """
+            if chain:
+                # Update existing
+                query = """
+                    UPDATE brain_chains 
+                    SET prompts = $1::jsonb, updated_at = NOW()
+                    WHERE slug = $2
+                """
+                await db.execute(query, json.dumps(current_prompts), slug)
+            else:
+                # Create new chain with minimal info
+                await ChainRepository.upsert(
+                    slug=slug,
+                    name=slug.replace("_", " ").title(),
+                    chain_type="agent",
+                    prompts=current_prompts
+                )
             
-            await db.execute(query, json.dumps(current_prompts), slug)
             logger.info(f"Updated system prompt for chain {slug}")
             return True
             
