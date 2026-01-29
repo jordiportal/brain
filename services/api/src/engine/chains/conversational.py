@@ -199,17 +199,8 @@ async def build_conversational_chain(
 
 def register_conversational_chain():
     """Registrar el agente conversacional en el registry"""
-    
-    # Registrar versión streaming
     chain_registry.register(
         chain_id="conversational",
         definition=CONVERSATIONAL_DEFINITION,
         builder=build_conversational_chain_stream
-    )
-    
-    # También registrar versión no-streaming
-    chain_registry.register(
-        chain_id="conversational_no_stream",
-        definition=CONVERSATIONAL_DEFINITION,
-        builder=build_conversational_chain
     )
