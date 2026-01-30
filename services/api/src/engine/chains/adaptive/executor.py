@@ -176,7 +176,10 @@ class AdaptiveExecutor:
                 
                 # Si hay respuesta final, terminar
                 if self.final_answer is not None:
-                    yield self.stream_emitter.iteration_end(self.iteration, finished=True)
+                    yield self.stream_emitter.node_end(
+                        f"iteration_{self.iteration}",
+                        {"finished": True}
+                    )
                     break
                 
                 # Inyectar warning si hay loop
