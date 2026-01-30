@@ -6,10 +6,17 @@ Cadenas disponibles:
 - conversational: Chat simple (para OpenAI-compat brain-chat)
 - rag: Chat con búsqueda de documentos (para OpenAI-compat brain-rag)
 
-Nota: La generación de presentaciones se hace vía adaptive_agent → delegate → slides_agent
+Estructura del módulo adaptive (refactorizado v2.1.0):
+- adaptive/prompts/: System prompts por proveedor
+- adaptive/handlers/: Handlers para diferentes tools
+- adaptive/events/: Emisores de eventos
+- adaptive/validators.py: Validación
+- adaptive/executor.py: Loop principal
+- adaptive/agent.py: Builder y definición
 """
 
-from .adaptive_agent import register_adaptive_agent
+# Import desde el nuevo paquete refactorizado
+from .adaptive import register_adaptive_agent
 from .conversational import register_conversational_chain
 from .rag_chain import register_rag_chain
 

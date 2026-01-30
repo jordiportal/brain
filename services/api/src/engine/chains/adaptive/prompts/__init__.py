@@ -1,0 +1,75 @@
+"""
+Prompts del Adaptive Agent organizados por proveedor LLM.
+
+Cada proveedor tiene características diferentes y responde mejor
+a estilos de prompt específicos.
+"""
+
+from .base import (
+    TOOLS_SECTION,
+    SUBAGENTS_SECTION,
+    WORKFLOW_SIMPLE,
+    WORKFLOW_MODERATE,
+    WORKFLOW_COMPLEX
+)
+from .ollama import PROMPT_OLLAMA
+from .openai import PROMPT_OPENAI
+from .anthropic import PROMPT_ANTHROPIC
+from .google import PROMPT_GOOGLE
+
+
+def get_system_prompt(provider_type: str) -> str:
+    """
+    Obtiene el system prompt optimizado para el proveedor LLM.
+    
+    Args:
+        provider_type: ollama, openai, anthropic, google, openrouter
+    
+    Returns:
+        Template del prompt (necesita .format(workflow_instructions=...))
+    """
+    prompts = {
+        "ollama": PROMPT_OLLAMA,
+        "openai": PROMPT_OPENAI,
+        "anthropic": PROMPT_ANTHROPIC,
+        "google": PROMPT_GOOGLE,
+        "openrouter": PROMPT_OPENAI,  # OpenRouter usa formato similar a OpenAI
+    }
+    
+    base_prompt = prompts.get(provider_type, PROMPT_OPENAI)
+    
+    # Insertar secciones comunes
+    return base_prompt.format(
+        tools_section=TOOLS_SECTION,
+        subagents_section=SUBAGENTS_SECTION,
+        workflow_instructions="{workflow_instructions}"  # Mantener placeholder
+    )
+
+
+def get_workflow(complexity: str) -> str:
+    """
+    Obtiene las instrucciones de workflow según complejidad.
+    
+    Args:
+        complexity: simple, moderate, complex
+    
+    Returns:
+        Instrucciones de workflow
+    """
+    workflows = {
+        "simple": WORKFLOW_SIMPLE,
+        "moderate": WORKFLOW_MODERATE,
+        "complex": WORKFLOW_COMPLEX
+    }
+    return workflows.get(complexity, WORKFLOW_SIMPLE)
+
+
+__all__ = [
+    "get_system_prompt",
+    "get_workflow",
+    "TOOLS_SECTION",
+    "SUBAGENTS_SECTION",
+    "WORKFLOW_SIMPLE",
+    "WORKFLOW_MODERATE",
+    "WORKFLOW_COMPLEX",
+]
