@@ -347,15 +347,21 @@ async def get_chain_details(chain_id: str):
             system_prompt = node.system_prompt
             break
     
-    # Obtener configuración de LLM por defecto desde la DB (si existe)
-    default_llm = None
+    # Obtener proveedor LLM desde la relación en BD
+    llm_provider = None
     try:
         from ..db.repositories.chains import ChainRepository
         db_chain = await ChainRepository.get_by_slug(chain_id)
-        if db_chain and db_chain.config:
-            default_llm = {
-                "provider_id": db_chain.config.get("default_llm_provider_id"),
-                "model": db_chain.config.get("default_llm_model")
+        if db_chain and db_chain.llm_provider:
+            p = db_chain.llm_provider
+            llm_provider = {
+                "id": p.id,
+                "name": p.name,
+                "type": p.type,
+                "baseUrl": p.base_url,
+                "apiKey": p.api_key,
+                "defaultModel": p.default_model,
+                "isActive": p.is_active
             }
     except Exception:
         pass
@@ -385,7 +391,7 @@ async def get_chain_details(chain_id: str):
         "system_prompt": system_prompt,
         "tools": tools_info,
         "subagents": subagents_info,
-        "default_llm": default_llm
+        "llm_provider": llm_provider
     }
 
 

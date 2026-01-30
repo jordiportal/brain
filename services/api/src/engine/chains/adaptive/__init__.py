@@ -1,17 +1,24 @@
 """
-Brain 2.0 Adaptive Agent - Refactorizado
+Brain 2.0 Adaptive Agent (v2.1.0)
 
-Este paquete contiene el agente principal de Brain 2.0 organizado en módulos:
+Agente principal con razonamiento adaptativo y 17+ core tools.
 
-- prompts/: System prompts por proveedor LLM
-- handlers/: Handlers para diferentes tipos de tools  
-- events/: Emisores de eventos (Stream y Brain Events)
-- validators.py: Validación de tools, loops, etc.
-- executor.py: Loop principal simplificado
-- agent.py: Builder y definición del agente
+Estructura:
+    adaptive/
+    ├── agent.py         # Builder + ChainDefinition
+    ├── executor.py      # Loop de ejecución
+    ├── validators.py    # Validación
+    ├── prompts/         # Prompts por proveedor
+    ├── handlers/        # Handlers de tools
+    └── events/          # Emisores de eventos
 
 Uso:
-    from .adaptive import build_adaptive_agent, ADAPTIVE_AGENT_DEFINITION
+    from src.engine.chains.adaptive import build_adaptive_agent
+    
+    async for event in build_adaptive_agent(config, llm_url, model, ...):
+        print(event)
+
+Ver README.md para documentación completa.
 """
 
 from .agent import (

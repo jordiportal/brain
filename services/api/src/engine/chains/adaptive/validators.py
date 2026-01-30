@@ -28,7 +28,7 @@ VALID_TOOL_NAMES: Set[str] = {
     "calculate",
     # Delegation & Special
     "delegate",
-    "generate_slides",
+    # "generate_slides",  # Movido a slides_agent - usar delegate
 }
 
 # Patrones que indican artifacts de modelos (no son tools reales)

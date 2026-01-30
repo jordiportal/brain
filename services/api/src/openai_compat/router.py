@@ -33,7 +33,7 @@ from .models import (
     ErrorDetail
 )
 from .auth import api_key_validator
-from .config import config_loader
+from .config import config_loader, BackendLLM
 
 from ..engine.registry import chain_registry
 from ..engine.models import ChainConfig
@@ -41,6 +41,40 @@ from ..engine.models import ChainConfig
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["OpenAI Compatible"])
+
+
+# ============================================
+# Helper: Cargar proveedor LLM de la cadena
+# ============================================
+
+async def _get_chain_llm_provider(chain_id: str) -> Optional[BackendLLM]:
+    """
+    Carga el proveedor LLM asociado a una cadena desde la BD.
+    
+    Returns:
+        BackendLLM configurado o None si no hay proveedor asociado
+    """
+    try:
+        from ..db.repositories.chains import ChainRepository
+        
+        chain = await ChainRepository.get_by_slug(chain_id)
+        if chain and chain.llm_provider:
+            p = chain.llm_provider
+            logger.info(
+                f"Chain {chain_id} has LLM provider: {p.name} ({p.type})",
+                provider_id=p.id,
+                model=p.default_model
+            )
+            return BackendLLM(
+                provider=p.type or "ollama",
+                url=p.base_url or "",
+                model=p.default_model or "",
+                api_key=p.api_key
+            )
+    except Exception as e:
+        logger.warning(f"Could not load chain LLM provider: {e}")
+    
+    return None
 
 
 # ============================================
@@ -209,6 +243,12 @@ async def execute_chat_completion(
     
     start_time = time.time()
     
+    # Cargar proveedor de la cadena (si tiene uno asignado)
+    chain_llm_provider = await _get_chain_llm_provider(model_config.chain_id)
+    if chain_llm_provider:
+        backend_config = chain_llm_provider
+        logger.info(f"Using chain's LLM provider: {backend_config.provider}/{backend_config.model}")
+    
     # Convertir mensajes al formato interno
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     
@@ -334,6 +374,12 @@ async def stream_chat_completion(
     """Genera streaming de chat completion en formato SSE"""
     
     start_time = time.time()
+    
+    # Cargar proveedor de la cadena (si tiene uno asignado)
+    chain_llm_provider = await _get_chain_llm_provider(model_config.chain_id)
+    if chain_llm_provider:
+        backend_config = chain_llm_provider
+        logger.info(f"Using chain's LLM provider: {backend_config.provider}/{backend_config.model}")
     
     # Convertir mensajes
     messages = [{"role": m.role, "content": m.content} for m in request.messages]

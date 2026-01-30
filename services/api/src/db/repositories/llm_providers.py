@@ -21,7 +21,8 @@ class LLMProviderRepository:
         query = "SELECT * FROM llm_providers"
         if active_only:
             query += " WHERE is_active = true"
-        query += " ORDER BY name"
+        # Ordenar: default primero, luego por nombre
+        query += " ORDER BY is_default DESC NULLS LAST, name"
         
         rows = await db.fetch_all(query)
         return [LLMProviderRepository._row_to_provider(row) for row in rows]
@@ -90,6 +91,7 @@ class LLMProviderRepository:
             default_model=row.get('default_model'),
             embedding_model=row.get('embedding_model'),
             is_active=row.get('is_active', True),
+            is_default=row.get('is_default', False),
             config=config if isinstance(config, dict) else None,
             description=row.get('description'),
             created_at=row.get('created_at'),

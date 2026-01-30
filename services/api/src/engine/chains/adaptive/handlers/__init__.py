@@ -7,15 +7,17 @@ Cada handler encapsula la lógica específica de una tool o grupo de tools.
 from .base import ToolHandler, ToolResult
 from .finish import FinishHandler
 from .delegate import DelegateHandler
-from .slides import SlidesHandler
 from .reasoning import ReasoningHandler
+
+# SlidesHandler ya no se usa en el adaptive agent
+# Las presentaciones se manejan via delegate → slides_agent
 
 
 # Mapeo de tool_name -> Handler class
 HANDLER_REGISTRY = {
     "finish": FinishHandler,
     "delegate": DelegateHandler,
-    "generate_slides": SlidesHandler,
+    # generate_slides removido - usar delegate(agent="slides_agent", ...)
     "think": ReasoningHandler,
     "reflect": ReasoningHandler,
     "plan": ReasoningHandler,
@@ -40,7 +42,6 @@ __all__ = [
     "ToolResult",
     "FinishHandler",
     "DelegateHandler",
-    "SlidesHandler",
     "ReasoningHandler",
     "get_handler",
     "HANDLER_REGISTRY",

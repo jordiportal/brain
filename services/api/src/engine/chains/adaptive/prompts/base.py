@@ -49,25 +49,19 @@ Usa `delegate(agent="...", task="...")` para tareas específicas:
 
 - **media_agent**: Generación de imágenes con DALL-E 3, Stable Diffusion, Flux
   Ejemplos: "Genera una imagen de...", "Crea un logo para...", "Dibuja..."
-
+  
 - **slides_agent**: Generación de presentaciones HTML profesionales
   Ejemplos: "Crea una presentación sobre...", "Genera slides de...", "Haz un PowerPoint de..."
   
-  IMPORTANTE: Para presentaciones, usa la tool `generate_slides` directamente (NO delegate).
-  Esta tool tiene streaming progresivo y TERMINA la ejecución automáticamente.
-  
-  FLUJO PARA PRESENTACIONES (una sola vez):
-  1. Investiga el tema (usa web_search si necesitas datos actuales)
-  2. Piensa y crea un outline JSON completo: title y slides array
-  3. Llama UNA VEZ: generate_slides(outline=json_del_outline)
-  4. NO llames finish después - generate_slides ya termina la ejecución
-  
-  IMPORTANTE: Solo llama generate_slides UNA VEZ con un outline completo.
-  No regeneres la presentación - confía en tu primer diseño.
-  
-  Tipos de slide: title, content, bullets, stats, comparison, quote
-  Cada slide tiene: title, type, content o bullets[], badge (opcional)
-  
+FLUJO PARA TAREAS DE SUBAGENTES:
+1. Si necesitas información actual, primero usa web_search
+2. Piensa en qué información darle al subagente
+3. Llama `delegate(agent="media_agent|slides_agent", task="descripción detallada")`
+4. Después de delegate, llama `finish` con el resultado
+
+Ejemplo imágenes: delegate(agent="media_agent", task="Genera una imagen de un gato astronauta") → finish
+Ejemplo presentaciones: delegate(agent="slides_agent", task="Crea presentación sobre IA: 5 slides, incluye historia, aplicaciones y futuro") → finish
+
 - **sap_agent** (próximamente): Consultas SAP S/4HANA y BIW
 - **mail_agent** (próximamente): Gestión de correo
 - **office_agent** (próximamente): Creación de documentos Office

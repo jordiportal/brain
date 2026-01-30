@@ -31,6 +31,7 @@ class SubagentConfigUpdate(BaseModel):
     enabled: bool = True
     system_prompt: Optional[str] = None
     default_provider: Optional[str] = None
+    default_model: Optional[str] = None
     settings: Dict[str, Any] = {}
 
 
@@ -249,6 +250,9 @@ async def get_subagent_config(agent_id: str):
     # TODO: Cargar configuración desde Strapi
     config = _get_agent_config(agent_id)
     
+    # Añadir system_prompt del agente
+    config["system_prompt"] = agent.system_prompt
+    
     return {
         "agent_id": agent_id,
         "config": config
@@ -268,7 +272,15 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
             detail=f"Subagente no encontrado: {agent_id}"
         )
     
-    # TODO: Guardar configuración en Strapi
+    # Actualizar system_prompt si se proporciona
+    if config.system_prompt is not None:
+        agent.system_prompt = config.system_prompt
+        logger.info(
+            f"📝 Updated system_prompt for {agent_id}",
+            prompt_length=len(config.system_prompt)
+        )
+    
+    # TODO: Guardar configuración completa en Strapi
     logger.info(
         f"📝 Updating subagent config",
         agent_id=agent_id,
@@ -278,7 +290,11 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
     return {
         "status": "ok",
         "message": f"Configuración de {agent_id} actualizada",
-        "agent_id": agent_id
+        "agent_id": agent_id,
+        "updated": {
+            "system_prompt": config.system_prompt is not None,
+            "enabled": config.enabled
+        }
     }
 
 
@@ -290,6 +306,7 @@ def _get_agent_icon(agent_id: str) -> str:
     """Retorna el icono para un subagente"""
     icons = {
         "media_agent": "image",
+        "slides_agent": "slideshow",
         "sap_agent": "business",
         "mail_agent": "email",
         "office_agent": "description"

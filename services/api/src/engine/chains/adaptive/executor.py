@@ -54,7 +54,7 @@ class AdaptiveExecutor:
         "plan": "📋 Planificando",
         "delegate": "🤖 Delegando a subagente",
         "finish": "✅ Finalizando",
-        "generate_slides": "📊 Generando presentación",
+        # generate_slides movido a slides_agent - usar delegate
     }
     
     def __init__(
@@ -204,6 +204,34 @@ class AdaptiveExecutor:
                 yield self.stream_emitter.error(str(e), f"iteration_{self.iteration}")
                 continue
     
+    def _extract_answer(self, content: str) -> str:
+        """
+        Extrae el campo 'answer' de un JSON si es posible.
+        
+        El LLM a veces responde con formato JSON como:
+        {"answer": "...", "confidence": 1.0}
+        
+        Esta función extrae solo el campo 'answer'.
+        """
+        if not content:
+            return content
+            
+        content = content.strip()
+        
+        # Intentar parsear como JSON
+        if content.startswith("{") and content.endswith("}"):
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    # Buscar campo answer o final_answer
+                    answer = data.get("answer") or data.get("final_answer")
+                    if answer:
+                        return answer
+            except json.JSONDecodeError:
+                pass
+        
+        return content
+    
     async def _process_response(
         self,
         response: LLMToolResponse,
@@ -221,8 +249,10 @@ class AdaptiveExecutor:
         if response.content and not response.tool_calls:
             logger.info(f"📝 Direct response (iteration {self.iteration})")
             
-            self.final_answer = response.content
-            yield self.stream_emitter.token(response.content)
+            # Extraer answer si es JSON
+            answer = self._extract_answer(response.content)
+            self.final_answer = answer
+            yield self.stream_emitter.token(answer)
             yield self.stream_emitter.node_end(
                 f"iteration_{self.iteration}",
                 {"direct_response": True}
@@ -406,7 +436,7 @@ IMPORTANT: You MUST call the `finish` tool now with your complete answer."""
             
             # Usar content si no hay finish
             if not self.final_answer and response.content:
-                self.final_answer = response.content
+                self.final_answer = self._extract_answer(response.content)
                 
         except Exception as e:
             logger.error(f"Error forcing finish: {e}")

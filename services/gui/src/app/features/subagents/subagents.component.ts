@@ -41,6 +41,7 @@ interface SubagentTool {
 
 interface SubagentConfig {
   enabled: boolean;
+  system_prompt?: string;
   default_provider?: string;
   default_model?: string;
   settings: Record<string, any>;
@@ -228,7 +229,27 @@ interface ExecuteResult {
                         Subagente habilitado
                       </mat-slide-toggle>
 
+                      <!-- System Prompt - común a todos los subagentes -->
+                      <div class="prompt-section">
+                        <div class="prompt-header">
+                          <mat-icon>psychology</mat-icon>
+                          <span>System Prompt</span>
+                          <button mat-icon-button matTooltip="Restaurar prompt por defecto" (click)="resetPrompt()">
+                            <mat-icon>restore</mat-icon>
+                          </button>
+                        </div>
+                        <mat-form-field appearance="outline" class="full-width">
+                          <mat-label>Instrucciones del sistema</mat-label>
+                          <textarea matInput [(ngModel)]="agentConfig.system_prompt" rows="8"
+                                    placeholder="Instrucciones que definen el comportamiento del subagente..."></textarea>
+                          <mat-hint>Define cómo el subagente procesa las solicitudes</mat-hint>
+                        </mat-form-field>
+                      </div>
+
                       @if (selectedAgent.id === 'media_agent') {
+                        <mat-divider></mat-divider>
+                        <h4 class="config-section-title">Configuración de Media</h4>
+                        
                         <mat-form-field appearance="outline" class="full-width">
                           <mat-label>Proveedor por defecto</mat-label>
                           <mat-select [(ngModel)]="agentConfig.default_provider">
@@ -252,6 +273,20 @@ interface ExecuteResult {
                             <mat-option value="1024x1024">1024x1024 (Cuadrado)</mat-option>
                             <mat-option value="1792x1024">1792x1024 (Paisaje)</mat-option>
                             <mat-option value="1024x1792">1024x1792 (Retrato)</mat-option>
+                          </mat-select>
+                        </mat-form-field>
+                      }
+
+                      @if (selectedAgent.id === 'slides_agent') {
+                        <mat-divider></mat-divider>
+                        <h4 class="config-section-title">Configuración de Presentaciones</h4>
+                        
+                        <mat-form-field appearance="outline" class="full-width">
+                          <mat-label>Estilo por defecto</mat-label>
+                          <mat-select [(ngModel)]="agentConfig.settings['default_style']">
+                            <mat-option value="modern">Moderno</mat-option>
+                            <mat-option value="corporate">Corporativo</mat-option>
+                            <mat-option value="minimal">Minimalista</mat-option>
                           </mat-select>
                         </mat-form-field>
                       }
@@ -377,30 +412,44 @@ interface ExecuteResult {
                   <span class="time">{{ executeResult()!.result.execution_time_ms }}ms</span>
                 </div>
 
-                <div class="result-content">
-                  <p class="response">{{ executeResult()!.result.response }}</p>
+                <!-- Tools usadas como chips -->
+                @if (executeResult()!.result.tools_used?.length) {
+                  <div class="tools-used">
+                    <mat-icon>build</mat-icon>
+                    <span>Herramientas:</span>
+                    @for (tool of executeResult()!.result.tools_used; track tool) {
+                      <mat-chip class="tool-used-chip">{{ tool }}</mat-chip>
+                    }
+                  </div>
+                }
 
-                  @if (executeResult()!.result.images?.length) {
+                <!-- Respuesta final con estilo mejorado -->
+                <div class="final-response">
+                  <div class="response-label">
+                    <mat-icon>auto_awesome</mat-icon>
+                    Respuesta
+                  </div>
+                  <p class="response">{{ executeResult()!.result.response }}</p>
+                </div>
+
+                <!-- Imágenes generadas -->
+                @if (executeResult()!.result.images?.length) {
+                  <div class="generated-images">
+                    <div class="images-label">
+                      <mat-icon>image</mat-icon>
+                      Imágenes Generadas
+                    </div>
                     <div class="images-grid">
                       @for (img of executeResult()!.result.images; track $index) {
                         <div class="image-item">
                           @if (img.url) {
-                            <img [src]="img.url" alt="Generated image">
+                            <img [src]="img.url" alt="Generated image" class="generated-image">
                           }
                         </div>
                       }
                     </div>
-                  }
-
-                  @if (executeResult()!.result.tools_used?.length) {
-                    <div class="tools-used">
-                      <span>Tools usadas:</span>
-                      @for (tool of executeResult()!.result.tools_used; track tool) {
-                        <mat-chip>{{ tool }}</mat-chip>
-                      }
-                    </div>
-                  }
-                </div>
+                  </div>
+                }
               </div>
             }
           </mat-card>
@@ -425,11 +474,13 @@ interface ExecuteResult {
       margin: 0;
       font-size: 28px;
       font-weight: 600;
+      color: #1a1a2e;
     }
 
     .subtitle {
       color: #666;
       margin: 4px 0 0;
+      font-size: 14px;
     }
 
     .loading-container {
@@ -482,8 +533,12 @@ interface ExecuteResult {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
 
-    .agent-icon.sap_agent {
+    .agent-icon.slides_agent {
       background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .agent-icon.sap_agent {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
     }
 
     .agent-icon.mail_agent {
@@ -589,6 +644,39 @@ interface ExecuteResult {
       margin-top: 16px;
     }
 
+    /* Prompt Section */
+    .prompt-section {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .prompt-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-weight: 500;
+      color: #667eea;
+    }
+
+    .prompt-header mat-icon {
+      color: #667eea;
+    }
+
+    .prompt-header span {
+      flex: 1;
+    }
+
+    .config-section-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: #555;
+      margin: 16px 0 8px;
+    }
+
     /* Test Result */
     .test-result {
       padding: 16px;
@@ -668,6 +756,24 @@ interface ExecuteResult {
     .execute-panel {
       margin-top: 24px;
       border-radius: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .execute-panel mat-card-header {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      padding: 16px;
+      border-radius: 12px 12px 0 0;
+    }
+
+    .execute-panel mat-card-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #1a1a2e;
+    }
+
+    .execute-panel mat-card-title mat-icon {
+      color: #667eea;
     }
 
     .execute-options {
@@ -709,34 +815,113 @@ interface ExecuteResult {
       margin-left: auto;
       color: #888;
       font-size: 12px;
+      background: rgba(0,0,0,0.05);
+      padding: 4px 8px;
+      border-radius: 12px;
+    }
+
+    /* Respuesta final mejorada */
+    .final-response {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .response-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #667eea;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .response-label mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
     }
 
     .response {
       white-space: pre-wrap;
       font-size: 14px;
       line-height: 1.6;
+      margin: 0;
     }
 
-    .images-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 16px;
-      margin-top: 16px;
-    }
-
-    .image-item img {
-      width: 100%;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
+    /* Tools usadas */
     .tools-used {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 12px;
+      margin-top: 16px;
+      padding: 12px;
+      background: rgba(102, 126, 234, 0.08);
+      border-radius: 8px;
       font-size: 13px;
-      color: #666;
+      color: #555;
+    }
+
+    .tools-used mat-icon {
+      color: #667eea;
+      font-size: 18px;
+    }
+
+    .tool-used-chip {
+      font-size: 11px !important;
+      background: white !important;
+      border: 1px solid #667eea !important;
+    }
+
+    /* Imágenes generadas */
+    .generated-images {
+      margin-top: 16px;
+    }
+
+    .images-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #764ba2;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .images-label mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
+    .images-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 16px;
+    }
+
+    .image-item {
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .image-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    }
+
+    .generated-image {
+      width: 100%;
+      display: block;
     }
 
     /* Empty State */
@@ -933,5 +1118,13 @@ export class SubagentsComponent implements OnInit {
       label: labels[key] || key,
       value
     }));
+  }
+
+  resetPrompt(): void {
+    if (!this.selectedAgent) return;
+    
+    // Recargar config desde el servidor para obtener el prompt original
+    this.loadAgentConfig(this.selectedAgent.id);
+    this.snackBar.open('Prompt restaurado', 'Cerrar', { duration: 2000 });
   }
 }

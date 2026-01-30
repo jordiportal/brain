@@ -35,6 +35,7 @@ class LLMProviderResponse(BaseModel):
     defaultModel: Optional[str] = None
     embeddingModel: Optional[str] = None
     isActive: bool = True
+    isDefault: bool = False  # Proveedor preferido
     config: Optional[Dict[str, Any]] = None
     description: Optional[str] = None
 
@@ -107,6 +108,7 @@ async def get_llm_providers(active_only: bool = False):
                 defaultModel=p.default_model,
                 embeddingModel=p.embedding_model,
                 isActive=p.is_active,
+                isDefault=p.is_default,
                 config=p.config,
                 description=p.description
             )

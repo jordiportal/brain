@@ -1,6 +1,7 @@
 import { Component, OnInit, signal, inject, Pipe, PipeTransform, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -966,6 +967,7 @@ interface ImageData {
   `]
 })
 export class ChainsComponent implements OnInit {
+  private http = inject(HttpClient);
   private apiService = inject(ApiService);
   private strapiService = inject(StrapiService);
   private snackBar = inject(MatSnackBar);
@@ -1016,18 +1018,11 @@ export class ChainsComponent implements OnInit {
   }
   
   loadLlmProviders(): void {
+    // Solo cargar la lista de proveedores disponibles
+    // El proveedor específico se carga cuando se selecciona una cadena
     this.strapiService.getLlmProviders().subscribe({
       next: (providers) => {
         this.llmProviders.set(providers);
-        // Seleccionar el proveedor activo por defecto
-        const activeProvider = providers.find(p => p.isActive);
-        if (activeProvider) {
-          this.selectedProvider = activeProvider;
-          this.loadModelsForProvider(activeProvider);
-        } else if (providers.length > 0) {
-          this.selectedProvider = providers[0];
-          this.loadModelsForProvider(providers[0]);
-        }
       },
       error: (err) => {
         console.error('Error cargando proveedores LLM:', err);
@@ -1042,10 +1037,9 @@ export class ChainsComponent implements OnInit {
     }
   }
   
-  loadModelsForProvider(provider: LlmProvider): void {
+  loadModelsForProvider(provider: LlmProvider, defaultModel?: string): void {
     this.loadingModels.set(true);
     this.availableModels.set([]);
-    this.llmModel = '';
     
     this.apiService.getLlmModels({
       providerUrl: provider.baseUrl,
@@ -1056,8 +1050,10 @@ export class ChainsComponent implements OnInit {
         const models = response.models?.map(m => m.name) || [];
         this.availableModels.set(models);
         
-        // Seleccionar modelo por defecto
-        if (provider.defaultModel && models.includes(provider.defaultModel)) {
+        // Usar el modelo especificado o el default del proveedor
+        if (defaultModel && models.includes(defaultModel)) {
+          this.llmModel = defaultModel;
+        } else if (provider.defaultModel && models.includes(provider.defaultModel)) {
           this.llmModel = provider.defaultModel;
         } else if (models.length > 0) {
           this.llmModel = models[0];
@@ -1067,7 +1063,6 @@ export class ChainsComponent implements OnInit {
       },
       error: (err) => {
         console.error('Error cargando modelos:', err);
-        this.snackBar.open('Error cargando modelos del proveedor', 'Cerrar', { duration: 3000 });
         this.loadingModels.set(false);
         
         // Fallback: usar modelo por defecto del proveedor
@@ -1119,11 +1114,37 @@ export class ChainsComponent implements OnInit {
     this.selectedChain.set(chain);
     this.messages.set([]);
     this.useMemory = chain.config.use_memory;
+    
+    // Cargar proveedor LLM de la cadena
+    this.loadChainLlmProvider(chain.id);
+    
     setTimeout(() => {
       if (this.tabGroup) {
         this.tabGroup.selectedIndex = 2;
       }
     }, 0);
+  }
+  
+  loadChainLlmProvider(chainId: string): void {
+    // Obtener detalles de la cadena con su proveedor asociado
+    this.http.get<any>(`${environment.apiUrl}/chains/${chainId}/details`).subscribe({
+      next: (response) => {
+        const provider = response.llm_provider;
+        if (provider) {
+          // Buscar el proveedor en la lista cargada
+          const fullProvider = this.llmProviders().find(p => p.id === provider.id);
+          if (fullProvider) {
+            this.selectedProvider = fullProvider;
+            this.llmModel = provider.defaultModel || fullProvider.defaultModel || '';
+            // Cargar modelos disponibles del proveedor
+            this.loadModelsForProvider(fullProvider, this.llmModel);
+          }
+        }
+      },
+      error: (err) => {
+        console.error('Error cargando proveedor de la cadena:', err);
+      }
+    });
   }
 
   async executeChain(): Promise<void> {

@@ -48,6 +48,7 @@ class LLMProvider(BaseModel):
     default_model: Optional[str] = None
     embedding_model: Optional[str] = None
     is_active: bool = True
+    is_default: bool = False  # Proveedor preferido del usuario
     config: Optional[Dict[str, Any]] = None
     description: Optional[str] = None
     created_at: Optional[datetime] = None

@@ -34,6 +34,7 @@ export interface LlmProvider {
   defaultModel?: string;
   embeddingModel?: string;
   isActive: boolean;
+  isDefault?: boolean;  // Proveedor preferido del usuario
   config?: Record<string, any>;
   description?: string;
   createdAt: string;

@@ -1,5 +1,5 @@
 """
-Brain 2.0 Core Tools - 17 herramientas nativas universales
+Brain 2.0 Core Tools - 16 herramientas nativas universales
 
 Filesystem (5): read_file, write_file, edit_file, list_directory, search_files
 Execution (3): shell, python, javascript  
@@ -7,7 +7,10 @@ Web (2): web_search, web_fetch
 Reasoning (4): think, reflect, plan, finish
 Utils (1): calculate
 Delegation (1): delegate (para subagentes especializados)
-Slides (1): generate_slides (presentaciones con streaming)
+
+NOTA: generate_image y generate_slides NO están en CORE_TOOLS.
+Estas herramientas las usan los subagentes especializados (media_agent, slides_agent).
+El agente principal usa `delegate` para acceder a estas funcionalidades.
 """
 
 from .filesystem import (
@@ -51,6 +54,7 @@ from .delegation import (
     DELEGATE_TOOL
 )
 
+# Mantener imports para uso interno por subagentes
 from .slides import (
     generate_slides,
     GENERATE_SLIDES_TOOL
@@ -61,12 +65,13 @@ DELEGATION_TOOLS = {
     "delegate": DELEGATE_TOOL
 }
 
-# Slides tools dict
+# Slides tools dict (NO incluido en CORE_TOOLS, usado por slides_agent)
 SLIDES_TOOLS = {
     "generate_slides": GENERATE_SLIDES_TOOL
 }
 
-# Todas las definiciones de core tools
+# CORE_TOOLS: Solo herramientas del agente principal
+# Las herramientas especializadas (imágenes, presentaciones) las usan los subagentes
 CORE_TOOLS = {
     **FILESYSTEM_TOOLS,
     **EXECUTION_TOOLS,
@@ -74,7 +79,7 @@ CORE_TOOLS = {
     **REASONING_TOOLS,
     **UTILS_TOOLS,
     **DELEGATION_TOOLS,
-    **SLIDES_TOOLS
+    # NO incluir SLIDES_TOOLS - el agente usa delegate → slides_agent
 }
 
 __all__ = [
