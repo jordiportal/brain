@@ -130,41 +130,43 @@ TIPOS DE SLIDE DISPONIBLES:
 """
 
 # ============================================
-# Workflows por Complejidad
+# Workflow (único - el LLM decide)
 # ============================================
 
-WORKFLOW_SIMPLE = """Para esta tarea SIMPLE:
-1. Identifica qué herramienta(s) necesitas
-2. Ejecuta la(s) herramienta(s) en orden
-3. IMPORTANTE: Si la tarea tiene varias partes, completa TODAS
-4. Llama `finish` con tu respuesta completa
+WORKFLOW = """# CÓMO DECIDIR QUÉ HACER
 
-Ejemplo: "Calcula X" → calculate → finish"""
+Evalúa la tarea y decide el enfoque apropiado:
 
-WORKFLOW_MODERATE = """Para esta tarea MODERADA:
-1. Usa `think` para analizar la tarea y dividirla en pasos
-2. Ejecuta cada paso con las herramientas apropiadas
-3. IMPORTANTE: Completa TODAS las partes antes de finalizar
-4. Si piden guardar algo, DEBES usar `write_file`
-5. Usa `reflect` si los resultados parecen incompletos
-6. Llama `finish` con tu respuesta completa
+## Tareas simples (respuesta directa o 1-2 herramientas):
+- Identifica qué herramienta necesitas
+- Ejecútala
+- Llama `finish` con tu respuesta
 
-PARA PRESENTACIONES (slides, diapositivas, PowerPoint):
-1. `think` - Analiza el tema: audiencia, propósito, tono, estructura
-2. `web_search` - SOLO si necesitas datos actuales o específicos que no conoces
-3. `plan` - Crea el outline de slides con título, badges y contenido por slide
-4. `delegate` - Envía al slides_agent el outline JSON estructurado
+## Tareas que requieren investigación:
+- Usa `web_search` si necesitas información actualizada o datos que no conoces
+- NO busques si ya tienes el conocimiento suficiente
+
+## Tareas que requieren planificación (presentaciones, proyectos complejos):
+1. `think` - Analiza la tarea: qué se pide, cómo abordarlo
+2. `web_search` - Solo si necesitas información externa
+3. `plan` - Si hay múltiples pasos, crea un plan estructurado
+4. Ejecuta las herramientas necesarias
 5. `finish` - Confirma el resultado
 
-Ejemplo: "Crea presentación sobre X" → think(análisis) → [web_search si necesario] → plan(outline) → delegate(slides_agent) → finish"""
+## REGLAS IMPORTANTES:
+- **SIEMPRE termina con `finish`** - Es obligatorio para completar cualquier tarea
+- **Si piden guardar algo, usa `write_file`**
+- **Si la tarea tiene varias partes, completa TODAS antes de finish**
+- **No repitas la misma herramienta sin progreso** (máx 3 veces consecutivas)
 
-WORKFLOW_COMPLEX = """Para esta tarea COMPLEJA:
-1. Usa `plan` para crear un enfoque estructurado con TODOS los pasos
-2. Usa `think` antes de cada paso importante
-3. Ejecuta herramientas según tu plan - NO saltes ningún paso
-4. Usa `reflect` para verificar progreso después de cada acción
-5. CHECKPOINT: Antes de finalizar, verifica que TODAS las partes estén hechas
-6. Si falta algo, ejecuta las herramientas necesarias
-7. Llama `finish` con tu respuesta completa
+## Ejemplos:
+- "Calcula X" → calculate → finish
+- "Busca sobre X" → web_search → finish
+- "Lee archivo Y" → read_file → finish
+- "Crea presentación sobre X" → think → [web_search] → plan → delegate(slides_agent) → finish
+- "Genera imagen de X" → delegate(media_agent) → finish"""
 
-Ejemplo: "Investiga X, analiza Y, crea informe Z" → plan → web_search → think → write → reflect → finish"""
+# Aliases para compatibilidad (todos apuntan al mismo workflow)
+WORKFLOW_SIMPLE = WORKFLOW
+WORKFLOW_MODERATE = WORKFLOW
+WORKFLOW_COMPLEX = WORKFLOW

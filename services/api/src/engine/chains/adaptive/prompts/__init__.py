@@ -8,6 +8,7 @@ a estilos de prompt específicos.
 from .base import (
     TOOLS_SECTION,
     SUBAGENTS_SECTION,
+    WORKFLOW,
     WORKFLOW_SIMPLE,
     WORKFLOW_MODERATE,
     WORKFLOW_COMPLEX
@@ -46,22 +47,19 @@ def get_system_prompt(provider_type: str) -> str:
     )
 
 
-def get_workflow(complexity: str) -> str:
+def get_workflow(complexity: str = "normal") -> str:
     """
-    Obtiene las instrucciones de workflow según complejidad.
+    Obtiene las instrucciones de workflow.
+    
+    El LLM decide qué herramientas usar - workflow único.
     
     Args:
-        complexity: simple, moderate, complex
+        complexity: Ignorado (mantenido por compatibilidad)
     
     Returns:
         Instrucciones de workflow
     """
-    workflows = {
-        "simple": WORKFLOW_SIMPLE,
-        "moderate": WORKFLOW_MODERATE,
-        "complex": WORKFLOW_COMPLEX
-    }
-    return workflows.get(complexity, WORKFLOW_SIMPLE)
+    return WORKFLOW
 
 
 __all__ = [
@@ -69,7 +67,5 @@ __all__ = [
     "get_workflow",
     "TOOLS_SECTION",
     "SUBAGENTS_SECTION",
-    "WORKFLOW_SIMPLE",
-    "WORKFLOW_MODERATE",
-    "WORKFLOW_COMPLEX",
+    "WORKFLOW",
 ]

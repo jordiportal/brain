@@ -131,25 +131,24 @@ async def build_adaptive_agent(
     yield stream_emitter.node_end(
         "complexity_analysis",
         {
-            "complexity": complexity.level.value,
-            "reasoning_mode": reasoning_config.mode.value,
-            "estimated_tools": complexity.estimated_tools
+            "is_trivial": complexity.is_trivial,
+            "reasoning_mode": reasoning_config.mode.value
         }
     )
     
-    # Brain Event de thinking inicial
-    thinking_event = brain_emitter.thinking_start(
-        f"Analizando solicitud...\n\n"
-        f"Complejidad: {complexity.level.value}\n"
-        f"Herramientas estimadas: {complexity.estimated_tools}"
-    )
-    if thinking_event:
-        yield thinking_event
+    # Brain Event de thinking inicial (solo si no es trivial)
+    if not complexity.is_trivial:
+        thinking_event = brain_emitter.thinking_start(
+            f"Analizando solicitud...\n\n"
+            f"El LLM decidirá qué herramientas usar"
+        )
+        if thinking_event:
+            yield thinking_event
     
     # ========== FASE 2: PREPARAR MENSAJES Y TOOLS ==========
     
-    # Seleccionar workflow según complejidad
-    workflow = get_workflow(complexity.level.value)
+    # Workflow único - el LLM decide
+    workflow = get_workflow("normal")
     
     # Obtener prompt para el proveedor
     system_prompt = get_system_prompt(provider_type).format(
