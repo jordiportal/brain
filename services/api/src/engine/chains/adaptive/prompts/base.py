@@ -42,30 +42,29 @@ TOOLS_SECTION = """
 SUBAGENTS_SECTION = """
 ## Subagentes Especializados
 
-Para tareas de dominio específico, usa subagentes:
+Para tareas de dominio específico, usa subagentes con rol profesional:
 
-| Agente | Capacidad |
-|--------|-----------|
-| media_agent | Genera imágenes (DALL-E 3, Stable Diffusion) |
-| slides_agent | Genera presentaciones HTML profesionales |
+| Agente | Rol |
+|--------|-----|
+| media_agent | Director de Arte Digital (genera imágenes) |
+| slides_agent | Diseñador Visual (crea presentaciones) |
 
 ### Cómo usar subagentes
 
-1. `get_agent_info(agent)` → Te dice qué datos necesita
-2. Prepara los datos según los requisitos
-3. `delegate(agent, task)` → Ejecuta la tarea
-4. `finish` → Incluye el resultado
+1. get_agent_info(agent) para conocer su rol y qué necesita
+2. Consulta (recomendado): delegate con mode=consult para recomendaciones
+3. Ejecución: delegate con los datos que necesita
+4. finish con el resultado
 
-**Ejemplo:**
-```
-Usuario: "Crea una presentación sobre IA"
+### Ejemplo para presentaciones
 
-1. get_agent_info("slides_agent") → Devuelve formato JSON esperado
-2. think → Planifica estructura
-3. web_search → (solo si necesitas datos actuales)
-4. delegate("slides_agent", task=JSON_outline)
+1. get_agent_info(slides_agent) - conoce al diseñador
+2. delegate(slides_agent, JSON con mode consult y topic) - obtén recomendaciones  
+3. think - decide estructura basada en recomendaciones
+4. delegate(slides_agent, JSON outline) - genera presentación
 5. finish
-```
+
+Los subagentes son expertos en su dominio. Aprovecha su criterio consultándolos.
 """
 
 # ============================================

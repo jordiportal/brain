@@ -104,40 +104,41 @@ class SlidesAgent(BaseSubAgent):
     
     id = "slides_agent"
     name = "Slides Agent"
-    description = "Genera presentaciones HTML profesionales con streaming"
-    version = "2.1.0"
-    domain_tools = ["generate_image"]  # Puede generar imágenes
+    description = "Diseñador visual de presentaciones profesionales"
+    version = "2.2.0"
+    domain_tools = ["generate_image"]
     system_prompt = SLIDES_SYSTEM_PROMPT
     
-    task_requirements = """Envíame un JSON con el OUTLINE de la presentación.
+    # Rol y expertise
+    role = "Diseñador Visual de Presentaciones"
+    expertise = """Soy diseñador visual especializado en presentaciones de alto impacto.
 
-FORMATO JSON:
+Puedo ayudarte con:
+- Elegir el estilo visual adecuado (corporativo, creativo, minimalista, tech)
+- Definir la paleta de colores según el tema y audiencia
+- Estructurar el flujo narrativo de las slides
+- Decidir qué slides necesitan imágenes vs datos vs texto
+- Optimizar el impacto visual de tu mensaje
+
+Cuando me consultes, te daré recomendaciones de diseño antes de crear la presentación."""
+
+    task_requirements = """## MODOS DE USO
+
+### Modo Consulta (recomendado primero)
+Envía: {"mode": "consult", "topic": "tema", "audience": "audiencia", "purpose": "objetivo"}
+→ Te daré recomendaciones de diseño y estructura
+
+### Modo Ejecución
+Envía el outline JSON:
 {
-  "title": "Título de la presentación",
+  "title": "Título",
   "slides": [
-    {
-      "title": "Título del slide",
-      "type": "title|bullets|stats|quote|comparison|image",
-      "badge": "INTRO|CONTEXTO|DATOS|CASO|CIERRE|etc",
-      "bullets": ["punto 1", "punto 2", "punto 3"],
-      "content": "Texto descriptivo (opcional, para type=content)"
-    }
+    {"title": "...", "type": "title|bullets|stats|quote|comparison", "badge": "...", "bullets": [...]}
   ],
-  "generate_images": ["prompt imagen 1", "prompt imagen 2"]
+  "generate_images": ["prompt 1", "prompt 2"]  // opcional
 }
 
-TIPOS DE SLIDE:
-- title: Primera slide (solo título + badge)
-- bullets: Lista de puntos (máx 5, cortos)
-- stats: Estadísticas con números grandes
-- quote: Cita con autor
-- comparison: Dos columnas comparativas
-- image: Slide con imagen generada
-
-NOTAS:
-- "generate_images" es opcional, yo genero las imágenes si las necesitas
-- Máximo 5 bullets por slide, máximo 5 palabras por bullet
-- Sugiere badges temáticos cortos (1-2 palabras)"""
+TIPOS: title, bullets (máx 5), stats, quote, comparison, image"""
     
     async def execute(
         self,
@@ -151,9 +152,23 @@ NOTAS:
         """
         Genera presentación desde outline JSON o texto.
         
+        Soporta dos modos:
+        - consult: Devuelve recomendaciones de diseño
+        - execute: Genera la presentación HTML
+        
         La respuesta incluye Brain Events para Open WebUI.
         """
         start_time = time.time()
+        
+        # Detectar modo consulta
+        try:
+            task_data = json.loads(task)
+            if task_data.get("mode") == "consult":
+                logger.info("📊 SlidesAgent consulting", topic=task_data.get("topic", "")[:50])
+                return await self._handle_consult(task_data, llm_url, model, provider_type, api_key)
+        except (json.JSONDecodeError, TypeError):
+            pass  # No es JSON, proceder con ejecución normal
+        
         logger.info("📊 SlidesAgent executing", task_length=len(task))
         
         response_parts = []
@@ -461,3 +476,99 @@ Responde SOLO con el JSON válido, sin texto adicional."""
             )
         
         return outline
+    
+    async def _handle_consult(
+        self,
+        task_data: Dict[str, Any],
+        llm_url: Optional[str],
+        model: Optional[str],
+        provider_type: str,
+        api_key: Optional[str]
+    ) -> SubAgentResult:
+        """
+        Modo consulta: da recomendaciones de diseño antes de crear la presentación.
+        """
+        from ...llm_utils import call_llm_with_tools
+        
+        topic = task_data.get("topic", "")
+        audience = task_data.get("audience", "general")
+        purpose = task_data.get("purpose", "informar")
+        context = task_data.get("context", "")
+        
+        consult_prompt = f"""Eres un Diseñador Visual de Presentaciones con experiencia en comunicación visual.
+
+Un colega te pide ayuda para diseñar una presentación:
+
+**TEMA:** {topic}
+**AUDIENCIA:** {audience}
+**OBJETIVO:** {purpose}
+{f"**CONTEXTO:** {context}" if context else ""}
+
+Dame tus recomendaciones de diseño de forma concisa y profesional:
+
+1. **Estilo Visual** - ¿Qué estilo recomendarías? (corporativo, creativo, minimalista, tech-futurista, editorial, etc.)
+
+2. **Paleta de Colores** - ¿Qué colores transmitirían mejor el mensaje?
+
+3. **Estructura Narrativa** - ¿Cómo organizarías el flujo? (número de slides, tipos de contenido)
+
+4. **Elementos Visuales** - ¿Necesita imágenes, iconos, estadísticas, comparaciones?
+
+5. **Recomendación Principal** - Tu sugerencia estrella para que destaque
+
+Sé conciso pero útil. Puedes hacer una pregunta al final si necesitas clarificar algo antes de diseñar."""
+
+        try:
+            if not llm_url or not api_key:
+                # Respuesta por defecto sin LLM
+                return SubAgentResult(
+                    success=True,
+                    response=f"""🎨 **Recomendaciones de Diseño para "{topic}"**
+
+**Estilo Visual:** Te sugiero un estilo moderno y limpio que se adapte a tu audiencia ({audience}).
+
+**Estructura Sugerida:**
+1. Slide de título impactante
+2. Contexto/Problema (por qué importa)
+3-4. Puntos clave (bullets concisos)
+5. Datos o comparación (si aplica)
+6. Conclusión con call-to-action
+
+**Elementos Visuales:** Dependiendo del tema, considera incluir imágenes o estadísticas para mayor impacto.
+
+¿Quieres que proceda con este enfoque o tienes preferencias específicas?""",
+                    agent_id=self.id,
+                    agent_name=self.name,
+                    data={"mode": "consult", "topic": topic, "ready_for_execution": True}
+                )
+            
+            response = await call_llm_with_tools(
+                messages=[
+                    {"role": "system", "content": "Eres un diseñador visual experto. Responde de forma concisa y profesional en español."},
+                    {"role": "user", "content": consult_prompt}
+                ],
+                tools=[],
+                temperature=0.7,
+                provider_type=provider_type,
+                api_key=api_key,
+                llm_url=llm_url,
+                model=model
+            )
+            
+            return SubAgentResult(
+                success=True,
+                response=response.content or "Sin recomendaciones",
+                agent_id=self.id,
+                agent_name=self.name,
+                data={"mode": "consult", "topic": topic, "ready_for_execution": True}
+            )
+            
+        except Exception as e:
+            logger.error(f"Consult error: {e}")
+            return SubAgentResult(
+                success=False,
+                response=f"Error en consulta: {str(e)}",
+                agent_id=self.id,
+                agent_name=self.name,
+                error=str(e)
+            )

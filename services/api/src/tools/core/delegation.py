@@ -160,20 +160,18 @@ def get_subagent_ids() -> list:
 
 async def get_agent_info(agent: str) -> Dict[str, Any]:
     """
-    Obtiene información sobre un subagente, incluyendo qué datos necesita.
+    Obtiene información sobre un subagente, incluyendo su rol, expertise y qué datos necesita.
     
-    Usa esta tool ANTES de delegar para saber exactamente qué formato
-    de datos espera el subagente.
+    Usa esta tool ANTES de delegar para:
+    1. Conocer el rol profesional del subagente
+    2. Saber en qué puede ayudarte (expertise)
+    3. Entender qué formato de datos necesita
     
     Args:
         agent: ID del subagente (media_agent, slides_agent, etc.)
     
     Returns:
-        Dict con:
-        - id: ID del subagente
-        - name: Nombre descriptivo
-        - description: Qué hace el subagente
-        - task_requirements: Qué datos necesita recibir y en qué formato
+        Dict con información completa del subagente
     """
     from src.engine.chains.agents import subagent_registry, register_all_subagents
     
@@ -194,8 +192,10 @@ async def get_agent_info(agent: str) -> Dict[str, Any]:
         "success": True,
         "id": subagent.id,
         "name": subagent.name,
-        "description": subagent.description,
+        "role": getattr(subagent, 'role', 'Especialista'),
+        "expertise": getattr(subagent, 'expertise', subagent.description),
         "task_requirements": subagent.task_requirements,
+        "supports_consult_mode": True,  # Todos los subagentes ahora soportan consulta
         "version": subagent.version
     }
 

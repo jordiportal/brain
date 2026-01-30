@@ -20,26 +20,42 @@ class MediaAgent(BaseSubAgent):
     
     id = "media_agent"
     name = "Media Agent"
-    description = "Genera imágenes con DALL-E 3, Stable Diffusion, Flux"
-    version = "2.0.0"
+    description = "Director de arte especializado en generación de imágenes"
+    version = "2.1.0"
     domain_tools = ["generate_image"]
     system_prompt = SYSTEM_PROMPT
     
-    task_requirements = """Envíame una descripción detallada de la imagen a generar.
+    # Rol y expertise
+    role = "Director de Arte Digital"
+    expertise = """Soy director de arte especializado en generación de imágenes con IA.
 
-FORMATO: Texto descriptivo con:
-- Sujeto principal (qué aparece)
-- Estilo visual (realista, ilustración, 3D, minimalista, etc.)
-- Colores o paleta (opcional)
-- Composición (primer plano, paisaje, etc.)
-- Ambiente/mood (profesional, alegre, dramático, etc.)
+Puedo ayudarte con:
+- Elegir el estilo visual adecuado (realista, ilustración, 3D, minimalista, etc.)
+- Definir la composición y encuadre de la imagen
+- Sugerir paletas de colores que transmitan el mensaje
+- Decidir entre diferentes modelos de IA según el resultado deseado
+- Optimizar el prompt para mejores resultados
+
+Cuando me consultes, te daré recomendaciones artísticas antes de generar."""
+
+    task_requirements = """## MODOS DE USO
+
+### Modo Consulta (recomendado para proyectos importantes)
+Envía: {"mode": "consult", "concept": "descripción", "purpose": "uso"}
+→ Te daré recomendaciones de estilo y composición
+
+### Modo Ejecución (directo)
+Envía descripción de la imagen con:
+- Sujeto principal
+- Estilo visual (realista, ilustración, 3D, minimalista)
+- Paleta de colores (opcional)
+- Composición y mood
 
 EJEMPLOS:
-- "Logo minimalista para empresa de tecnología, colores azul y blanco, estilo limpio"
-- "Ilustración de un gato naranja sentado en una ventana, estilo acuarela, luz cálida"
-- "Foto realista de montañas nevadas al atardecer, colores dramáticos"
-
-NO necesitas especificar el modelo ni parámetros técnicos, yo los selecciono."""
+- "Logo minimalista tech, colores azul y blanco"
+- "Ilustración acuarela de gato naranja en ventana, luz cálida"
+- "Foto realista de montañas nevadas al atardecer"
+"""
     
     # Patrones de solicitud directa
     DIRECT_PATTERNS = [
@@ -69,8 +85,24 @@ NO necesitas especificar el modelo ni parámetros técnicos, yo los selecciono."
         provider_type: str = "ollama",
         api_key: Optional[str] = None
     ) -> SubAgentResult:
-        """Ejecuta generación de imagen."""
+        """
+        Ejecuta generación de imagen.
+        
+        Soporta dos modos:
+        - consult: Devuelve recomendaciones artísticas
+        - execute: Genera la imagen
+        """
+        import json
         start_time = time.time()
+        
+        # Detectar modo consulta
+        try:
+            task_data = json.loads(task)
+            if task_data.get("mode") == "consult":
+                logger.info("🎨 MediaAgent consulting", concept=task_data.get("concept", "")[:50])
+                return await self._handle_consult(task_data, llm_url, model, provider_type, api_key)
+        except (json.JSONDecodeError, TypeError):
+            pass  # No es JSON, proceder con ejecución normal
         
         logger.info("🎨 MediaAgent executing", task=task[:100])
         
@@ -191,3 +223,94 @@ NO necesitas especificar el modelo ni parámetros técnicos, yo los selecciono."
         parts.append(f"\n\n*{result.get('provider', 'AI')} ({result.get('model', 'default')})*")
         
         return "".join(parts)
+    
+    async def _handle_consult(
+        self,
+        task_data: Dict[str, Any],
+        llm_url: Optional[str],
+        model: Optional[str],
+        provider_type: str,
+        api_key: Optional[str]
+    ) -> SubAgentResult:
+        """
+        Modo consulta: da recomendaciones artísticas antes de generar.
+        """
+        from ...llm_utils import call_llm_with_tools
+        
+        concept = task_data.get("concept", "")
+        purpose = task_data.get("purpose", "general")
+        style_preference = task_data.get("style", "")
+        
+        consult_prompt = f"""Eres un Director de Arte Digital con experiencia en generación de imágenes con IA.
+
+Un colega te pide ayuda para crear una imagen:
+
+**CONCEPTO:** {concept}
+**USO:** {purpose}
+{f"**PREFERENCIA DE ESTILO:** {style_preference}" if style_preference else ""}
+
+Dame tus recomendaciones artísticas de forma concisa:
+
+1. **Estilo Visual** - ¿Qué estilo funcionaría mejor? (fotorrealista, ilustración, 3D, flat design, etc.)
+
+2. **Composición** - ¿Cómo encuadrarías la imagen? (primer plano, plano general, ángulo, etc.)
+
+3. **Paleta de Colores** - ¿Qué colores transmitirían mejor el mensaje?
+
+4. **Modelo Recomendado** - ¿DALL-E 3 (detallado, creativo) o Stable Diffusion (estilizado)?
+
+5. **Prompt Sugerido** - Propón el prompt que usarías
+
+Sé conciso y profesional."""
+
+        try:
+            if not llm_url or not api_key:
+                return SubAgentResult(
+                    success=True,
+                    response=f"""🎨 **Recomendaciones para "{concept}"**
+
+**Estilo:** Te sugiero un estilo que se adapte al uso ({purpose}).
+
+**Composición:** Dependiendo del concepto, considera:
+- Primer plano para impacto y detalle
+- Plano general para contexto
+- Ángulo dramático para dinamismo
+
+**Prompt base sugerido:** "{concept}, high quality, professional"
+
+¿Quieres que proceda con esta dirección o tienes preferencias específicas?""",
+                    agent_id=self.id,
+                    agent_name=self.name,
+                    data={"mode": "consult", "concept": concept, "ready_for_execution": True}
+                )
+            
+            response = await call_llm_with_tools(
+                messages=[
+                    {"role": "system", "content": "Eres un director de arte experto. Responde de forma concisa y profesional en español."},
+                    {"role": "user", "content": consult_prompt}
+                ],
+                tools=[],
+                temperature=0.7,
+                provider_type=provider_type,
+                api_key=api_key,
+                llm_url=llm_url,
+                model=model
+            )
+            
+            return SubAgentResult(
+                success=True,
+                response=response.content or "Sin recomendaciones",
+                agent_id=self.id,
+                agent_name=self.name,
+                data={"mode": "consult", "concept": concept, "ready_for_execution": True}
+            )
+            
+        except Exception as e:
+            logger.error(f"Consult error: {e}")
+            return SubAgentResult(
+                success=False,
+                response=f"Error en consulta: {str(e)}",
+                agent_id=self.id,
+                agent_name=self.name,
+                error=str(e)
+            )

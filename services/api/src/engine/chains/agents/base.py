@@ -54,10 +54,13 @@ class BaseSubAgent(ABC):
     
     Cada subagente define:
     - id, name, description: Identificación
-    - task_requirements: Qué necesita recibir para ejecutar (autodescripción)
+    - role: Rol profesional del subagente (ej: "Diseñador Visual")
+    - expertise: Áreas de expertise para consultas
+    - task_requirements: Qué necesita recibir para ejecutar
     - domain_tools: Lista de IDs de herramientas del dominio
-    - system_prompt: Prompt de sistema (opcional)
+    - system_prompt: Prompt de sistema
     - execute(): Método principal de ejecución
+    - consult(): Método para consultas de expertise (opcional)
     """
     
     id: str = "base_agent"
@@ -67,11 +70,75 @@ class BaseSubAgent(ABC):
     domain_tools: List[str] = []
     system_prompt: str = "You are a specialized agent."
     
-    # NUEVO: El subagente describe qué necesita recibir
+    # Rol y expertise del subagente
+    role: str = "Especialista"
+    expertise: str = "Puedo ayudarte con tareas de mi dominio."
+    
+    # Qué necesita para ejecutar
     task_requirements: str = "Descripción de la tarea a realizar."
     
     def __init__(self):
-        logger.info(f"🤖 SubAgent initialized: {self.id}")
+        logger.info(f"🤖 SubAgent initialized: {self.id} ({self.role})")
+    
+    async def consult(
+        self,
+        topic: str,
+        context: Optional[str] = None,
+        llm_url: Optional[str] = None,
+        model: Optional[str] = None,
+        provider_type: str = "openai",
+        api_key: Optional[str] = None
+    ) -> SubAgentResult:
+        """
+        Consulta al subagente para obtener recomendaciones de su expertise.
+        Por defecto, usa el LLM para generar una respuesta consultiva.
+        Los subagentes pueden sobrescribir este método.
+        """
+        from ..llm_utils import call_llm_with_tools
+        
+        consult_prompt = f"""Eres {self.role}. {self.expertise}
+
+Un colega te consulta sobre: {topic}
+
+{f"Contexto adicional: {context}" if context else ""}
+
+Responde de forma breve y profesional:
+1. Da tu opinión experta sobre el enfoque
+2. Sugiere 2-3 opciones o estilos que podrían funcionar
+3. Haz una pregunta para afinar tu propuesta (opcional)
+
+Sé conciso pero útil. Responde en español."""
+
+        try:
+            response = await call_llm_with_tools(
+                messages=[
+                    {"role": "system", "content": f"Eres {self.role}. Responde de forma concisa y profesional."},
+                    {"role": "user", "content": consult_prompt}
+                ],
+                tools=[],
+                temperature=0.7,
+                provider_type=provider_type,
+                api_key=api_key,
+                llm_url=llm_url,
+                model=model
+            )
+            
+            return SubAgentResult(
+                success=True,
+                response=response.content or "Sin respuesta",
+                agent_id=self.id,
+                agent_name=self.name,
+                data={"mode": "consult", "topic": topic}
+            )
+        except Exception as e:
+            logger.error(f"Consult error: {e}")
+            return SubAgentResult(
+                success=False,
+                response=f"Error en consulta: {str(e)}",
+                agent_id=self.id,
+                agent_name=self.name,
+                error=str(e)
+            )
     
     def get_tools(self) -> List[Any]:
         """Obtiene las definiciones de tools de este dominio."""
