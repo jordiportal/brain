@@ -80,12 +80,13 @@ def _parse_content_as_bullets(content) -> list:
     return []
 
 
-def generate_slide_html(slide: SlideOutline) -> str:
+def generate_slide_html(slide: SlideOutline, image_url: Optional[str] = None) -> str:
     """
     Genera HTML para una slide individual.
     
     Args:
         slide: SlideOutline con los datos
+        image_url: URL de imagen opcional para la slide
         
     Returns:
         HTML string
@@ -150,8 +151,23 @@ def generate_slide_html(slide: SlideOutline) -> str:
         if slide.author:
             parts.append(f'  <p>— {slide.author}</p>')
     
+    elif slide.type == "image":
+        # Slide tipo imagen
+        if image_url:
+            parts.append(f'  <div class="slide-image">')
+            parts.append(f'    <img src="{image_url}" alt="{slide.title}" />')
+            parts.append(f'  </div>')
+        if slide.content:
+            parts.append(f'  <p class="image-caption">{slide.content}</p>')
+    
     elif slide.content and not slide.content.startswith("["):
         parts.append(f'  <p>{slide.content}</p>')
+    
+    # Añadir imagen si se proporcionó y no es slide tipo imagen
+    if image_url and slide.type != "image":
+        parts.append(f'  <div class="slide-image">')
+        parts.append(f'    <img src="{image_url}" alt="Ilustración" />')
+        parts.append(f'  </div>')
     
     parts.append('</div>\n')
     

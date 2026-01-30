@@ -57,6 +57,9 @@ MODERATE_INDICATORS = {
     "analiza", "analyze", "compara", "compare",
     "descarga", "download", "obtén", "fetch", "get",
     "instala", "install", "configura", "configure",
+    # Tareas que requieren planificación (presentaciones, imágenes)
+    "presentación", "presentation", "slides", "diapositivas",
+    "powerpoint", "ppt", "imagen", "image", "ilustración",
 }
 
 COMPLEX_INDICATORS = {
@@ -78,6 +81,12 @@ MULTI_STEP_WORDS = {
     "proceso", "process", "workflow",
     "todos los", "all the", "cada", "each",
     "múltiples", "multiple", "varios", "several",
+}
+
+# Palabras que indican tareas que SIEMPRE requieren planificación
+ALWAYS_PLAN_INDICATORS = {
+    "presentación", "presentation", "slides", "diapositivas",
+    "powerpoint", "ppt",
 }
 
 
@@ -109,6 +118,9 @@ def detect_complexity(
                 confidence=0.9,
                 explanation="Query simple que puede responderse directamente"
             )
+    
+    # Detectar si es una tarea que SIEMPRE requiere planificación
+    always_plan = any(word in query_lower for word in ALWAYS_PLAN_INDICATORS)
     
     # Contar indicadores de cada nivel
     simple_count = sum(1 for word in SIMPLE_INDICATORS if word in query_lower)
@@ -169,8 +181,15 @@ def detect_complexity(
         elif level == ComplexityLevel.MODERATE:
             level = ComplexityLevel.COMPLEX
     
+    # Forzar MODERATE para tareas que SIEMPRE requieren planificación
+    if always_plan and level in (ComplexityLevel.TRIVIAL, ComplexityLevel.SIMPLE):
+        level = ComplexityLevel.MODERATE
+        estimated_tools = max(3, estimated_tools)
+        keywords_found.append("requires_planning")
+        logger.info(f"🎯 Forcing MODERATE complexity for planning-required task")
+    
     # Determinar si necesita razonamiento explícito
-    reasoning_needed = level in (ComplexityLevel.MODERATE, ComplexityLevel.COMPLEX)
+    reasoning_needed = level in (ComplexityLevel.MODERATE, ComplexityLevel.COMPLEX) or always_plan
     
     # Calcular confianza
     if keywords_found:

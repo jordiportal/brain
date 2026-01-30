@@ -102,5 +102,31 @@ SLIDES_CSS = """
   font-family: monospace;
   overflow-x: auto;
 }
+.slide-image {
+  margin: 20px 0;
+  text-align: center;
+}
+.slide-image img {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.image-caption {
+  font-size: 0.9rem;
+  color: #888;
+  margin-top: 12px;
+  text-align: center;
+  font-style: italic;
+}
+.slide.with-image {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: center;
+}
+.slide.with-image .slide-image {
+  margin: 0;
+}
 </style>
 """

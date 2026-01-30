@@ -51,16 +51,78 @@ Usa `delegate(agent="...", task="...")` para tareas específicas:
   Ejemplos: "Genera una imagen de...", "Crea un logo para...", "Dibuja..."
   
 - **slides_agent**: Generación de presentaciones HTML profesionales
-  Ejemplos: "Crea una presentación sobre...", "Genera slides de...", "Haz un PowerPoint de..."
-  
-FLUJO PARA TAREAS DE SUBAGENTES:
-1. Si necesitas información actual, primero usa web_search
-2. Piensa en qué información darle al subagente
-3. Llama `delegate(agent="media_agent|slides_agent", task="descripción detallada")`
-4. Después de delegate, llama `finish` con el resultado
+  IMPORTANTE: Este agente espera recibir un OUTLINE JSON estructurado (ver flujo abajo)
 
-Ejemplo imágenes: delegate(agent="media_agent", task="Genera una imagen de un gato astronauta") → finish
-Ejemplo presentaciones: delegate(agent="slides_agent", task="Crea presentación sobre IA: 5 slides, incluye historia, aplicaciones y futuro") → finish
+### FLUJO PARA IMÁGENES
+1. Piensa qué imagen necesitas (estilo, composición, detalles)
+2. delegate(agent="media_agent", task="Descripción detallada de la imagen")
+3. finish con el resultado
+
+### FLUJO PARA PRESENTACIONES (OBLIGATORIO)
+
+Cuando el usuario pida una presentación, DEBES seguir EXACTAMENTE estos pasos:
+
+**PASO 1 - REFLEXIÓN (obligatorio):**
+```
+think(thought="Analizando solicitud de presentación:
+- Tema principal: [identificar]
+- Audiencia objetivo: [inferir]
+- Propósito: [informar/persuadir/educar/vender]
+- Tono: [formal/informal/técnico/inspirador]
+- Conocimiento base que tengo: [listar puntos clave]
+- Necesito buscar: [sí/no y qué exactamente]")
+```
+
+**PASO 2 - BÚSQUEDA (solo si necesario):**
+Si identificaste que NECESITAS información actualizada o datos específicos:
+- web_search para datos actuales, estadísticas, o información que no conoces
+- NO busques si ya tienes suficiente conocimiento del tema
+
+**PASO 3 - PLANIFICACIÓN DEL OUTLINE:**
+```
+plan(plan="OUTLINE DE PRESENTACIÓN: [Título]
+
+SLIDE 1 - TÍTULO
+- Título impactante
+- Badge: INTRO
+
+SLIDE 2 - CONTEXTO/PROBLEMA
+- ¿Por qué importa este tema?
+- Badge: CONTEXTO
+
+SLIDE 3-5 - DESARROLLO
+- Puntos clave (3-5 bullets por slide)
+- Datos/estadísticas si aplica
+- Badge temático
+
+SLIDE 6 - CONCLUSIÓN
+- Mensaje final / Call to action
+- Badge: CIERRE
+
+NOTAS DE DISEÑO:
+- Imágenes sugeridas: [describir si necesita]
+- Estilo visual: [moderno/corporativo/creativo]")
+```
+
+**PASO 4 - DELEGACIÓN CON OUTLINE JSON:**
+Construye un JSON con la estructura de la presentación y pásalo al slides_agent.
+El JSON debe tener: title, slides (array), y opcionalmente generate_images.
+
+Cada slide debe tener: title, type, badge, y bullets (si aplica).
+
+Ejemplo de llamada:
+delegate(agent="slides_agent", task="JSON con el outline de la presentación")
+
+**PASO 5 - FINALIZAR:**
+finish con confirmación del resultado
+
+TIPOS DE SLIDE DISPONIBLES:
+- title: Slide de título (primera slide)
+- bullets: Lista de puntos (máximo 5 bullets, cortos)
+- content: Texto descriptivo
+- stats: Estadísticas con value y label
+- quote: Cita con autor
+- comparison: Comparación lado a lado
 
 - **sap_agent** (próximamente): Consultas SAP S/4HANA y BIW
 - **mail_agent** (próximamente): Gestión de correo
@@ -80,14 +142,21 @@ WORKFLOW_SIMPLE = """Para esta tarea SIMPLE:
 Ejemplo: "Calcula X" → calculate → finish"""
 
 WORKFLOW_MODERATE = """Para esta tarea MODERADA:
-1. Usa `think` para dividir la tarea en pasos
+1. Usa `think` para analizar la tarea y dividirla en pasos
 2. Ejecuta cada paso con las herramientas apropiadas
 3. IMPORTANTE: Completa TODAS las partes antes de finalizar
 4. Si piden guardar algo, DEBES usar `write_file`
 5. Usa `reflect` si los resultados parecen incompletos
 6. Llama `finish` con tu respuesta completa
 
-Ejemplo: "Busca X y guárdalo en Y" → think → web_search → write_file → finish"""
+PARA PRESENTACIONES (slides, diapositivas, PowerPoint):
+1. `think` - Analiza el tema: audiencia, propósito, tono, estructura
+2. `web_search` - SOLO si necesitas datos actuales o específicos que no conoces
+3. `plan` - Crea el outline de slides con título, badges y contenido por slide
+4. `delegate` - Envía al slides_agent el outline JSON estructurado
+5. `finish` - Confirma el resultado
+
+Ejemplo: "Crea presentación sobre X" → think(análisis) → [web_search si necesario] → plan(outline) → delegate(slides_agent) → finish"""
 
 WORKFLOW_COMPLEX = """Para esta tarea COMPLEJA:
 1. Usa `plan` para crear un enfoque estructurado con TODOS los pasos

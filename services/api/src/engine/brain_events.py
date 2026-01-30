@@ -300,6 +300,15 @@ def get_action_title_for_tool(tool_name: str, args: Dict[str, Any]) -> str:
     Returns:
         Título descriptivo
     """
+    # Para tools de razonamiento, extraer preview del contenido
+    def _get_reasoning_preview(a, field: str) -> str:
+        content = a.get(field, a.get("thought", ""))[:100]
+        if content:
+            # Primera línea o primeros 100 chars
+            first_line = content.split('\n')[0][:80]
+            return first_line if first_line else content[:80]
+        return ""
+    
     titles = {
         "web_search": lambda a: f"Buscando: {a.get('query', '')[:50]}",
         "web_fetch": lambda a: f"Obteniendo: {a.get('url', '')[:50]}",
@@ -310,9 +319,9 @@ def get_action_title_for_tool(tool_name: str, args: Dict[str, Any]) -> str:
         "javascript": lambda a: "Ejecutando JavaScript",
         "generate_image": lambda a: f"Generando imagen: {a.get('prompt', '')[:40]}",
         "delegate": lambda a: f"Delegando a {a.get('agent', 'subagente')}",
-        "think": lambda a: "Analizando...",
-        "plan": lambda a: "Planificando...",
-        "reflect": lambda a: "Reflexionando...",
+        "think": lambda a: f"💭 {_get_reasoning_preview(a, 'thought')}" if _get_reasoning_preview(a, 'thought') else "Analizando...",
+        "plan": lambda a: f"📋 {_get_reasoning_preview(a, 'plan')}" if _get_reasoning_preview(a, 'plan') else "Planificando...",
+        "reflect": lambda a: f"🔍 {_get_reasoning_preview(a, 'reflection')}" if _get_reasoning_preview(a, 'reflection') else "Reflexionando...",
     }
     
     title_fn = titles.get(tool_name, lambda a: f"Ejecutando {tool_name}")

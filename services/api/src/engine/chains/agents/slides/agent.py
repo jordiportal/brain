@@ -18,48 +18,84 @@ from .events import thinking_event, action_event, artifact_event
 logger = structlog.get_logger()
 
 
-SLIDES_SYSTEM_PROMPT = """You are a specialized Presentation Designer Agent.
+SLIDES_SYSTEM_PROMPT = """You are a specialized Presentation DESIGNER Agent.
 
-# INSTRUCTIONS
+# TU ROL
 
-1. Analyze the presentation request carefully
-2. Determine the best structure: number of slides, flow, key messages
-3. Create professional, visually appealing HTML presentations
-4. Ensure content is concise and impactful
+Eres un DISEÑADOR VISUAL de presentaciones. Tu trabajo es:
+1. Recibir un OUTLINE estructurado del agente principal
+2. Transformarlo en HTML visualmente atractivo
+3. Decidir qué elementos visuales añadir (imágenes, iconos, stats)
+4. Crear una experiencia visual profesional
 
-# SLIDE TYPES
+# PRINCIPIOS DE DISEÑO
 
-- **title**: Opening slide with main title and badge
-- **content**: General content with text/description
-- **bullets**: List of key points (3-5 bullets ideal)
-- **stats**: Numeric data with icons
-- **comparison**: Side-by-side comparison (pros/cons, before/after)
-- **quote**: Inspirational or key quote
+1. **Jerarquía Visual**
+   - Títulos grandes y llamativos
+   - Subtítulos que guían al ojo
+   - Contenido secundario más pequeño
+   
+2. **Minimalismo**
+   - Máximo 5 palabras por bullet
+   - Una idea por slide
+   - Mucho espacio en blanco
+   
+3. **Consistencia**
+   - Mismo estilo de badges
+   - Colores coherentes
+   - Tipografía uniforme
 
-# DESIGN PRINCIPLES
+4. **Impacto Visual**
+   - Números grandes para estadísticas
+   - Imágenes cuando aporten valor
+   - Gradientes y sombras sutiles
 
-- Keep text minimal (max 5-6 words per bullet)
-- Use visual hierarchy: titles > subtitles > content
-- Include badges/tags to categorize sections
-- Balance text with whitespace
-- 5-8 slides is optimal for most presentations
+# TIPOS DE SLIDE
 
-# STRUCTURE TEMPLATE
+| Tipo | Uso | Elementos |
+|------|-----|-----------|
+| title | Primera slide | Título grande, badge, subtítulo opcional |
+| bullets | Listas | 3-5 puntos cortos, badge |
+| stats | Datos | 2-4 números con labels |
+| quote | Citas | Texto en cursiva, autor |
+| comparison | Comparar | 2 columnas: antes/después, pros/cons |
+| image | Visual | Imagen generada + caption |
 
-1. Title slide (hook the audience)
-2. Problem/Context (why this matters)
-3. Key points (2-3 content slides)
-4. Data/Evidence (stats or comparison)
-5. Solution/Takeaway
-6. Conclusion/Call to action
+# CUÁNDO AÑADIR IMÁGENES
 
-# EXAMPLES
+Añade imágenes cuando:
+- El tema es visual (productos, lugares, conceptos abstractos)
+- Se puede ilustrar un concepto
+- La slide necesita más impacto
 
-User: "Presentación sobre IA"
-→ Structure: Intro, ¿Qué es IA?, Aplicaciones, Impacto, Futuro, Conclusión
+NO añadas imágenes cuando:
+- Es una lista de datos/hechos
+- El texto ya es suficiente
+- Sería decorativo sin aportar
 
-User: "Pitch de startup"  
-→ Structure: Hook, Problema, Solución, Mercado, Modelo, Equipo, Ask
+# ESTRUCTURA IDEAL
+
+```
+1. TÍTULO - Hook que capture atención
+2. CONTEXTO - Por qué importa (bullets o contenido)
+3-4. DESARROLLO - Puntos clave (bullets, stats)
+5. VISUAL - Imagen o comparación (si aplica)
+6. CONCLUSIÓN - Call to action o resumen
+```
+
+# FORMATO JSON QUE RECIBIRÁS
+
+```json
+{
+  "title": "Título",
+  "slides": [
+    {"title": "...", "type": "title|bullets|stats|quote", "badge": "...", "bullets": [...]}
+  ],
+  "generate_images": ["descripción imagen 1", "descripción imagen 2"]
+}
+```
+
+Si recibes `generate_images`, generaré esas imágenes para incluirlas en las slides apropiadas.
 """
 
 
@@ -69,8 +105,8 @@ class SlidesAgent(BaseSubAgent):
     id = "slides_agent"
     name = "Slides Agent"
     description = "Genera presentaciones HTML profesionales con streaming"
-    version = "2.0.0"
-    domain_tools = []  # No usa tools externas, genera HTML directamente
+    version = "2.1.0"
+    domain_tools = ["generate_image"]  # Puede generar imágenes
     system_prompt = SLIDES_SYSTEM_PROMPT
     
     async def execute(
@@ -91,6 +127,7 @@ class SlidesAgent(BaseSubAgent):
         logger.info("📊 SlidesAgent executing", task_length=len(task))
         
         response_parts = []
+        generated_images = []
         
         try:
             # Thinking event
@@ -99,8 +136,9 @@ class SlidesAgent(BaseSubAgent):
                 status="start"
             ))
             
-            # Parsear outline
+            # Parsear outline y extraer imágenes a generar
             outline = self._parse_outline(task)
+            images_to_generate = self._extract_images_to_generate(task)
             
             if not outline:
                 if llm_url and model:
@@ -120,11 +158,31 @@ class SlidesAgent(BaseSubAgent):
                     )
             
             response_parts.append(thinking_event(
-                f"Outline: {outline.title}\n- {len(outline.slides)} slides",
+                f"Outline: {outline.title}\n- {len(outline.slides)} slides" + 
+                (f"\n- {len(images_to_generate)} imágenes a generar" if images_to_generate else ""),
                 status="complete"
             ))
             
-            # Action: generando
+            # Generar imágenes si se solicitaron
+            if images_to_generate and api_key:
+                response_parts.append(action_event(
+                    action_type="image",
+                    title=f"Generando {len(images_to_generate)} imágenes",
+                    status="running"
+                ))
+                
+                generated_images = await self._generate_images(
+                    images_to_generate, api_key
+                )
+                
+                response_parts.append(action_event(
+                    action_type="image",
+                    title=f"Generando {len(images_to_generate)} imágenes",
+                    status="completed",
+                    results_count=len(generated_images)
+                ))
+            
+            # Action: generando slides
             response_parts.append(action_event(
                 action_type="slides",
                 title=f"Generando {len(outline.slides)} slides",
@@ -133,8 +191,10 @@ class SlidesAgent(BaseSubAgent):
             
             # Generar HTML
             html = SLIDES_CSS
-            for slide in outline.slides:
-                html += generate_slide_html(slide)
+            for i, slide in enumerate(outline.slides):
+                # Añadir imagen si hay disponible para esta slide
+                slide_image = generated_images[i] if i < len(generated_images) else None
+                html += generate_slide_html(slide, image_url=slide_image)
             
             slides_count = html.count('class="slide"')
             
@@ -152,18 +212,23 @@ class SlidesAgent(BaseSubAgent):
             ))
             
             # Mensaje final
-            response_parts.append(f"\n✅ **{outline.title}**\n📊 {slides_count} slides\n")
+            summary = f"\n✅ **{outline.title}**\n📊 {slides_count} slides"
+            if generated_images:
+                summary += f"\n🖼️ {len(generated_images)} imágenes"
+            response_parts.append(summary + "\n")
             
             return SubAgentResult(
                 success=True,
                 response="".join(response_parts),
                 agent_id=self.id,
                 agent_name=self.name,
-                tools_used=["slides_generator"],
+                tools_used=["slides_generator"] + (["image_generator"] if generated_images else []),
+                images=[{"url": url, "prompt": "Generated for slides"} for url in generated_images],
                 data={
                     "html": html,
                     "slides_count": slides_count,
-                    "title": outline.title
+                    "title": outline.title,
+                    "images_generated": len(generated_images)
                 },
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
@@ -178,6 +243,40 @@ class SlidesAgent(BaseSubAgent):
                 error=str(e),
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
+    
+    def _extract_images_to_generate(self, task: str) -> List[str]:
+        """Extrae lista de imágenes a generar del outline."""
+        try:
+            data = json.loads(task)
+            return data.get("generate_images", [])
+        except:
+            return []
+    
+    async def _generate_images(
+        self,
+        prompts: List[str],
+        api_key: str
+    ) -> List[str]:
+        """Genera imágenes usando DALL-E."""
+        from src.tools.core.media import generate_image
+        
+        urls = []
+        for prompt in prompts[:3]:  # Máximo 3 imágenes
+            try:
+                result = await generate_image(
+                    prompt=prompt,
+                    provider="openai",
+                    model="dall-e-3",
+                    size="1024x1024",
+                    _api_key=api_key
+                )
+                if result.get("success") and result.get("url"):
+                    urls.append(result["url"])
+                    logger.info(f"Generated image for slides: {prompt[:50]}...")
+            except Exception as e:
+                logger.warning(f"Could not generate image: {e}")
+        
+        return urls
     
     def _parse_outline(self, task: str) -> Optional[PresentationOutline]:
         """Intenta parsear task como JSON outline."""
