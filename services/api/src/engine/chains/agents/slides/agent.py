@@ -248,7 +248,15 @@ class SlidesAgent(BaseSubAgent):
         """Extrae lista de imágenes a generar del outline."""
         try:
             data = json.loads(task)
-            return data.get("generate_images", [])
+            images = data.get("generate_images", [])
+            # Asegurar que sea una lista
+            if isinstance(images, list):
+                return [str(img) for img in images if img]
+            elif isinstance(images, bool):
+                return []  # Si es True/False, ignorar
+            elif isinstance(images, str):
+                return [images]  # Si es un string, convertir a lista
+            return []
         except:
             return []
     
