@@ -25,6 +25,22 @@ class MediaAgent(BaseSubAgent):
     domain_tools = ["generate_image"]
     system_prompt = SYSTEM_PROMPT
     
+    task_requirements = """Envíame una descripción detallada de la imagen a generar.
+
+FORMATO: Texto descriptivo con:
+- Sujeto principal (qué aparece)
+- Estilo visual (realista, ilustración, 3D, minimalista, etc.)
+- Colores o paleta (opcional)
+- Composición (primer plano, paisaje, etc.)
+- Ambiente/mood (profesional, alegre, dramático, etc.)
+
+EJEMPLOS:
+- "Logo minimalista para empresa de tecnología, colores azul y blanco, estilo limpio"
+- "Ilustración de un gato naranja sentado en una ventana, estilo acuarela, luz cálida"
+- "Foto realista de montañas nevadas al atardecer, colores dramáticos"
+
+NO necesitas especificar el modelo ni parámetros técnicos, yo los selecciono."""
+    
     # Patrones de solicitud directa
     DIRECT_PATTERNS = [
         "genera una imagen", "generate an image",

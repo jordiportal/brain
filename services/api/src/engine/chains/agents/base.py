@@ -54,6 +54,7 @@ class BaseSubAgent(ABC):
     
     Cada subagente define:
     - id, name, description: Identificación
+    - task_requirements: Qué necesita recibir para ejecutar (autodescripción)
     - domain_tools: Lista de IDs de herramientas del dominio
     - system_prompt: Prompt de sistema (opcional)
     - execute(): Método principal de ejecución
@@ -65,6 +66,9 @@ class BaseSubAgent(ABC):
     version: str = "1.0.0"
     domain_tools: List[str] = []
     system_prompt: str = "You are a specialized agent."
+    
+    # NUEVO: El subagente describe qué necesita recibir
+    task_requirements: str = "Descripción de la tarea a realizar."
     
     def __init__(self):
         logger.info(f"🤖 SubAgent initialized: {self.id}")

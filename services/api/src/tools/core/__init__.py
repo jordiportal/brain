@@ -50,8 +50,10 @@ from .utils import (
 
 from .delegation import (
     delegate,
+    get_agent_info,
     get_available_subagents_description,
-    DELEGATE_TOOL
+    DELEGATE_TOOL,
+    GET_AGENT_INFO_TOOL
 )
 
 # Mantener imports para uso interno por subagentes
@@ -62,6 +64,7 @@ from .slides import (
 
 # Delegation tools dict
 DELEGATION_TOOLS = {
+    "get_agent_info": GET_AGENT_INFO_TOOL,
     "delegate": DELEGATE_TOOL
 }
 
@@ -105,6 +108,7 @@ __all__ = [
     "calculate",
     # Delegation
     "delegate",
+    "get_agent_info",
     "get_available_subagents_description",
     # Slides
     "generate_slides",

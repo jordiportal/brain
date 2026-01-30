@@ -158,29 +158,85 @@ def get_subagent_ids() -> list:
     return subagent_registry.list_ids()
 
 
+async def get_agent_info(agent: str) -> Dict[str, Any]:
+    """
+    Obtiene información sobre un subagente, incluyendo qué datos necesita.
+    
+    Usa esta tool ANTES de delegar para saber exactamente qué formato
+    de datos espera el subagente.
+    
+    Args:
+        agent: ID del subagente (media_agent, slides_agent, etc.)
+    
+    Returns:
+        Dict con:
+        - id: ID del subagente
+        - name: Nombre descriptivo
+        - description: Qué hace el subagente
+        - task_requirements: Qué datos necesita recibir y en qué formato
+    """
+    from src.engine.chains.agents import subagent_registry, register_all_subagents
+    
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    subagent = subagent_registry.get(agent)
+    
+    if not subagent:
+        available = subagent_registry.list_ids()
+        return {
+            "success": False,
+            "error": f"Subagente '{agent}' no encontrado",
+            "available_agents": available
+        }
+    
+    return {
+        "success": True,
+        "id": subagent.id,
+        "name": subagent.name,
+        "description": subagent.description,
+        "task_requirements": subagent.task_requirements,
+        "version": subagent.version
+    }
+
+
 # ============================================
-# Tool Definition
+# Tool Definitions
 # ============================================
+
+GET_AGENT_INFO_TOOL = {
+    "id": "get_agent_info",
+    "name": "get_agent_info",
+    "description": """Obtiene información sobre un subagente, incluyendo qué datos necesita.
+
+Usa esta tool ANTES de delegar para saber exactamente qué formato de datos
+espera el subagente. Cada subagente tiene requisitos específicos.
+
+Subagentes disponibles:
+- media_agent: Generación de imágenes
+- slides_agent: Generación de presentaciones""",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent": {
+                "type": "string",
+                "enum": ["media_agent", "slides_agent"],
+                "description": "ID del subagente"
+            }
+        },
+        "required": ["agent"]
+    },
+    "handler": get_agent_info
+}
+
 
 DELEGATE_TOOL = {
     "id": "delegate",
     "name": "delegate",
     "description": """Delega una tarea a un subagente especializado.
 
-Usa esta tool cuando la tarea requiere capacidades de un dominio específico:
-- media_agent: Generación y manipulación de imágenes (DALL-E, Stable Diffusion)
-- slides_agent: Generación de presentaciones HTML profesionales
-- sap_agent: Consultas a SAP S/4HANA y BIW (próximamente)
-- mail_agent: Envío y lectura de emails (próximamente)
-- office_agent: Creación de documentos Word, Excel, PowerPoint (próximamente)
-
-El subagente tiene herramientas especializadas y conocimiento del dominio.
-
-IMPORTANTE para slides_agent:
-- Primero investiga el tema (web_search si necesario)
-- Crea un outline estructurado con: título, slides [{title, type, content/bullets}]
-- Pasa el outline como JSON en el campo 'task'
-- El slides_agent generará HTML profesional con estilos incluidos""",
+Usa esta tool cuando la tarea requiere capacidades de un dominio específico.
+IMPORTANTE: Usa get_agent_info primero para saber qué formato de datos espera el subagente.""",
     "parameters": {
         "type": "object",
         "properties": {
@@ -191,11 +247,11 @@ IMPORTANTE para slides_agent:
             },
             "task": {
                 "type": "string",
-                "description": "Descripción de la tarea o JSON con outline estructurado (para slides_agent)"
+                "description": "Datos para el subagente (usa get_agent_info para saber el formato)"
             },
             "context": {
                 "type": "string",
-                "description": "Contexto adicional: información recopilada, fuentes consultadas, etc."
+                "description": "Contexto adicional (opcional)"
             }
         },
         "required": ["agent", "task"]

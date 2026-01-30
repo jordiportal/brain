@@ -9,164 +9,95 @@ Estas secciones se insertan en los prompts específicos de cada proveedor.
 # ============================================
 
 TOOLS_SECTION = """
-## Herramientas de Sistema de Archivos
-- `read_file`: Leer contenido de archivos
-- `write_file`: Crear/sobrescribir archivos (SIEMPRE úsalo cuando pidan guardar algo)
-- `edit_file`: Editar archivos (reemplazar texto)
-- `list_directory`: Listar contenido de directorio
-- `search_files`: Buscar archivos o contenido
+## Sistema de Archivos
+- `read_file`: Leer archivos
+- `write_file`: Crear/sobrescribir archivos
+- `edit_file`: Editar archivos existentes
+- `list_directory`: Listar directorio
+- `search_files`: Buscar archivos
 
-## Herramientas de Ejecución
-- `shell`: Ejecutar comandos de terminal
-- `python`: Ejecutar código Python en Docker
-- `javascript`: Ejecutar JavaScript en Docker
+## Ejecución de Código
+- `shell`: Comandos de terminal
+- `python`: Código Python (Docker)
+- `javascript`: JavaScript (Docker)
 
-## Herramientas Web
+## Web
 - `web_search`: Buscar en internet
 - `web_fetch`: Obtener contenido de URL
 
-## Herramientas de Razonamiento
-- `think`: Planificar y razonar sobre la tarea
-- `reflect`: Evaluar resultados y progreso
-- `plan`: Crear plan estructurado para tareas complejas
-- `finish`: Dar respuesta final - DEBES llamar esto para completar
+## Razonamiento
+- `think`: Analizar y planificar
+- `plan`: Plan estructurado para tareas complejas
+- `reflect`: Evaluar progreso
+- `finish`: Respuesta final (OBLIGATORIO)
 
 ## Utilidades
 - `calculate`: Evaluar expresiones matemáticas
-
-## Delegación
-- `delegate`: Delegar a subagentes especializados
 """
 
 # ============================================
-# Sección de Subagentes
+# Sección de Subagentes (simplificada)
 # ============================================
 
 SUBAGENTS_SECTION = """
 ## Subagentes Especializados
 
-Usa `delegate(agent="...", task="...")` para tareas específicas:
+Para tareas de dominio específico, usa subagentes:
 
-- **media_agent**: Generación de imágenes con DALL-E 3, Stable Diffusion, Flux
-  Ejemplos: "Genera una imagen de...", "Crea un logo para...", "Dibuja..."
-  
-- **slides_agent**: Generación de presentaciones HTML profesionales
-  IMPORTANTE: Este agente espera recibir un OUTLINE JSON estructurado (ver flujo abajo)
+| Agente | Capacidad |
+|--------|-----------|
+| media_agent | Genera imágenes (DALL-E 3, Stable Diffusion) |
+| slides_agent | Genera presentaciones HTML profesionales |
 
-### FLUJO PARA IMÁGENES
-1. Piensa qué imagen necesitas (estilo, composición, detalles)
-2. delegate(agent="media_agent", task="Descripción detallada de la imagen")
-3. finish con el resultado
+### Cómo usar subagentes
 
-### FLUJO PARA PRESENTACIONES (OBLIGATORIO)
+1. `get_agent_info(agent)` → Te dice qué datos necesita
+2. Prepara los datos según los requisitos
+3. `delegate(agent, task)` → Ejecuta la tarea
+4. `finish` → Incluye el resultado
 
-Cuando el usuario pida una presentación, DEBES seguir EXACTAMENTE estos pasos:
-
-**PASO 1 - REFLEXIÓN (obligatorio):**
+**Ejemplo:**
 ```
-think(thought="Analizando solicitud de presentación:
-- Tema principal: [identificar]
-- Audiencia objetivo: [inferir]
-- Propósito: [informar/persuadir/educar/vender]
-- Tono: [formal/informal/técnico/inspirador]
-- Conocimiento base que tengo: [listar puntos clave]
-- Necesito buscar: [sí/no y qué exactamente]")
+Usuario: "Crea una presentación sobre IA"
+
+1. get_agent_info("slides_agent") → Devuelve formato JSON esperado
+2. think → Planifica estructura
+3. web_search → (solo si necesitas datos actuales)
+4. delegate("slides_agent", task=JSON_outline)
+5. finish
 ```
-
-**PASO 2 - BÚSQUEDA (solo si necesario):**
-Si identificaste que NECESITAS información actualizada o datos específicos:
-- web_search para datos actuales, estadísticas, o información que no conoces
-- NO busques si ya tienes suficiente conocimiento del tema
-
-**PASO 3 - PLANIFICACIÓN DEL OUTLINE:**
-```
-plan(plan="OUTLINE DE PRESENTACIÓN: [Título]
-
-SLIDE 1 - TÍTULO
-- Título impactante
-- Badge: INTRO
-
-SLIDE 2 - CONTEXTO/PROBLEMA
-- ¿Por qué importa este tema?
-- Badge: CONTEXTO
-
-SLIDE 3-5 - DESARROLLO
-- Puntos clave (3-5 bullets por slide)
-- Datos/estadísticas si aplica
-- Badge temático
-
-SLIDE 6 - CONCLUSIÓN
-- Mensaje final / Call to action
-- Badge: CIERRE
-
-NOTAS DE DISEÑO:
-- Imágenes sugeridas: [describir si necesita]
-- Estilo visual: [moderno/corporativo/creativo]")
-```
-
-**PASO 4 - DELEGACIÓN CON OUTLINE JSON:**
-Construye un JSON con la estructura de la presentación y pásalo al slides_agent.
-El JSON debe tener: title, slides (array), y opcionalmente generate_images.
-
-Cada slide debe tener: title, type, badge, y bullets (si aplica).
-
-Ejemplo de llamada:
-delegate(agent="slides_agent", task="JSON con el outline de la presentación")
-
-**PASO 5 - FINALIZAR:**
-finish con confirmación del resultado
-
-TIPOS DE SLIDE DISPONIBLES:
-- title: Slide de título (primera slide)
-- bullets: Lista de puntos (máximo 5 bullets, cortos)
-- content: Texto descriptivo
-- stats: Estadísticas con value y label
-- quote: Cita con autor
-- comparison: Comparación lado a lado
-
-- **sap_agent** (próximamente): Consultas SAP S/4HANA y BIW
-- **mail_agent** (próximamente): Gestión de correo
-- **office_agent** (próximamente): Creación de documentos Office
 """
 
 # ============================================
 # Workflow (único - el LLM decide)
 # ============================================
 
-WORKFLOW = """# CÓMO DECIDIR QUÉ HACER
+WORKFLOW = """
+# CÓMO PROCEDER
 
-Evalúa la tarea y decide el enfoque apropiado:
+Evalúa la tarea y decide:
 
-## Tareas simples (respuesta directa o 1-2 herramientas):
-- Identifica qué herramienta necesitas
-- Ejecútala
-- Llama `finish` con tu respuesta
+## Tareas simples
+→ Herramienta necesaria → `finish`
 
-## Tareas que requieren investigación:
-- Usa `web_search` si necesitas información actualizada o datos que no conoces
-- NO busques si ya tienes el conocimiento suficiente
+## Tareas que requieren investigación
+→ `web_search` (solo si necesitas info externa) → `finish`
 
-## Tareas que requieren planificación (presentaciones, proyectos complejos):
-1. `think` - Analiza la tarea: qué se pide, cómo abordarlo
-2. `web_search` - Solo si necesitas información externa
-3. `plan` - Si hay múltiples pasos, crea un plan estructurado
-4. Ejecuta las herramientas necesarias
-5. `finish` - Confirma el resultado
+## Tareas especializadas (imágenes, presentaciones)
+→ `get_agent_info` → prepara datos → `delegate` → `finish`
 
-## REGLAS IMPORTANTES:
-- **SIEMPRE termina con `finish`** - Es obligatorio para completar cualquier tarea
-- **Si piden guardar algo, usa `write_file`**
-- **Si la tarea tiene varias partes, completa TODAS antes de finish**
-- **No repitas la misma herramienta sin progreso** (máx 3 veces consecutivas)
+## Tareas complejas
+→ `think` → herramientas necesarias → `finish`
 
-## Ejemplos:
-- "Calcula X" → calculate → finish
-- "Busca sobre X" → web_search → finish
-- "Lee archivo Y" → read_file → finish
-- "Crea presentación sobre X" → think → [web_search] → plan → delegate(slides_agent) → finish
-- "Genera imagen de X" → delegate(media_agent) → finish"""
+# REGLAS
 
-# Aliases para compatibilidad (todos apuntan al mismo workflow)
+1. **`finish` es OBLIGATORIO** - Toda tarea termina con `finish`
+2. **No repitas herramientas** sin progreso (máx 3 veces)
+3. **Si piden guardar** → usa `write_file`
+4. **Si piden imagen/presentación** → usa subagente
+"""
+
+# Aliases para compatibilidad
 WORKFLOW_SIMPLE = WORKFLOW
 WORKFLOW_MODERATE = WORKFLOW
 WORKFLOW_COMPLEX = WORKFLOW

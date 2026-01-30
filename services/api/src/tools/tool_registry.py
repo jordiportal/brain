@@ -1,5 +1,5 @@
 """
-Brain 2.0 Tool Registry - Registro central de las 15 Core Tools
+Brain 2.0 Tool Registry - Registro central de Core Tools
 
 Core Tools:
 - Filesystem (5): read_file, write_file, edit_file, list_directory, search_files
@@ -7,6 +7,7 @@ Core Tools:
 - Web (2): web_search, web_fetch
 - Reasoning (4): think, reflect, plan, finish
 - Utils (1): calculate
+- Delegation (2): get_agent_info, delegate
 """
 
 import structlog
@@ -246,7 +247,7 @@ class ToolRegistry:
             "Web": ["web_search", "web_fetch"],
             "Reasoning": ["think", "reflect", "plan", "finish"],
             "Utils": ["calculate"],
-            "Delegation": ["delegate"]
+            "Delegation": ["get_agent_info", "delegate"]
         }
         
         for category, tool_ids in categories.items():

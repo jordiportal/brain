@@ -109,6 +109,36 @@ class SlidesAgent(BaseSubAgent):
     domain_tools = ["generate_image"]  # Puede generar imágenes
     system_prompt = SLIDES_SYSTEM_PROMPT
     
+    task_requirements = """Envíame un JSON con el OUTLINE de la presentación.
+
+FORMATO JSON:
+{
+  "title": "Título de la presentación",
+  "slides": [
+    {
+      "title": "Título del slide",
+      "type": "title|bullets|stats|quote|comparison|image",
+      "badge": "INTRO|CONTEXTO|DATOS|CASO|CIERRE|etc",
+      "bullets": ["punto 1", "punto 2", "punto 3"],
+      "content": "Texto descriptivo (opcional, para type=content)"
+    }
+  ],
+  "generate_images": ["prompt imagen 1", "prompt imagen 2"]
+}
+
+TIPOS DE SLIDE:
+- title: Primera slide (solo título + badge)
+- bullets: Lista de puntos (máx 5, cortos)
+- stats: Estadísticas con números grandes
+- quote: Cita con autor
+- comparison: Dos columnas comparativas
+- image: Slide con imagen generada
+
+NOTAS:
+- "generate_images" es opcional, yo genero las imágenes si las necesitas
+- Máximo 5 bullets por slide, máximo 5 palabras por bullet
+- Sugiere badges temáticos cortos (1-2 palabras)"""
+    
     async def execute(
         self,
         task: str,
