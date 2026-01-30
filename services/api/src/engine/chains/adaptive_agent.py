@@ -143,12 +143,16 @@ Usa `delegate(agent="...", task="...")` para tareas específicas:
   Ejemplos: "Crea una presentación sobre...", "Genera slides de...", "Haz un PowerPoint de..."
   
   IMPORTANTE: Para presentaciones, usa la tool `generate_slides` directamente (NO delegate).
-  Esta tool tiene streaming progresivo y mejor experiencia de usuario.
+  Esta tool tiene streaming progresivo y TERMINA la ejecución automáticamente.
   
-  FLUJO PARA PRESENTACIONES:
+  FLUJO PARA PRESENTACIONES (una sola vez):
   1. Investiga el tema (usa web_search si necesitas datos actuales)
-  2. Crea un outline JSON: title y slides array
-  3. Llama: generate_slides(outline=json_del_outline, context=info_recopilada)
+  2. Piensa y crea un outline JSON completo: title y slides array
+  3. Llama UNA VEZ: generate_slides(outline=json_del_outline)
+  4. NO llames finish después - generate_slides ya termina la ejecución
+  
+  IMPORTANTE: Solo llama generate_slides UNA VEZ con un outline completo.
+  No regeneres la presentación - confía en tu primer diseño.
   
   Tipos de slide: title, content, bullets, stats, comparison, quote
   Cada slide tiene: title, type, content o bullets[], badge (opcional)
@@ -194,7 +198,7 @@ Llama `finish` AHORA si:
 - "Busca X y guárdalo" → web_search → write_file → finish
 - "Lee archivo X" → read_file → finish
 - "Genera una imagen" → delegate(agent="media_agent", task="...") → finish
-- "Crea presentación sobre X" → web_search (si necesario) → generate_slides(outline=json) → finish
+- "Crea presentación sobre X" → web_search (si necesario) → generate_slides(outline=json) → [termina automáticamente]
 
 Ahora ayuda al usuario con su petición."""
 
@@ -606,7 +610,10 @@ async def build_adaptive_agent(
     last_tool_name = None
     MAX_CONSECUTIVE_SAME_TOOL = 3
     
-    while iteration < max_iterations:
+    # Flag para terminar ejecución desde tools especiales
+    execution_complete = False
+    
+    while iteration < max_iterations and not execution_complete:
         iteration += 1
         
         yield StreamEvent(
@@ -770,28 +777,30 @@ async def build_adaptive_agent(
                     # Ejecutar tool
                     result = await tool_registry.execute(tool_name, **exec_args)
                     
-                    # Emitir eventos capturados de generate_slides
-                    if tool_name == "generate_slides" and emit_brain_events:
-                        # Los eventos están en result.events_emitted
-                        events_emitted = result.get("events_emitted", [])
-                        for event_marker in events_emitted:
-                            yield StreamEvent(
-                                event_type="token",
-                                execution_id=execution_id,
-                                node_id="slides_streaming",
-                                content=event_marker
-                            )
+                    # Manejar generate_slides (tool terminal)
+                    if tool_name == "generate_slides":
+                        # Emitir eventos si está activado
+                        if emit_brain_events:
+                            events_emitted = result.get("events_emitted", [])
+                            for event_marker in events_emitted:
+                                yield StreamEvent(
+                                    event_type="token",
+                                    execution_id=execution_id,
+                                    node_id="slides_streaming",
+                                    content=event_marker
+                                )
                         
-                        # Si tuvo éxito, terminar con el resultado
+                        # Si tuvo éxito, terminar ejecución completamente
                         if result.get("success"):
-                            final_msg = f"\n✅ {result.get('message', 'Presentación generada')}\n"
+                            final_answer = f"✅ {result.get('message', 'Presentación generada')}"
                             yield StreamEvent(
                                 event_type="token",
                                 execution_id=execution_id,
                                 node_id="",
-                                content=final_msg
+                                content=f"\n{final_answer}\n"
                             )
-                            break
+                            execution_complete = True  # Salir del while
+                            break  # Salir del for
                     
                     # Verificar si es finish
                     if tool_name == "finish":
