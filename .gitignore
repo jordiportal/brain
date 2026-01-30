@@ -12,3 +12,4 @@ dist/
 .tmp/
 public/uploads/
 .DS_Store
+brain_*_backup_*.sql

@@ -137,6 +137,17 @@ Usa `delegate(agent="...", task="...")` para tareas específicas:
 
 - **media_agent**: Generación de imágenes con DALL-E 3, Stable Diffusion, Flux
   Ejemplos: "Genera una imagen de...", "Crea un logo para...", "Dibuja..."
+
+- **slides_agent**: Generación de presentaciones HTML profesionales
+  Ejemplos: "Crea una presentación sobre...", "Genera slides de...", "Haz un PowerPoint de..."
+  
+  FLUJO PARA PRESENTACIONES:
+  1. Primero investiga el tema (usa web_search si necesitas datos actuales)
+  2. Crea un outline JSON estructurado con title y slides array
+  3. Delega: delegate(agent="slides_agent", task=outline_en_json, context=info_recopilada)
+  
+  Tipos de slide: title, content, bullets, stats, comparison, quote
+  Cada slide tiene: title, type, content o bullets[]
   
 - **sap_agent** (próximamente): Consultas SAP S/4HANA y BIW
 - **mail_agent** (próximamente): Gestión de correo
@@ -179,6 +190,7 @@ Llama `finish` AHORA si:
 - "Busca X y guárdalo" → web_search → write_file → finish
 - "Lee archivo X" → read_file → finish
 - "Genera una imagen" → delegate(agent="media_agent", task="...") → finish
+- "Crea presentación sobre X" → web_search (si necesario) → think (crear outline) → delegate(agent="slides_agent", task=outline) → finish
 
 Ahora ayuda al usuario con su petición."""
 
@@ -730,32 +742,54 @@ async def build_adaptive_agent(
                         "result": result
                     })
                     
-                    # Manejar imágenes de delegación
-                    if tool_name == "delegate" and result.get("success") and result.get("images"):
-                        for img in result["images"]:
-                            if img.get("url"):
-                                yield StreamEvent(
-                                    event_type="image",
-                                    execution_id=execution_id,
-                                    node_id=f"tool_{tool_name}_{iteration}",
-                                    data={
-                                        "image_url": img["url"],
-                                        "alt_text": img.get("prompt", "Generated image"),
-                                        "provider": img.get("provider"),
-                                        "model": img.get("model")
-                                    }
-                                )
-                            elif img.get("base64"):
-                                yield StreamEvent(
-                                    event_type="image",
-                                    execution_id=execution_id,
-                                    node_id=f"tool_{tool_name}_{iteration}",
-                                    data={
-                                        "image_data": img["base64"],
-                                        "mime_type": img.get("mime_type", "image/png"),
-                                        "alt_text": img.get("prompt", "Generated image")
-                                    }
-                                )
+                    # Manejar delegación especial
+                    if tool_name == "delegate" and result.get("success"):
+                        # Imágenes de media_agent
+                        if result.get("images"):
+                            for img in result["images"]:
+                                if img.get("url"):
+                                    yield StreamEvent(
+                                        event_type="image",
+                                        execution_id=execution_id,
+                                        node_id=f"tool_{tool_name}_{iteration}",
+                                        data={
+                                            "image_url": img["url"],
+                                            "alt_text": img.get("prompt", "Generated image"),
+                                            "provider": img.get("provider"),
+                                            "model": img.get("model")
+                                        }
+                                    )
+                                elif img.get("base64"):
+                                    yield StreamEvent(
+                                        event_type="image",
+                                        execution_id=execution_id,
+                                        node_id=f"tool_{tool_name}_{iteration}",
+                                        data={
+                                            "image_data": img["base64"],
+                                            "mime_type": img.get("mime_type", "image/png"),
+                                            "alt_text": img.get("prompt", "Generated image")
+                                        }
+                                    )
+                        
+                        # Respuestas de slides_agent con Brain Events
+                        # Emitir directamente al stream para que Open WebUI los procese
+                        response_text = result.get("response", "")
+                        if "<!--BRAIN_EVENT:" in response_text:
+                            yield StreamEvent(
+                                event_type="token",
+                                execution_id=execution_id,
+                                node_id=f"subagent_{result.get('agent_id', 'unknown')}",
+                                content=response_text
+                            )
+                            # La presentación ya se generó, terminar
+                            final_answer = f"Presentación generada: {result.get('data', {}).get('title', 'Sin título')} ({result.get('data', {}).get('slides_count', '?')} slides)"
+                            yield StreamEvent(
+                                event_type="token",
+                                execution_id=execution_id,
+                                node_id="",
+                                content=final_answer
+                            )
+                            break
                     
                     # Extraer contenido para herramientas de razonamiento
                     thinking_content = None

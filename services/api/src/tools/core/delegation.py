@@ -169,26 +169,33 @@ DELEGATE_TOOL = {
 
 Usa esta tool cuando la tarea requiere capacidades de un dominio específico:
 - media_agent: Generación y manipulación de imágenes (DALL-E, Stable Diffusion)
+- slides_agent: Generación de presentaciones HTML profesionales
 - sap_agent: Consultas a SAP S/4HANA y BIW (próximamente)
 - mail_agent: Envío y lectura de emails (próximamente)
 - office_agent: Creación de documentos Word, Excel, PowerPoint (próximamente)
 
-El subagente tiene herramientas especializadas y conocimiento del dominio.""",
+El subagente tiene herramientas especializadas y conocimiento del dominio.
+
+IMPORTANTE para slides_agent:
+- Primero investiga el tema (web_search si necesario)
+- Crea un outline estructurado con: título, slides [{title, type, content/bullets}]
+- Pasa el outline como JSON en el campo 'task'
+- El slides_agent generará HTML profesional con estilos incluidos""",
     "parameters": {
         "type": "object",
         "properties": {
             "agent": {
                 "type": "string",
-                "enum": ["media_agent"],  # Se actualiza dinámicamente
+                "enum": ["media_agent", "slides_agent"],
                 "description": "ID del subagente especializado"
             },
             "task": {
                 "type": "string",
-                "description": "Descripción clara y detallada de la tarea a realizar"
+                "description": "Descripción de la tarea o JSON con outline estructurado (para slides_agent)"
             },
             "context": {
                 "type": "string",
-                "description": "Contexto adicional o resultados de pasos previos (opcional)"
+                "description": "Contexto adicional: información recopilada, fuentes consultadas, etc."
             }
         },
         "required": ["agent", "task"]

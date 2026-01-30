@@ -325,6 +325,9 @@ class SlidesAgent(BaseSubAgent):
         """
         Ejecuta la generación de presentación.
         
+        La respuesta incluye Brain Events embebidos como markers HTML
+        para que Open WebUI los procese correctamente.
+        
         Args:
             task: Puede ser:
                 - JSON string con el outline completo
@@ -339,25 +342,34 @@ class SlidesAgent(BaseSubAgent):
             has_context=bool(context)
         )
         
+        response_parts = []
+        
         try:
+            # Evento thinking
+            response_parts.append(create_thinking_event(
+                "Procesando solicitud de presentación...",
+                status="start"
+            ))
+            
             # Intentar parsear como JSON outline
             outline = self._parse_outline(task)
             
-            if outline:
-                # Generación directa desde outline
-                html = await self._generate_from_outline(outline)
-            else:
-                # Necesita LLM para crear outline y slides
+            if not outline:
+                # Necesita LLM para crear outline
                 if not llm_url or not model:
                     return SubAgentResult(
                         success=False,
-                        response="Se requiere LLM para generar presentación desde texto",
+                        response="Se requiere LLM para generar presentación desde texto. Pasa un outline JSON estructurado.",
                         agent_id=self.id,
                         agent_name=self.name,
-                        error="LLM not configured"
+                        error="LLM not configured or invalid outline"
                     )
                 
-                html = await self._generate_with_llm(
+                response_parts.append(create_thinking_event(
+                    "Creando estructura de la presentación..."
+                ))
+                
+                outline = await self._create_outline_with_llm(
                     task=task,
                     context=context,
                     llm_url=llm_url,
@@ -366,16 +378,52 @@ class SlidesAgent(BaseSubAgent):
                     api_key=api_key
                 )
             
+            response_parts.append(create_thinking_event(
+                f"Outline: {outline.title}\n- {len(outline.slides)} slides",
+                status="complete"
+            ))
+            
+            # Evento action - generando slides
+            response_parts.append(create_action_event(
+                action_type="slides",
+                title=f"Generando {len(outline.slides)} slides",
+                status="running"
+            ))
+            
+            # Generar HTML
+            html = await self._generate_from_outline(outline)
+            slides_count = html.count('class="slide"')
+            
+            # Evento artifact con el HTML
+            response_parts.append(create_artifact_event(
+                html_content=html,
+                title=outline.title
+            ))
+            
+            # Evento action completado
+            response_parts.append(create_action_event(
+                action_type="slides",
+                title=f"Generando {len(outline.slides)} slides",
+                status="completed"
+            ))
+            
+            # Mensaje final
+            response_parts.append(f"\n✅ **Presentación generada:** {outline.title}\n")
+            response_parts.append(f"📊 {slides_count} slides creadas\n")
+            
+            # Construir respuesta completa con todos los Brain Events
+            full_response = "".join(response_parts)
+            
             return SubAgentResult(
                 success=True,
-                response=f"Presentación generada con éxito",
+                response=full_response,
                 agent_id=self.id,
                 agent_name=self.name,
                 tools_used=["slides_generator"],
                 data={
                     "html": html,
-                    "slides_count": html.count('class="slide"'),
-                    "title": outline.title if outline else "Presentación"
+                    "slides_count": slides_count,
+                    "title": outline.title
                 },
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )

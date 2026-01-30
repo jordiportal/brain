@@ -85,16 +85,8 @@ class ConfigLoader:
                 max_tokens=4096,
                 supports_streaming=True,
                 supports_tools=False
-            ),
-            BrainModel(
-                id="brain-slides",
-                name="Brain Slides",
-                description="Professional HTML presentation generator with Brain Events",
-                chain_id="brain-slides",
-                max_tokens=8192,
-                supports_streaming=True,
-                supports_tools=False
             )
+            # Nota: Presentaciones se generan vía brain-adaptive → delegate → slides_agent
         ]
     
     async def load_config(self) -> OpenAICompatConfig:
