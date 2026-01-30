@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 import structlog
 
 from ..base import BaseSubAgent, SubAgentResult
-from .styles import SLIDES_CSS
+from .themes import get_theme, generate_css, detect_theme_from_topic, THEMES
 from .templates import SlideOutline, PresentationOutline, generate_slide_html
 from .events import thinking_event, action_event, artifact_event
 
@@ -126,19 +126,29 @@ Cuando me consultes, te daré recomendaciones de diseño antes de crear la prese
 
 ### Modo Consulta (recomendado primero)
 Envía: {"mode": "consult", "topic": "tema", "audience": "audiencia", "purpose": "objetivo"}
-→ Te daré recomendaciones de diseño y estructura
+→ Te daré recomendaciones de diseño con el TEMA visual recomendado
 
 ### Modo Ejecución
-Envía el outline JSON:
+Envía el outline JSON con el tema elegido:
 {
   "title": "Título",
+  "theme": "eco|tech|corporate|ocean|warm|minimal|dark",
   "slides": [
     {"title": "...", "type": "title|bullets|stats|quote|comparison", "badge": "...", "bullets": [...]}
   ],
-  "generate_images": ["prompt 1", "prompt 2"]  // opcional
+  "generate_images": ["prompt 1", "prompt 2"]
 }
 
-TIPOS: title, bullets (máx 5), stats, quote, comparison, image"""
+TEMAS DISPONIBLES:
+- eco: Verdes/turquesa (sostenibilidad, naturaleza)
+- tech: Púrpuras (tecnología, innovación)
+- corporate: Azules (negocios, profesional)
+- ocean: Cian/azul (agua, tranquilidad)
+- warm: Naranjas (energía, creatividad)
+- minimal: Grises claros (minimalista, limpio)
+- dark: Rojo/oscuro (por defecto)
+
+TIPOS DE SLIDE: title, bullets (máx 5), stats, quote, comparison"""
     
     async def execute(
         self,
@@ -234,8 +244,17 @@ TIPOS: title, bullets (máx 5), stats, quote, comparison, image"""
                 status="running"
             ))
             
-            # Generar HTML
-            html = SLIDES_CSS
+            # Determinar tema
+            theme_name = self._extract_theme(task, outline)
+            theme = get_theme(theme_name)
+            
+            response_parts.append(thinking_event(
+                f"Aplicando tema: {theme_name}",
+                status="complete"
+            ))
+            
+            # Generar HTML con tema dinámico
+            html = generate_css(theme)
             for i, slide in enumerate(outline.slides):
                 # Añadir imagen si hay disponible para esta slide
                 slide_image = generated_images[i] if i < len(generated_images) else None
@@ -288,6 +307,26 @@ TIPOS: title, bullets (máx 5), stats, quote, comparison, image"""
                 error=str(e),
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
+    
+    def _extract_theme(self, task: str, outline: PresentationOutline) -> str:
+        """
+        Extrae el tema del outline JSON o lo detecta automáticamente.
+        
+        Prioridad:
+        1. Campo "theme" explícito en el JSON
+        2. Detección automática basada en el título/tema
+        3. Tema por defecto "dark"
+        """
+        try:
+            data = json.loads(task)
+            # Tema explícito
+            if "theme" in data and data["theme"] in THEMES:
+                return data["theme"]
+            # Detectar por topic
+            topic = data.get("title", outline.title)
+            return detect_theme_from_topic(topic)
+        except:
+            return detect_theme_from_topic(outline.title)
     
     def _extract_images_to_generate(self, task: str) -> List[str]:
         """Extrae lista de imágenes a generar del outline."""
@@ -487,6 +526,7 @@ Responde SOLO con el JSON válido, sin texto adicional."""
     ) -> SubAgentResult:
         """
         Modo consulta: da recomendaciones de diseño antes de crear la presentación.
+        Incluye el tema recomendado para que se use en la ejecución.
         """
         from ...llm_utils import call_llm_with_tools
         
@@ -494,6 +534,10 @@ Responde SOLO con el JSON válido, sin texto adicional."""
         audience = task_data.get("audience", "general")
         purpose = task_data.get("purpose", "informar")
         context = task_data.get("context", "")
+        
+        # Detectar tema recomendado
+        recommended_theme = detect_theme_from_topic(topic)
+        available_themes = ", ".join(THEMES.keys())
         
         consult_prompt = f"""Eres un Diseñador Visual de Presentaciones con experiencia en comunicación visual.
 
@@ -504,28 +548,35 @@ Un colega te pide ayuda para diseñar una presentación:
 **OBJETIVO:** {purpose}
 {f"**CONTEXTO:** {context}" if context else ""}
 
-Dame tus recomendaciones de diseño de forma concisa y profesional:
+TEMAS DISPONIBLES en el sistema: {available_themes}
+Mi sugerencia inicial: **{recommended_theme}**
 
-1. **Estilo Visual** - ¿Qué estilo recomendarías? (corporativo, creativo, minimalista, tech-futurista, editorial, etc.)
+Dame tus recomendaciones de diseño de forma concisa:
 
-2. **Paleta de Colores** - ¿Qué colores transmitirían mejor el mensaje?
+1. **Tema Recomendado** - Elige uno de los disponibles: {available_themes}
 
-3. **Estructura Narrativa** - ¿Cómo organizarías el flujo? (número de slides, tipos de contenido)
+2. **Paleta de Colores** - Basada en el tema, qué colores específicos funcionarían
 
-4. **Elementos Visuales** - ¿Necesita imágenes, iconos, estadísticas, comparaciones?
+3. **Estructura** - Número de slides y flujo narrativo
 
-5. **Recomendación Principal** - Tu sugerencia estrella para que destaque
+4. **Elementos Visuales** - ¿Imágenes, estadísticas, comparaciones?
 
-Sé conciso pero útil. Puedes hacer una pregunta al final si necesitas clarificar algo antes de diseñar."""
+5. **Tip Principal** - Tu recomendación estrella
+
+IMPORTANTE: Al final, incluye una línea con el tema elegido así:
+**TEMA_ELEGIDO:** [nombre del tema]"""
 
         try:
+            # Detectar tema automáticamente
+            recommended_theme = detect_theme_from_topic(topic)
+            
             if not llm_url or not api_key:
                 # Respuesta por defecto sin LLM
                 return SubAgentResult(
                     success=True,
                     response=f"""🎨 **Recomendaciones de Diseño para "{topic}"**
 
-**Estilo Visual:** Te sugiero un estilo moderno y limpio que se adapte a tu audiencia ({audience}).
+**Tema Recomendado:** `{recommended_theme}` - perfecto para este tipo de contenido
 
 **Estructura Sugerida:**
 1. Slide de título impactante
@@ -534,12 +585,20 @@ Sé conciso pero útil. Puedes hacer una pregunta al final si necesitas clarific
 5. Datos o comparación (si aplica)
 6. Conclusión con call-to-action
 
-**Elementos Visuales:** Dependiendo del tema, considera incluir imágenes o estadísticas para mayor impacto.
+**Elementos Visuales:** Considera incluir imágenes o estadísticas para mayor impacto.
 
-¿Quieres que proceda con este enfoque o tienes preferencias específicas?""",
+**TEMA_ELEGIDO:** {recommended_theme}
+
+Para ejecutar, incluye `"theme": "{recommended_theme}"` en tu JSON.""",
                     agent_id=self.id,
                     agent_name=self.name,
-                    data={"mode": "consult", "topic": topic, "ready_for_execution": True}
+                    data={
+                        "mode": "consult", 
+                        "topic": topic, 
+                        "recommended_theme": recommended_theme,
+                        "available_themes": list(THEMES.keys()),
+                        "ready_for_execution": True
+                    }
                 )
             
             response = await call_llm_with_tools(
@@ -555,12 +614,30 @@ Sé conciso pero útil. Puedes hacer una pregunta al final si necesitas clarific
                 model=model
             )
             
+            # Extraer tema de la respuesta si está presente
+            response_text = response.content or ""
+            chosen_theme = recommended_theme
+            if "TEMA_ELEGIDO:" in response_text:
+                try:
+                    theme_line = [l for l in response_text.split("\n") if "TEMA_ELEGIDO:" in l][0]
+                    theme_candidate = theme_line.split(":")[-1].strip().lower()
+                    if theme_candidate in THEMES:
+                        chosen_theme = theme_candidate
+                except:
+                    pass
+            
             return SubAgentResult(
                 success=True,
-                response=response.content or "Sin recomendaciones",
+                response=response_text + f"\n\n*Para ejecutar, incluye `\"theme\": \"{chosen_theme}\"` en tu JSON.*",
                 agent_id=self.id,
                 agent_name=self.name,
-                data={"mode": "consult", "topic": topic, "ready_for_execution": True}
+                data={
+                    "mode": "consult", 
+                    "topic": topic, 
+                    "recommended_theme": chosen_theme,
+                    "available_themes": list(THEMES.keys()),
+                    "ready_for_execution": True
+                }
             )
             
         except Exception as e:
