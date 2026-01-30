@@ -211,6 +211,9 @@ class ChainInvokeRequest(BaseModel):
     llm_provider_type: str = "ollama"  # "ollama", "openai", "anthropic", "groq", "azure"
     api_key: Optional[str] = None
     model: Optional[str] = None
+    
+    # Brain Events para Open WebUI
+    emit_brain_events: bool = False
 
 
 class ChainInvokeResponse(BaseModel):

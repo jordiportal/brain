@@ -1,5 +1,5 @@
 """
-Brain 2.0 Core Tools - 16 herramientas nativas universales
+Brain 2.0 Core Tools - 17 herramientas nativas universales
 
 Filesystem (5): read_file, write_file, edit_file, list_directory, search_files
 Execution (3): shell, python, javascript  
@@ -7,6 +7,7 @@ Web (2): web_search, web_fetch
 Reasoning (4): think, reflect, plan, finish
 Utils (1): calculate
 Delegation (1): delegate (para subagentes especializados)
+Slides (1): generate_slides (presentaciones con streaming)
 """
 
 from .filesystem import (
@@ -50,9 +51,19 @@ from .delegation import (
     DELEGATE_TOOL
 )
 
+from .slides import (
+    generate_slides,
+    GENERATE_SLIDES_TOOL
+)
+
 # Delegation tools dict
 DELEGATION_TOOLS = {
     "delegate": DELEGATE_TOOL
+}
+
+# Slides tools dict
+SLIDES_TOOLS = {
+    "generate_slides": GENERATE_SLIDES_TOOL
 }
 
 # Todas las definiciones de core tools
@@ -62,7 +73,8 @@ CORE_TOOLS = {
     **WEB_TOOLS,
     **REASONING_TOOLS,
     **UTILS_TOOLS,
-    **DELEGATION_TOOLS
+    **DELEGATION_TOOLS,
+    **SLIDES_TOOLS
 }
 
 __all__ = [
@@ -89,6 +101,8 @@ __all__ = [
     # Delegation
     "delegate",
     "get_available_subagents_description",
+    # Slides
+    "generate_slides",
     # All tools
     "CORE_TOOLS",
     "FILESYSTEM_TOOLS",
@@ -96,5 +110,6 @@ __all__ = [
     "WEB_TOOLS",
     "REASONING_TOOLS",
     "UTILS_TOOLS",
-    "DELEGATION_TOOLS"
+    "DELEGATION_TOOLS",
+    "SLIDES_TOOLS"
 ]

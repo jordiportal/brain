@@ -384,6 +384,9 @@ async def stream_chat_completion(
     
     total_tokens = 0
     
+    # Activar Brain Events para modelos brain-* (Open WebUI)
+    emit_brain_events = request.model.startswith("brain-")
+    
     try:
         async for event in builder(
             config=definition.config,
@@ -394,7 +397,8 @@ async def stream_chat_completion(
             execution_id=completion_id,
             stream=True,
             provider_type=backend_config.provider,
-            api_key=backend_config.api_key
+            api_key=backend_config.api_key,
+            emit_brain_events=emit_brain_events
         ):
             # Streaming de tokens
             if hasattr(event, 'event_type') and event.event_type == "token" and event.content:

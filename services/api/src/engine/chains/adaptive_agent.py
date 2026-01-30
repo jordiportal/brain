@@ -48,7 +48,8 @@ VALID_TOOL_NAMES = {
     "web_search", "web_fetch",
     "think", "reflect", "plan", "finish",
     "calculate",
-    "delegate"  # Para subagentes especializados
+    "delegate",  # Para subagentes especializados
+    "generate_slides"  # Generación de presentaciones con streaming
 }
 
 def is_valid_tool_name(name: str) -> bool:
@@ -141,13 +142,16 @@ Usa `delegate(agent="...", task="...")` para tareas específicas:
 - **slides_agent**: Generación de presentaciones HTML profesionales
   Ejemplos: "Crea una presentación sobre...", "Genera slides de...", "Haz un PowerPoint de..."
   
+  IMPORTANTE: Para presentaciones, usa la tool `generate_slides` directamente (NO delegate).
+  Esta tool tiene streaming progresivo y mejor experiencia de usuario.
+  
   FLUJO PARA PRESENTACIONES:
-  1. Primero investiga el tema (usa web_search si necesitas datos actuales)
-  2. Crea un outline JSON estructurado con title y slides array
-  3. Delega: delegate(agent="slides_agent", task=outline_en_json, context=info_recopilada)
+  1. Investiga el tema (usa web_search si necesitas datos actuales)
+  2. Crea un outline JSON: title y slides array
+  3. Llama: generate_slides(outline=json_del_outline, context=info_recopilada)
   
   Tipos de slide: title, content, bullets, stats, comparison, quote
-  Cada slide tiene: title, type, content o bullets[]
+  Cada slide tiene: title, type, content o bullets[], badge (opcional)
   
 - **sap_agent** (próximamente): Consultas SAP S/4HANA y BIW
 - **mail_agent** (próximamente): Gestión de correo
@@ -190,7 +194,7 @@ Llama `finish` AHORA si:
 - "Busca X y guárdalo" → web_search → write_file → finish
 - "Lee archivo X" → read_file → finish
 - "Genera una imagen" → delegate(agent="media_agent", task="...") → finish
-- "Crea presentación sobre X" → web_search (si necesario) → think (crear outline) → delegate(agent="slides_agent", task=outline) → finish
+- "Crea presentación sobre X" → web_search (si necesario) → generate_slides(outline=json) → finish
 
 Ahora ayuda al usuario con su petición."""
 
@@ -455,6 +459,7 @@ async def build_adaptive_agent(
     stream: bool = True,
     provider_type: str = "ollama",
     api_key: Optional[str] = None,
+    emit_brain_events: bool = False,
     **kwargs
 ) -> AsyncGenerator[StreamEvent, None]:
     """
@@ -464,7 +469,18 @@ async def build_adaptive_agent(
     1. Detectar complejidad de la query
     2. Configurar modo de razonamiento
     3. Loop de tool calling hasta finish
+    
+    Args:
+        emit_brain_events: Si True, emite Brain Events (markers HTML) para Open WebUI
     """
+    # Importar helpers de Brain Events
+    from ..brain_events import (
+        create_thinking_event,
+        create_action_event,
+        create_sources_event,
+        get_action_type_for_tool,
+        get_action_title_for_tool
+    )
     
     query = input_data.get("message", input_data.get("query", ""))
     
@@ -502,6 +518,18 @@ async def build_adaptive_agent(
             "estimated_tools": complexity_analysis.estimated_tools
         }
     )
+    
+    # Emitir Brain Event de thinking inicial
+    if emit_brain_events:
+        yield StreamEvent(
+            event_type="token",
+            execution_id=execution_id,
+            node_id="brain_thinking",
+            content=create_thinking_event(
+                f"Analizando solicitud...\n\nComplejidad: {complexity_analysis.level.value}\nHerramientas estimadas: {complexity_analysis.estimated_tools}",
+                status="start"
+            )
+        )
     
     # Seleccionar workflow según complejidad
     if complexity_analysis.level == ComplexityLevel.COMPLEX:
@@ -703,6 +731,25 @@ async def build_adaptive_agent(
                         data={"tool": tool_name, "arguments": tool_args}
                     )
                     
+                    # Emitir Brain Event de action start
+                    if emit_brain_events:
+                        action_type = get_action_type_for_tool(
+                            tool_name,
+                            agent=tool_args.get("agent") if tool_name == "delegate" else None
+                        )
+                        action_title = get_action_title_for_tool(tool_name, tool_args)
+                        
+                        yield StreamEvent(
+                            event_type="token",
+                            execution_id=execution_id,
+                            node_id="brain_action",
+                            content=create_action_event(
+                                action_type=action_type,
+                                title=action_title,
+                                status="running"
+                            )
+                        )
+                    
                     # Preparar argumentos para ejecución
                     exec_args = tool_args.copy()
                     
@@ -713,8 +760,38 @@ async def build_adaptive_agent(
                         exec_args["_provider_type"] = provider_type
                         exec_args["_api_key"] = api_key
                     
+                    # Para generate_slides, inyectar contexto LLM
+                    if tool_name == "generate_slides":
+                        exec_args["_llm_url"] = llm_url
+                        exec_args["_model"] = model
+                        exec_args["_provider_type"] = provider_type
+                        exec_args["_api_key"] = api_key
+                    
                     # Ejecutar tool
                     result = await tool_registry.execute(tool_name, **exec_args)
+                    
+                    # Emitir eventos capturados de generate_slides
+                    if tool_name == "generate_slides" and emit_brain_events:
+                        # Los eventos están en result.events_emitted
+                        events_emitted = result.get("events_emitted", [])
+                        for event_marker in events_emitted:
+                            yield StreamEvent(
+                                event_type="token",
+                                execution_id=execution_id,
+                                node_id="slides_streaming",
+                                content=event_marker
+                            )
+                        
+                        # Si tuvo éxito, terminar con el resultado
+                        if result.get("success"):
+                            final_msg = f"\n✅ {result.get('message', 'Presentación generada')}\n"
+                            yield StreamEvent(
+                                event_type="token",
+                                execution_id=execution_id,
+                                node_id="",
+                                content=final_msg
+                            )
+                            break
                     
                     # Verificar si es finish
                     if tool_name == "finish":
@@ -741,6 +818,58 @@ async def build_adaptive_agent(
                         "tool": tool_name,
                         "result": result
                     })
+                    
+                    # Emitir Brain Events post-tool
+                    if emit_brain_events:
+                        # Action complete
+                        action_type = get_action_type_for_tool(
+                            tool_name,
+                            agent=tool_args.get("agent") if tool_name == "delegate" else None
+                        )
+                        action_title = get_action_title_for_tool(tool_name, tool_args)
+                        
+                        # Contar resultados si aplica
+                        results_count = None
+                        if tool_name == "web_search" and isinstance(result, dict):
+                            # web_search puede devolver lista de resultados
+                            if "results" in result:
+                                results_count = len(result.get("results", []))
+                            elif "sources" in result:
+                                results_count = len(result.get("sources", []))
+                        
+                        yield StreamEvent(
+                            event_type="token",
+                            execution_id=execution_id,
+                            node_id="brain_action",
+                            content=create_action_event(
+                                action_type=action_type,
+                                title=action_title,
+                                status="completed",
+                                results_count=results_count
+                            )
+                        )
+                        
+                        # Emitir sources para web_search
+                        if tool_name == "web_search" and isinstance(result, dict):
+                            sources = result.get("results") or result.get("sources") or []
+                            if sources:
+                                yield StreamEvent(
+                                    event_type="token",
+                                    execution_id=execution_id,
+                                    node_id="brain_sources",
+                                    content=create_sources_event(sources)
+                                )
+                        
+                        # Emitir thinking para tools de razonamiento
+                        if tool_name in ("think", "reflect", "plan"):
+                            thinking = result.get("thinking") or result.get("reflection") or result.get("plan") or ""
+                            if thinking:
+                                yield StreamEvent(
+                                    event_type="token",
+                                    execution_id=execution_id,
+                                    node_id="brain_thinking",
+                                    content=create_thinking_event(thinking, status="progress")
+                                )
                     
                     # Manejar delegación especial
                     if tool_name == "delegate" and result.get("success"):

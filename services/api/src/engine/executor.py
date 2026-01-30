@@ -333,7 +333,8 @@ class ChainExecutor:
                 execution_id=execution_id,
                 stream=True,
                 provider_type=request.llm_provider_type,
-                api_key=request.api_key
+                api_key=request.api_key,
+                emit_brain_events=request.emit_brain_events
             ):
                 # El builder puede devolver StreamEvent o dict
                 if isinstance(event, dict):
