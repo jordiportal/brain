@@ -69,6 +69,15 @@ class ConfigLoader:
                 supports_tools=True
             ),
             BrainModel(
+                id="brain-team",
+                name="Brain Team",
+                description="Multi-agent team with consensus - Elaborated responses through collaboration",
+                chain_id="team",
+                max_tokens=8192,
+                supports_streaming=True,
+                supports_tools=True
+            ),
+            BrainModel(
                 id="brain-chat",
                 name="Brain Chat", 
                 description="Simple conversational chat without tools",
@@ -87,6 +96,7 @@ class ConfigLoader:
                 supports_tools=False
             )
             # Nota: Presentaciones se generan vía brain-adaptive → delegate → slides_agent
+            # o via brain-team para trabajo colaborativo
         ]
     
     async def load_config(self) -> OpenAICompatConfig:
