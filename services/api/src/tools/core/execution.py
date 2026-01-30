@@ -110,23 +110,32 @@ async def shell_execute(
 
 async def python_execute(
     code: str,
-    timeout: int = 30
+    timeout: int = 60,
+    packages: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Ejecuta código Python en un contenedor Docker aislado.
+    Ejecuta código Python en un contenedor Docker con paquetes científicos.
     
     Args:
         code: Código Python a ejecutar
-        timeout: Timeout en segundos (default: 30)
+        timeout: Timeout en segundos (default: 60)
+        packages: Paquetes adicionales a instalar (separados por espacio)
     
     Returns:
         {"success": True, "stdout": str, "stderr": str} o {"error": str}
+    
+    Paquetes pre-instalados:
+        numpy, pandas, matplotlib, pillow, requests, scipy,
+        scikit-learn, sympy, networkx, seaborn, plotly,
+        openpyxl, xlrd, pyyaml, beautifulsoup4, lxml
     """
     # Obtener configuración
     config = get_execution_config() if get_execution_config else None
-    image = config.python_image if config else "python:3.11-slim"
-    memory_limit = config.memory_limit if config else "512m"
-    cpu_limit = config.cpu_limit if config else "1.0"
+    
+    # Usar imagen con paquetes científicos por defecto
+    image = config.python_image if config else "brain-python:science"
+    memory_limit = config.memory_limit if config else "1g"  # Más memoria para ciencia
+    cpu_limit = config.cpu_limit if config else "2.0"  # Más CPU para numpy/pandas
     network_enabled = config.network_enabled if config else False
     
     if config and not config.python_enabled:
@@ -134,6 +143,23 @@ async def python_execute(
             "success": False,
             "error": "Python execution is disabled in configuration"
         }
+    
+    # Si se especifican paquetes adicionales, prepend pip install
+    if packages:
+        install_cmd = f"pip install --quiet {packages} 2>/dev/null; "
+        code = install_cmd + f"python -c '''{code}'''"
+        # Necesita red para pip
+        network_enabled = True
+        return await _execute_in_docker(
+            code=code,
+            language="python",
+            image=image,
+            command=["sh", "-c"],
+            timeout=timeout,
+            memory_limit=memory_limit,
+            cpu_limit=cpu_limit,
+            network_enabled=network_enabled
+        )
     
     return await _execute_in_docker(
         code=code,
@@ -339,17 +365,21 @@ EXECUTION_TOOLS = {
     "python": {
         "id": "python",
         "name": "python",
-        "description": "Ejecuta código Python en un contenedor Docker aislado. Ideal para cálculos, procesamiento de datos, scripts.",
+        "description": "Ejecuta código Python en Docker con paquetes científicos pre-instalados (numpy, pandas, matplotlib, pillow, scipy, scikit-learn, sympy, seaborn, plotly, requests, beautifulsoup4). Usa print() para mostrar resultados.",
         "parameters": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "Código Python a ejecutar. Usa print() para mostrar resultados."
+                    "description": "Código Python a ejecutar. Paquetes disponibles: numpy, pandas, matplotlib, pillow, scipy, scikit-learn, sympy, seaborn, plotly, requests, beautifulsoup4, lxml, openpyxl."
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Timeout en segundos (default: 30)"
+                    "description": "Timeout en segundos (default: 60)"
+                },
+                "packages": {
+                    "type": "string",
+                    "description": "Paquetes adicionales a instalar (separados por espacio). Solo si necesitas algo que no está pre-instalado."
                 }
             },
             "required": ["code"]

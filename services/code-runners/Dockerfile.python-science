@@ -1,0 +1,39 @@
+# Imagen Python con paquetes científicos comunes para Brain
+FROM python:3.11-slim
+
+# Instalar paquetes del sistema necesarios para matplotlib, pillow, etc.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libjpeg-dev \
+    zlib1g-dev \
+    libpng-dev \
+    libfreetype6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar paquetes Python comunes
+RUN pip install --no-cache-dir \
+    numpy \
+    pandas \
+    matplotlib \
+    pillow \
+    requests \
+    scipy \
+    scikit-learn \
+    sympy \
+    networkx \
+    seaborn \
+    plotly \
+    openpyxl \
+    xlrd \
+    pyyaml \
+    beautifulsoup4 \
+    lxml
+
+# Directorio de trabajo
+WORKDIR /code
+
+# Usuario no-root por seguridad
+RUN useradd -m -s /bin/bash runner
+USER runner
+
+CMD ["python"]
