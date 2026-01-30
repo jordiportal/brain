@@ -2,11 +2,13 @@
 Temas dinámicos para presentaciones.
 
 Cada tema define colores, gradientes y estilos que se aplican
-al CSS generado.
+al CSS generado. Soporta tanto temas predefinidos como colores
+personalizados definidos por el diseñador.
 """
 
+import re
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 
 @dataclass
@@ -20,6 +22,88 @@ class ThemeColors:
     text_muted: str       # Color texto secundario
     badge_bg: str         # Fondo de badges
     badge_text: str       # Texto de badges
+
+
+def is_valid_color(color: str) -> bool:
+    """Valida que un string sea un color hex válido o rgba."""
+    if not color:
+        return False
+    # Hex color
+    if re.match(r'^#[0-9A-Fa-f]{3,8}$', color):
+        return True
+    # rgba
+    if color.startswith('rgba(') and color.endswith(')'):
+        return True
+    return False
+
+
+def create_custom_theme(colors: Dict[str, str], base_theme: str = "dark") -> ThemeColors:
+    """
+    Crea un tema personalizado a partir de colores proporcionados.
+    
+    Args:
+        colors: Diccionario con colores personalizados. Campos opcionales:
+            - primary: Color principal
+            - secondary: Color secundario  
+            - background_start: Inicio del gradiente de fondo
+            - background_end: Fin del gradiente de fondo
+            - text: Color de texto principal
+            - text_muted: Color de texto secundario
+        base_theme: Tema base del que heredar colores no especificados
+    
+    Returns:
+        ThemeColors con los colores personalizados aplicados
+    """
+    base = THEMES.get(base_theme, THEMES["dark"])
+    
+    # Extraer colores válidos
+    primary = colors.get("primary", base.primary)
+    secondary = colors.get("secondary", base.secondary)
+    bg_start = colors.get("background_start", colors.get("bg_start", base.background_start))
+    bg_end = colors.get("background_end", colors.get("bg_end", base.background_end))
+    text = colors.get("text", base.text)
+    text_muted = colors.get("text_muted", base.text_muted)
+    
+    # Validar colores
+    if not is_valid_color(primary):
+        primary = base.primary
+    if not is_valid_color(secondary):
+        secondary = base.secondary
+    if not is_valid_color(bg_start):
+        bg_start = base.background_start
+    if not is_valid_color(bg_end):
+        bg_end = base.background_end
+    if not is_valid_color(text):
+        text = base.text
+    if not is_valid_color(text_muted):
+        text_muted = base.text_muted
+    
+    # Generar badge colors basados en primary
+    badge_bg = f"rgba({_hex_to_rgb(primary)}, 0.2)" if is_valid_color(primary) else base.badge_bg
+    badge_text = secondary if is_valid_color(secondary) else base.badge_text
+    
+    return ThemeColors(
+        primary=primary,
+        secondary=secondary,
+        background_start=bg_start,
+        background_end=bg_end,
+        text=text,
+        text_muted=text_muted,
+        badge_bg=badge_bg,
+        badge_text=badge_text
+    )
+
+
+def _hex_to_rgb(hex_color: str) -> str:
+    """Convierte #RRGGBB a 'R, G, B'."""
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) == 3:
+        hex_color = ''.join([c*2 for c in hex_color])
+    try:
+        r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+        return f"{r}, {g}, {b}"
+    except:
+        return "233, 69, 96"  # Fallback
 
 
 # Temas predefinidos

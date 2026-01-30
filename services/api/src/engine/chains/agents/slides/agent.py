@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 import structlog
 
 from ..base import BaseSubAgent, SubAgentResult
-from .themes import get_theme, generate_css, detect_theme_from_topic, THEMES
+from .themes import get_theme, generate_css, detect_theme_from_topic, create_custom_theme, THEMES, ThemeColors
 from .templates import SlideOutline, PresentationOutline, generate_slide_html
 from .events import thinking_event, action_event, artifact_event
 
@@ -126,27 +126,27 @@ Cuando me consultes, te daré recomendaciones de diseño antes de crear la prese
 
 ### Modo Consulta (recomendado primero)
 Envía: {"mode": "consult", "topic": "tema", "audience": "audiencia", "purpose": "objetivo"}
-→ Te daré recomendaciones de diseño con el TEMA visual recomendado
+→ Te daré una PALETA DE COLORES personalizada para tu presentación
 
 ### Modo Ejecución
-Envía el outline JSON con el tema elegido:
+Envía el outline JSON con los colores del diseñador:
 {
   "title": "Título",
-  "theme": "eco|tech|corporate|ocean|warm|minimal|dark",
+  "colors": {
+    "primary": "#HEXCOLOR",
+    "secondary": "#HEXCOLOR",
+    "background_start": "#HEXCOLOR",
+    "background_end": "#HEXCOLOR",
+    "text": "#HEXCOLOR"
+  },
   "slides": [
     {"title": "...", "type": "title|bullets|stats|quote|comparison", "badge": "...", "bullets": [...]}
   ],
   "generate_images": ["prompt 1", "prompt 2"]
 }
 
-TEMAS DISPONIBLES:
-- eco: Verdes/turquesa (sostenibilidad, naturaleza)
-- tech: Púrpuras (tecnología, innovación)
-- corporate: Azules (negocios, profesional)
-- ocean: Cian/azul (agua, tranquilidad)
-- warm: Naranjas (energía, creatividad)
-- minimal: Grises claros (minimalista, limpio)
-- dark: Rojo/oscuro (por defecto)
+ALTERNATIVA: Si no tienes colores, usa un tema predefinido:
+"theme": "eco|tech|corporate|ocean|warm|minimal|dark"
 
 TIPOS DE SLIDE: title, bullets (máx 5), stats, quote, comparison"""
     
@@ -244,12 +244,12 @@ TIPOS DE SLIDE: title, bullets (máx 5), stats, quote, comparison"""
                 status="running"
             ))
             
-            # Determinar tema
-            theme_name = self._extract_theme(task, outline)
-            theme = get_theme(theme_name)
+            # Determinar tema (predefinido o personalizado)
+            theme, theme_name = self._extract_theme(task, outline)
             
+            theme_desc = "personalizado" if theme_name == "custom" else theme_name
             response_parts.append(thinking_event(
-                f"Aplicando tema: {theme_name}",
+                f"Aplicando tema: {theme_desc}",
                 status="complete"
             ))
             
@@ -308,25 +308,78 @@ TIPOS DE SLIDE: title, bullets (máx 5), stats, quote, comparison"""
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
     
-    def _extract_theme(self, task: str, outline: PresentationOutline) -> str:
+    def _extract_theme(self, task: str, outline: PresentationOutline) -> tuple[ThemeColors, str]:
         """
         Extrae el tema del outline JSON o lo detecta automáticamente.
+        Soporta tanto temas predefinidos como colores personalizados.
         
         Prioridad:
-        1. Campo "theme" explícito en el JSON
-        2. Detección automática basada en el título/tema
-        3. Tema por defecto "dark"
+        1. Campo "colors" con colores personalizados del diseñador
+        2. Campo "theme" explícito (nombre de tema predefinido)
+        3. Detección automática basada en el título/tema
+        4. Tema por defecto "dark"
+        
+        Returns:
+            Tuple de (ThemeColors, nombre_tema_o_"custom")
         """
         try:
             data = json.loads(task)
-            # Tema explícito
+            
+            # 1. Colores personalizados del diseñador
+            if "colors" in data and isinstance(data["colors"], dict):
+                colors = data["colors"]
+                base_theme = data.get("theme", "dark")
+                theme = create_custom_theme(colors, base_theme)
+                return theme, "custom"
+            
+            # 2. Tema explícito predefinido
             if "theme" in data and data["theme"] in THEMES:
-                return data["theme"]
-            # Detectar por topic
+                return get_theme(data["theme"]), data["theme"]
+            
+            # 3. Detectar por topic
             topic = data.get("title", outline.title)
-            return detect_theme_from_topic(topic)
+            detected = detect_theme_from_topic(topic)
+            return get_theme(detected), detected
+            
         except:
-            return detect_theme_from_topic(outline.title)
+            detected = detect_theme_from_topic(outline.title)
+            return get_theme(detected), detected
+    
+    def _extract_colors_from_response(self, response: str, default_colors: Dict[str, str]) -> Dict[str, str]:
+        """
+        Extrae los colores del JSON en la respuesta del diseñador.
+        
+        Busca un bloque JSON con los colores y lo parsea.
+        Si no encuentra colores válidos, usa los por defecto.
+        """
+        import re
+        
+        # Buscar JSON en la respuesta (puede estar en bloque de código o suelto)
+        json_patterns = [
+            r'```json\s*(\{[^`]+\})\s*```',  # Bloque de código JSON
+            r'```\s*(\{[^`]+\})\s*```',       # Bloque de código genérico
+            r'(\{"primary"[^}]+\})',           # JSON inline
+        ]
+        
+        for pattern in json_patterns:
+            match = re.search(pattern, response, re.DOTALL)
+            if match:
+                try:
+                    colors_json = match.group(1).strip()
+                    colors = json.loads(colors_json)
+                    
+                    # Validar que tenga al menos primary
+                    if "primary" in colors:
+                        # Merge con defaults para campos faltantes
+                        result = default_colors.copy()
+                        for key in ["primary", "secondary", "background_start", "background_end", "text", "text_muted"]:
+                            if key in colors and colors[key]:
+                                result[key] = colors[key]
+                        return result
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        
+        return default_colors
     
     def _extract_images_to_generate(self, task: str) -> List[str]:
         """Extrae lista de imágenes a generar del outline."""
@@ -350,7 +403,7 @@ TIPOS DE SLIDE: title, bullets (máx 5), stats, quote, comparison"""
         api_key: str
     ) -> List[str]:
         """Genera imágenes usando DALL-E."""
-        from src.tools.core.media import generate_image
+        from src.tools.domains.media.generate_image import generate_image
         
         urls = []
         for prompt in prompts[:3]:  # Máximo 3 imágenes
@@ -525,8 +578,8 @@ Responde SOLO con el JSON válido, sin texto adicional."""
         api_key: Optional[str]
     ) -> SubAgentResult:
         """
-        Modo consulta: da recomendaciones de diseño antes de crear la presentación.
-        Incluye el tema recomendado para que se use en la ejecución.
+        Modo consulta: da recomendaciones de diseño con colores personalizados.
+        El diseñador propone colores específicos que se aplican al CSS.
         """
         from ...llm_utils import call_llm_with_tools
         
@@ -535,11 +588,11 @@ Responde SOLO con el JSON válido, sin texto adicional."""
         purpose = task_data.get("purpose", "informar")
         context = task_data.get("context", "")
         
-        # Detectar tema recomendado
-        recommended_theme = detect_theme_from_topic(topic)
-        available_themes = ", ".join(THEMES.keys())
+        # Detectar tema base recomendado
+        base_theme = detect_theme_from_topic(topic)
+        base_colors = get_theme(base_theme)
         
-        consult_prompt = f"""Eres un Diseñador Visual de Presentaciones con experiencia en comunicación visual.
+        consult_prompt = f"""Eres un Diseñador Visual de Presentaciones experto en teoría del color.
 
 Un colega te pide ayuda para diseñar una presentación:
 
@@ -548,27 +601,37 @@ Un colega te pide ayuda para diseñar una presentación:
 **OBJETIVO:** {purpose}
 {f"**CONTEXTO:** {context}" if context else ""}
 
-TEMAS DISPONIBLES en el sistema: {available_themes}
-Mi sugerencia inicial: **{recommended_theme}**
+Como diseñador, propón una paleta de colores PERSONALIZADA para esta presentación.
 
-Dame tus recomendaciones de diseño de forma concisa:
+Dame tus recomendaciones de forma concisa:
 
-1. **Tema Recomendado** - Elige uno de los disponibles: {available_themes}
+1. **Concepto Visual** - ¿Qué sensación debe transmitir? (1 línea)
 
-2. **Paleta de Colores** - Basada en el tema, qué colores específicos funcionarían
+2. **Paleta de Colores** - Propón colores HEX específicos:
+   - Primary (títulos, acentos): #XXXXXX
+   - Secondary (highlights): #XXXXXX  
+   - Background inicio: #XXXXXX (color oscuro)
+   - Background fin: #XXXXXX (color más oscuro)
+   - Texto: #XXXXXX (claro para fondos oscuros)
 
-3. **Estructura** - Número de slides y flujo narrativo
+3. **Estructura** - Número de slides y flujo (2-3 líneas)
 
-4. **Elementos Visuales** - ¿Imágenes, estadísticas, comparaciones?
+4. **Tip Principal** - Tu recomendación estrella (1 línea)
 
-5. **Tip Principal** - Tu recomendación estrella
-
-IMPORTANTE: Al final, incluye una línea con el tema elegido así:
-**TEMA_ELEGIDO:** [nombre del tema]"""
+IMPORTANTE: Al final, incluye los colores en formato JSON así:
+```json
+{{"primary": "#XXXXXX", "secondary": "#XXXXXX", "background_start": "#XXXXXX", "background_end": "#XXXXXX", "text": "#XXXXXX"}}
+```"""
 
         try:
-            # Detectar tema automáticamente
-            recommended_theme = detect_theme_from_topic(topic)
+            # Colores por defecto basados en el tema detectado
+            default_colors = {
+                "primary": base_colors.primary,
+                "secondary": base_colors.secondary,
+                "background_start": base_colors.background_start,
+                "background_end": base_colors.background_end,
+                "text": base_colors.text
+            }
             
             if not llm_url or not api_key:
                 # Respuesta por defecto sin LLM
@@ -576,34 +639,38 @@ IMPORTANTE: Al final, incluye una línea con el tema elegido así:
                     success=True,
                     response=f"""🎨 **Recomendaciones de Diseño para "{topic}"**
 
-**Tema Recomendado:** `{recommended_theme}` - perfecto para este tipo de contenido
+**Concepto Visual:** Estilo {base_theme} adaptado a tu contenido.
+
+**Paleta de Colores Recomendada:**
+- Primary: `{base_colors.primary}` (títulos y acentos)
+- Secondary: `{base_colors.secondary}` (highlights)
+- Background: gradiente de `{base_colors.background_start}` a `{base_colors.background_end}`
+- Texto: `{base_colors.text}`
 
 **Estructura Sugerida:**
 1. Slide de título impactante
-2. Contexto/Problema (por qué importa)
-3-4. Puntos clave (bullets concisos)
-5. Datos o comparación (si aplica)
-6. Conclusión con call-to-action
+2. Contexto/Problema
+3-4. Puntos clave
+5. Conclusión
 
-**Elementos Visuales:** Considera incluir imágenes o estadísticas para mayor impacto.
+```json
+{json.dumps(default_colors)}
+```
 
-**TEMA_ELEGIDO:** {recommended_theme}
-
-Para ejecutar, incluye `"theme": "{recommended_theme}"` en tu JSON.""",
+Para ejecutar, incluye estos colores en tu JSON como `"colors": {{...}}`""",
                     agent_id=self.id,
                     agent_name=self.name,
                     data={
                         "mode": "consult", 
                         "topic": topic, 
-                        "recommended_theme": recommended_theme,
-                        "available_themes": list(THEMES.keys()),
+                        "recommended_colors": default_colors,
                         "ready_for_execution": True
                     }
                 )
             
             response = await call_llm_with_tools(
                 messages=[
-                    {"role": "system", "content": "Eres un diseñador visual experto. Responde de forma concisa y profesional en español."},
+                    {"role": "system", "content": "Eres un diseñador visual experto en teoría del color. Responde de forma concisa y profesional en español. Siempre incluye el JSON de colores al final."},
                     {"role": "user", "content": consult_prompt}
                 ],
                 tools=[],
@@ -614,28 +681,23 @@ Para ejecutar, incluye `"theme": "{recommended_theme}"` en tu JSON.""",
                 model=model
             )
             
-            # Extraer tema de la respuesta si está presente
             response_text = response.content or ""
-            chosen_theme = recommended_theme
-            if "TEMA_ELEGIDO:" in response_text:
-                try:
-                    theme_line = [l for l in response_text.split("\n") if "TEMA_ELEGIDO:" in l][0]
-                    theme_candidate = theme_line.split(":")[-1].strip().lower()
-                    if theme_candidate in THEMES:
-                        chosen_theme = theme_candidate
-                except:
-                    pass
+            
+            # Extraer colores del JSON en la respuesta
+            extracted_colors = self._extract_colors_from_response(response_text, default_colors)
+            
+            # Añadir instrucciones de uso
+            usage_hint = f'\n\n*Para ejecutar, incluye `"colors": {json.dumps(extracted_colors)}` en tu JSON.*'
             
             return SubAgentResult(
                 success=True,
-                response=response_text + f"\n\n*Para ejecutar, incluye `\"theme\": \"{chosen_theme}\"` en tu JSON.*",
+                response=response_text + usage_hint,
                 agent_id=self.id,
                 agent_name=self.name,
                 data={
                     "mode": "consult", 
                     "topic": topic, 
-                    "recommended_theme": chosen_theme,
-                    "available_themes": list(THEMES.keys()),
+                    "recommended_colors": extracted_colors,
                     "ready_for_execution": True
                 }
             )
