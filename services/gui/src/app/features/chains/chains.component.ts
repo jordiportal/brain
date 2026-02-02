@@ -20,7 +20,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ApiService } from '../../core/services/api.service';
-import { StrapiService } from '../../core/services/strapi.service';
+import { StrapiService } from '../../core/services/config.service';
 import { LlmProvider } from '../../core/models';
 import { ChainEditorComponent } from './chain-editor/chain-editor.component';
 import { BrowserViewerComponent } from '../../shared/components/browser-viewer/browser-viewer.component';

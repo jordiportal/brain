@@ -7,13 +7,13 @@ Brain es una plataforma para diseñar, ejecutar y monitorizar flujos de procesam
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Docker Compose                          │
-├─────────────┬─────────────┬─────────────┬──────────┬───────────┤
-│   Angular   │   FastAPI   │   Strapi    │ PostgreSQL│   Redis   │
-│    GUI      │    API      │    CMS      │ + pgvector│   Cache   │
-│   :4200     │   :8000     │   :1337     │   :5432   │   :6379   │
-└──────┬──────┴──────┬──────┴──────┬──────┴─────┬─────┴─────┬─────┘
-       │             │             │            │           │
-       └─────────────┴─────────────┴────────────┴───────────┘
+├─────────────┬─────────────┬──────────────┬───────────┬─────────┤
+│   Angular   │   FastAPI   │  PostgreSQL  │   Redis   │ Browser │
+│    GUI      │    API      │  + pgvector  │   Cache   │ Service │
+│   :4200     │   :8000     │    :5432     │   :6379   │  :6080  │
+└──────┬──────┴──────┬──────┴──────┬───────┴─────┬─────┴────┬────┘
+       │             │             │             │          │
+       └─────────────┴─────────────┴─────────────┴──────────┘
                               │
                     ┌─────────┴─────────┐
                     │  Servicios LLM    │
@@ -29,7 +29,8 @@ Brain es una plataforma para diseñar, ejecutar y monitorizar flujos de procesam
 - **Cadenas de Pensamiento**: Define y visualiza flujos con LangGraph
 - **RAG**: Base de datos vectorial con pgvector para Retrieval Augmented Generation
 - **Testing en Tiempo Real**: Chat con streaming y renderizado Markdown
-- **Monitorización**: Historial de ejecuciones con métricas y trazas
+- **Ejecución de Código**: Contenedores aislados para Python y JavaScript
+- **Browser Automation**: Navegador Chrome con VNC para automatización web
 
 ## Requisitos
 
@@ -49,7 +50,7 @@ cd brain
 ### 2. Configurar variables de entorno
 
 ```bash
-cp .env-example .env
+cp .env.example .env
 ```
 
 Edita `.env` según tu configuración:
@@ -57,7 +58,6 @@ Edita `.env` según tu configuración:
 ```env
 # Puertos (opcionales, valores por defecto)
 API_PORT=8000
-STRAPI_PORT=1337
 GUI_PORT=4200
 
 # PostgreSQL
@@ -68,9 +68,8 @@ POSTGRES_DB=brain_db
 # Ollama (ajusta la IP a tu servidor)
 OLLAMA_BASE_URL=http://localhost:11434
 
-# Strapi (genera valores únicos para producción)
+# JWT Secret (genera un valor único para producción)
 JWT_SECRET=genera-un-secret-seguro
-ADMIN_JWT_SECRET=genera-otro-secret-seguro
 ```
 
 ### 3. Levantar los servicios
@@ -86,31 +85,7 @@ docker compose up -d
 La primera ejecución tardará unos minutos mientras:
 - Se descargan las imágenes base
 - Se instalan las dependencias de cada servicio
-- Strapi y Angular se inicializan
-
-### 4. Configuración inicial
-
-#### Strapi (CMS)
-
-1. Accede a http://localhost:1337/admin
-2. Crea el usuario administrador
-3. Ve a **Settings > Users & Permissions > Roles**
-4. En el rol **Authenticated**, habilita permisos para:
-   - `llm-provider`: find, findOne, create, update, delete
-   - `mcp-connection`: find, findOne, create, update, delete
-   - `brain-chain`: find, findOne, create, update, delete
-   - `execution-log`: find, findOne
-   - `system-setting`: find, findOne, update
-
-#### Usuario de la Aplicación
-
-Registra un usuario para la aplicación (diferente al admin de Strapi):
-
-```bash
-curl -X POST http://localhost:1337/api/auth/local/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "usuario", "email": "tu@email.com", "password": "tu_password"}'
-```
+- Se inicializa la base de datos
 
 ## Uso
 
@@ -120,7 +95,7 @@ curl -X POST http://localhost:1337/api/auth/local/register \
 |----------|-----|-------------|
 | **GUI** | http://localhost:4200 | Interfaz de usuario principal |
 | **API Docs** | http://localhost:8000/docs | Documentación Swagger de la API |
-| **Strapi Admin** | http://localhost:1337/admin | Panel de administración del CMS |
+| **Browser VNC** | http://localhost:6080 | Navegador Chrome visual |
 
 ### Flujo de Trabajo
 
@@ -134,19 +109,20 @@ curl -X POST http://localhost:1337/api/auth/local/register \
 ```
 brain/
 ├── docker-compose.yml          # Orquestación de servicios
-├── .env-example                 # Template de configuración
+├── .env.example                 # Template de configuración
 │
 ├── services/
-│   ├── api/                     # API Python
+│   ├── api/                     # API Python (FastAPI)
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   └── src/
 │   │       ├── main.py          # Entry point FastAPI
 │   │       ├── config.py        # Configuración
-│   │       ├── llm/             # Endpoints LLM y streaming
-│   │       ├── chains/          # Cadenas LangChain
-│   │       ├── graphs/          # Grafos LangGraph
-│   │       └── rag/             # RAG con pgvector
+│   │       ├── db/              # Acceso a PostgreSQL
+│   │       ├── engine/          # Motor de agentes
+│   │       ├── tools/           # Herramientas del agente
+│   │       ├── rag/             # RAG con pgvector
+│   │       └── mcp/             # Integración MCP
 │   │
 │   ├── gui/                     # Frontend Angular
 │   │   ├── Dockerfile
@@ -155,18 +131,14 @@ brain/
 │   │       ├── features/        # Componentes por funcionalidad
 │   │       └── layouts/         # Layout principal
 │   │
-│   └── strapi/                  # CMS Strapi
-│       ├── Dockerfile
-│       └── src/api/             # Content-types personalizados
-│           ├── llm-provider/
-│           ├── mcp-connection/
-│           ├── brain-chain/
-│           ├── execution-log/
-│           └── system-setting/
+│   ├── browser-service/         # Chrome + noVNC
+│   │
+│   └── code-runners/            # Contenedores de ejecución de código
 │
 └── database/
     └── init/
-        └── 01-init-pgvector.sql # Inicialización PostgreSQL + pgvector
+        ├── 01-init-pgvector.sql # Inicialización PostgreSQL + pgvector
+        └── 02-monitoring.sql    # Tablas de monitorización
 ```
 
 ## Comandos Útiles
@@ -204,19 +176,11 @@ Los cambios en `services/api/src/` se recargan automáticamente gracias a uvicor
 
 Los cambios en `services/gui/src/` se recompilan automáticamente con hot-reload.
 
-### Strapi
-
-Los cambios en los content-types requieren reiniciar el servicio:
-```bash
-docker compose restart strapi
-```
-
 ## Tecnologías
 
 - **Backend**: Python 3.11, FastAPI, LangChain, LangGraph
 - **Frontend**: Angular 17, Angular Material
-- **CMS**: Strapi 5
-- **Base de Datos**: PostgreSQL 16 + pgvector
+- **Base de Datos**: PostgreSQL 16 + pgvector (acceso directo)
 - **Cache**: Redis 7
 - **Contenedores**: Docker, Docker Compose
 

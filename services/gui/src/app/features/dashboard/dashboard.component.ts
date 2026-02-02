@@ -6,7 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { RouterModule } from '@angular/router';
 import { ApiService } from '../../core/services/api.service';
-import { StrapiService } from '../../core/services/strapi.service';
+import { StrapiService } from '../../core/services/config.service';
 
 @Component({
   selector: 'app-dashboard',

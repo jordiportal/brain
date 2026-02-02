@@ -1,6 +1,6 @@
 """
 Config Router - Endpoints para configuración del sistema
-Reemplaza las llamadas directas a Strapi desde el GUI
+Accede directamente a PostgreSQL
 """
 
 from fastapi import APIRouter, HTTPException
@@ -264,7 +264,7 @@ async def create_api_key(request: CreateApiKeyRequest):
         
         import json
         permissions_json = json.dumps(request.permissions or {
-            "models": ["brain-adaptive", "brain-chat", "brain-rag"],
+            "models": ["brain-adaptive", "brain-team"],
             "maxTokensPerRequest": 4096,
             "rateLimit": 60
         })

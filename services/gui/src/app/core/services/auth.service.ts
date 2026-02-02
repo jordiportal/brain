@@ -9,7 +9,6 @@ import { environment } from '../../../environments/environment';
   providedIn: 'root'
 })
 export class AuthService {
-  // Usar API de Python en lugar de Strapi
   private readonly API_URL = environment.apiUrl.replace('/api/v1', '');
   private readonly TOKEN_KEY = 'brain_token';
   private readonly USER_KEY = 'brain_user';

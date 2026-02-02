@@ -1,6 +1,6 @@
 # ===========================================
 # Brain Database Module
-# Direct PostgreSQL access (replacing Strapi)
+# Direct PostgreSQL access
 # ===========================================
 
 from .connection import Database, get_db

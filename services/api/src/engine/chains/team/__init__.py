@@ -22,7 +22,7 @@ def register_team_chain():
         id="team",
         name="Brain Team",
         description="Equipo de agentes con consenso - Respuestas elaboradas mediante colaboración",
-        type="team",
+        type="agent",  # Usa la misma plantilla de edición que adaptive
         version="1.0.0",
         config=ChainConfig(
             max_iterations=10,

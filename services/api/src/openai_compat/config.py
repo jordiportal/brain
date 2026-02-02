@@ -76,24 +76,6 @@ class ConfigLoader:
                 max_tokens=8192,
                 supports_streaming=True,
                 supports_tools=True
-            ),
-            BrainModel(
-                id="brain-chat",
-                name="Brain Chat", 
-                description="Simple conversational chat without tools",
-                chain_id="conversational",
-                max_tokens=4096,
-                supports_streaming=True,
-                supports_tools=False
-            ),
-            BrainModel(
-                id="brain-rag",
-                name="Brain RAG",
-                description="Chat with document retrieval",
-                chain_id="rag",
-                max_tokens=4096,
-                supports_streaming=True,
-                supports_tools=False
             )
             # Nota: Presentaciones se generan vía brain-adaptive → delegate → slides_agent
             # o via brain-team para trabajo colaborativo

@@ -14,14 +14,13 @@ import {
 import { environment } from '../../../environments/environment';
 
 /**
- * StrapiService - Ahora usa la API de Python en lugar de Strapi
- * Mantiene la interfaz para compatibilidad con los componentes existentes
+ * ConfigService - Servicio de configuración que accede a la API Python
+ * (anteriormente StrapiService - mantiene alias para compatibilidad)
  */
 @Injectable({
   providedIn: 'root'
 })
-export class StrapiService {
-  // Ahora usa la API de Python
+export class ConfigService {
   private readonly API_URL = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
@@ -275,3 +274,6 @@ export class StrapiService {
       );
   }
 }
+
+// Alias para compatibilidad con código existente
+export { ConfigService as StrapiService };

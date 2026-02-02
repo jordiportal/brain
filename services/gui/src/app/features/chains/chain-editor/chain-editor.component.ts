@@ -20,7 +20,7 @@ import { NgxGraphModule } from '@swimlane/ngx-graph';
 import { Subject } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
-import { StrapiService } from '../../../core/services/strapi.service';
+import { StrapiService } from '../../../core/services/config.service';
 import { ApiService } from '../../../core/services/api.service';
 import { LlmProvider } from '../../../core/models';
 

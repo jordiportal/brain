@@ -8,8 +8,6 @@
 
   // Valores por defecto (desarrollo)
   window['env']['apiUrl'] = 'http://localhost:8000/api/v1';
-  window['env']['strapiUrl'] = 'http://localhost:1337';
-  window['env']['strapiApiUrl'] = 'http://localhost:1337/api';
   window['env']['ollamaDefaultUrl'] = 'http://localhost:11434';
 
   // En producción, estos valores serán reemplazados por el script

@@ -139,7 +139,7 @@ export interface SystemSetting {
   updatedAt: string;
 }
 
-// Strapi Response wrapper
+// API Response wrapper (legacy naming for compatibility)
 export interface StrapiResponse<T> {
   data: T[];
   meta: {
@@ -156,6 +156,10 @@ export interface StrapiSingleResponse<T> {
   data: T;
   meta: {};
 }
+
+// Alias for cleaner naming
+export type ApiResponse<T> = StrapiResponse<T>;
+export type ApiSingleResponse<T> = StrapiSingleResponse<T>;
 
 // Menu items
 export interface MenuItem {

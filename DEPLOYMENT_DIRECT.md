@@ -1,8 +1,8 @@
-# 🚀 Brain v1.0.0 - Instrucciones de Deployment (Directo)
+# 🚀 Brain - Instrucciones de Deployment (Directo)
 
 ## 📋 Resumen
 
-Debido a limitaciones de tamaño en el registry (`413 Request Entity Too Large`), usaremos **deployment directo** en el servidor sin registry intermedio.
+Deployment directo en el servidor sin registry intermedio.
 
 **Ventajas:**
 - ✅ Sin límites de tamaño
@@ -12,7 +12,7 @@ Debido a limitaciones de tamaño en el registry (`413 Request Entity Too Large`)
 
 ---
 
-## 🔧 PASO 2: Deployment al Servidor
+## 🔧 Deployment al Servidor
 
 ### Opción A: Deployment Automático (Script)
 
@@ -65,16 +65,10 @@ nano .env
 ```env
 # Secrets (generar con: openssl rand -base64 32)
 JWT_SECRET=TU_VALOR_AQUI
-ADMIN_JWT_SECRET=TU_VALOR_AQUI
-APP_KEYS=key1,key2,key3,key4
-API_TOKEN_SALT=TU_VALOR_AQUI
-TRANSFER_TOKEN_SALT=TU_VALOR_AQUI
 POSTGRES_PASSWORD=TU_PASSWORD_SEGURO
 
 # URLs (ajustar IP si es necesario)
 API_PUBLIC_URL=http://192.168.7.102:8000
-STRAPI_PUBLIC_URL=http://192.168.7.102:1337
-CORS_ORIGINS=http://192.168.7.102:4200,http://192.168.7.102:1337
 ```
 
 #### 4. Construir Imágenes
@@ -118,7 +112,6 @@ Salida esperada:
 ```
 brain-gui              Up (healthy)
 brain-api              Up
-brain-strapi           Up (healthy)
 brain-postgres         Up (healthy)
 brain-redis            Up (healthy)
 brain-browser-service  Up
@@ -133,10 +126,6 @@ curl http://localhost:8000/health
 
 # Chains disponibles
 curl http://localhost:8000/api/v1/chains | jq '.chains[] | .id'
-
-# Strapi health
-curl http://localhost:1337/_health
-# Esperado: 204 No Content
 ```
 
 ### 3. Acceder a Interfaces
@@ -147,56 +136,6 @@ Desde tu navegador local:
 |----------|-----|--------------|
 | **GUI** | http://192.168.7.102:4200 | (sin auth) |
 | **API Docs** | http://192.168.7.102:8000/docs | (sin auth) |
-| **Strapi Admin** | http://192.168.7.102:1337/admin | Crear en primer acceso |
-
----
-
-## 🎯 Configuración Inicial de Strapi
-
-### 1. Crear Admin User
-
-```bash
-# Acceder a http://192.168.7.102:1337/admin
-# Primera vez te pedirá crear usuario admin
-```
-
-**Credenciales sugeridas:**
-- Email: admin@brain.com
-- Password: Admin123!
-- Username: admin
-
-### 2. Obtener API Token
-
-1. **Settings** → **API Tokens** → **Create new API Token**
-2. **Name:** `brain-api`
-3. **Token type:** Full access
-4. **Token duration:** Unlimited
-5. **Copy token**
-
-### 3. Actualizar Token en .env
-
-```bash
-# En el servidor
-cd /opt/brain
-nano .env
-
-# Actualizar línea:
-STRAPI_API_TOKEN=tu_token_copiado_aqui
-
-# Reiniciar API
-docker compose -f docker-compose.production.yml restart api
-```
-
-### 4. Configurar LLM Providers
-
-En Strapi Admin:
-
-1. **Content Manager** → **LLM Providers** → **Create new entry**
-2. Agregar tus proveedores:
-   - **Ollama** (si tienes): `http://tu_ip:11434`
-   - **OpenAI**: Con tu API key
-   - **Gemini**: Con tu API key
-   - etc.
 
 ---
 
@@ -218,7 +157,6 @@ df -h
 # Ver logs específicos
 docker logs brain-api --tail 100
 docker logs brain-gui --tail 100
-docker logs brain-strapi --tail 100
 
 # Reiniciar servicio
 docker compose -f docker-compose.production.yml restart api
@@ -245,22 +183,6 @@ cat /opt/brain/.env | grep CORS
 # Debe incluir la URL del GUI
 # Reiniciar API después de cambiar
 docker compose -f docker-compose.production.yml restart api
-```
-
-### Problema: Strapi no conecta a PostgreSQL
-
-```bash
-# Verificar que postgres esté healthy
-docker ps | grep postgres
-
-# Ver logs de postgres
-docker logs brain-postgres --tail 50
-
-# Ver logs de strapi
-docker logs brain-strapi --tail 50
-
-# Verificar conexión desde strapi
-docker exec brain-strapi pg_isready -h postgres -U brain
 ```
 
 ---
@@ -304,9 +226,6 @@ docker compose -f docker-compose.production.yml up -d
 ```bash
 # PostgreSQL
 docker exec brain-postgres pg_dump -U brain brain_db > backup-$(date +%Y%m%d).sql
-
-# Strapi uploads
-docker cp brain-strapi:/app/public/uploads ./uploads-backup-$(date +%Y%m%d)
 ```
 
 ### Restaurar Backup
@@ -314,9 +233,6 @@ docker cp brain-strapi:/app/public/uploads ./uploads-backup-$(date +%Y%m%d)
 ```bash
 # PostgreSQL
 cat backup-20260122.sql | docker exec -i brain-postgres psql -U brain brain_db
-
-# Strapi uploads
-docker cp ./uploads-backup-20260122 brain-strapi:/app/public/uploads
 ```
 
 ---
@@ -328,10 +244,9 @@ Una vez verificado:
 - ✅ Todos los servicios running y healthy
 - ✅ GUI accesible y cargando cadenas
 - ✅ API respondiendo correctamente
-- ✅ Strapi configurado con API token
 - ✅ LLM providers configurados
 
-**¡Brain v1.0.0 está en producción en 192.168.7.102!** 🚀
+**¡Brain está en producción en 192.168.7.102!** 🚀
 
 ---
 
@@ -344,13 +259,7 @@ Si encuentras problemas:
 3. Consulta la documentación en `/docs`
 4. Revisa las variables de entorno en `.env`
 
-**Archivos de referencia:**
-- `PASO_1_COMPLETADO.md` - Cambios del Paso 1
-- `DEPLOYMENT_LOCALHOST_AUDIT.md` - Auditoría completa
-- `.env.production` - Template de variables
-
 ---
 
-**Última actualización:** 2026-01-22  
-**Versión:** v1.0.0  
-**Método:** Build directo sin registry
+**Última actualización:** 2026-01-30  
+**Método:** Build directo sin registry (acceso directo a PostgreSQL)

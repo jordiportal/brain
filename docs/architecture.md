@@ -2,7 +2,7 @@
 
 ## Visión General
 
-Brain es un sistema de gestión de cadenas de pensamiento (thought chains) que utiliza LangChain y LangGraph para orquestar flujos de trabajo con IA.
+Brain es un sistema de gestión de cadenas de pensamiento (thought chains) que utiliza LangChain y LangGraph para orquestar flujos de trabajo con IA. La API accede directamente a PostgreSQL para máxima eficiencia.
 
 ## Diagrama de Arquitectura
 
@@ -16,30 +16,33 @@ Brain es un sistema de gestión de cadenas de pensamiento (thought chains) que u
 │                              Docker Network                                 │
 │                                                                            │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                 │
-│  │  Angular GUI │    │  Python API  │    │  Strapi CMS  │                 │
-│  │    :4200     │◄──►│    :8000     │◄──►│    :1337     │                 │
-│  │              │    │              │    │              │                 │
-│  │  - Dashboard │    │  - FastAPI   │    │  - Content   │                 │
-│  │  - Grafos    │    │  - LangGraph │    │  - Config    │                 │
-│  │  - Traces    │    │  - RAG       │    │  - Users     │                 │
-│  └──────────────┘    └──────┬───────┘    └──────┬───────┘                 │
-│                             │                    │                         │
-│                             ▼                    ▼                         │
+│  │  Angular GUI │    │  Python API  │    │   Browser    │                 │
+│  │    :4200     │◄──►│    :8000     │◄──►│   Service    │                 │
+│  │              │    │              │    │    :6080     │                 │
+│  │  - Dashboard │    │  - FastAPI   │    │              │                 │
+│  │  - Grafos    │    │  - LangGraph │    │  - Chrome    │                 │
+│  │  - Traces    │    │  - RAG       │    │  - noVNC     │                 │
+│  └──────────────┘    └──────┬───────┘    └──────────────┘                 │
+│                             │                                              │
+│                             ▼                                              │
 │                      ┌─────────────────────────────────┐                  │
 │                      │     PostgreSQL + pgvector       │                  │
 │                      │            :5432                │                  │
 │                      │                                 │                  │
 │                      │  - brain_documents (RAG)        │                  │
-│                      │  - brain_graphs                 │                  │
+│                      │  - brain_chains                 │                  │
+│                      │  - llm_providers                │                  │
+│                      │  - mcp_connections              │                  │
 │                      │  - brain_executions             │                  │
-│                      │  - brain_execution_traces       │                  │
-│                      │  - strapi_* (CMS tables)        │                  │
 │                      └─────────────────────────────────┘                  │
 │                                                                            │
-│  ┌──────────────┐                                                         │
-│  │    Redis     │◄── Cache / Task Queue                                   │
-│  │    :6379     │                                                         │
-│  └──────────────┘                                                         │
+│  ┌──────────────┐    ┌──────────────┐                                     │
+│  │    Redis     │    │  Persistent  │                                     │
+│  │    :6379     │    │   Runner     │                                     │
+│  │              │    │              │                                     │
+│  │  - Cache     │    │  - Python    │                                     │
+│  │  - Tasks     │    │  - Workspace │                                     │
+│  └──────────────┘    └──────────────┘                                     │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘
          │
@@ -64,6 +67,7 @@ Servidor principal que gestiona:
 - **Cadenas (LangChain)**: Chains reutilizables
 - **RAG**: Retrieval Augmented Generation con pgvector
 - **Ejecuciones**: Historial y trazabilidad
+- **Acceso directo a PostgreSQL**: Sin intermediarios
 
 #### Estructura del código
 
@@ -71,21 +75,21 @@ Servidor principal que gestiona:
 services/api/src/
 ├── main.py              # FastAPI app, routes
 ├── config.py            # Settings (pydantic-settings)
-├── chains/              # LangChain chains
-│   ├── __init__.py
-│   ├── base.py          # Base chain class
-│   └── examples/        # Example chains
-├── graphs/              # LangGraph workflows
-│   ├── __init__.py
-│   ├── base.py          # Base graph class
-│   └── examples/        # Example graphs
+├── db/                  # Acceso directo a PostgreSQL
+│   ├── connection.py    # Pool de conexiones
+│   ├── models.py        # Modelos de datos
+│   └── repositories/    # Repositorios por entidad
+├── engine/              # Motor de agentes
+│   ├── chains/          # Cadenas y agentes
+│   └── reasoning/       # Lógica de razonamiento
+├── tools/               # Herramientas del agente
+│   └── core/            # Tools nativas
 ├── rag/                 # RAG components
-│   ├── __init__.py
 │   ├── vectorstore.py   # pgvector integration
 │   ├── embeddings.py    # Embedding models
-│   └── retriever.py     # Custom retrievers
-└── models/              # Pydantic models
-    └── __init__.py
+│   └── searcher.py      # Búsqueda semántica
+└── mcp/                 # Model Context Protocol
+    └── client.py        # Cliente MCP
 ```
 
 ### 2. PostgreSQL + pgvector
@@ -97,10 +101,11 @@ Base de datos única para todo el sistema:
 | Tabla | Descripción |
 |-------|-------------|
 | `brain_documents` | Documentos RAG con embeddings vectoriales |
-| `brain_graphs` | Definiciones de grafos LangGraph |
+| `brain_chains` | Configuraciones de cadenas |
+| `llm_providers` | Proveedores LLM configurados |
+| `mcp_connections` | Conexiones MCP |
 | `brain_executions` | Registro de ejecuciones |
 | `brain_execution_traces` | Trace paso a paso de cada ejecución |
-| `brain_chains` | Configuraciones de LangChain chains |
 
 #### Vector Search
 
@@ -113,16 +118,7 @@ ORDER BY embedding <=> query_embedding
 LIMIT 5;
 ```
 
-### 3. Strapi CMS
-
-Gestión de contenido y configuraciones:
-
-- Usuarios y permisos
-- Configuraciones de grafos/chains
-- Plantillas de prompts
-- Logs y auditoría
-
-### 4. Angular GUI
+### 3. Angular GUI
 
 Interfaz de usuario con:
 
@@ -130,14 +126,31 @@ Interfaz de usuario con:
 - **Editor de Grafos**: Visualización y edición de workflows
 - **Monitor de Ejecuciones**: Seguimiento en tiempo real
 - **Explorador RAG**: Gestión de documentos y búsquedas
+- **Testing LLM**: Chat interactivo con streaming
+
+### 4. Browser Service
+
+Navegador Chrome accesible via noVNC:
+
+- Automatización web con Playwright
+- Visualización en tiempo real
+- Capturas de pantalla
 
 ### 5. Redis
 
 Funciones auxiliares:
 
 - Cache de resultados
-- Cola de tareas asíncronas (Celery)
+- Cola de tareas asíncronas
 - Pub/Sub para WebSockets
+
+### 6. Persistent Runner
+
+Contenedor para ejecución de código:
+
+- Python con librerías científicas
+- Workspace compartido con el host
+- Acceso a la red interna
 
 ## Flujo de Datos
 
@@ -168,7 +181,7 @@ Funciones auxiliares:
 ### RAG Pipeline
 
 ```
-1. Documento nuevo llega (via API o Strapi)
+1. Documento nuevo llega via API
           │
           ▼
 2. Generar embedding con Ollama (nomic-embed-text)
@@ -200,11 +213,11 @@ Funciones auxiliares:
 ### Vertical
 
 - pgvector: Índices HNSW para millones de vectores
-- Celery workers para tareas pesadas
+- Workers para tareas pesadas
 
 ## Seguridad
 
-- JWT para autenticación (Strapi)
+- JWT para autenticación
 - CORS configurado por servicio
 - Variables sensibles en .env
 - Network isolation en Docker

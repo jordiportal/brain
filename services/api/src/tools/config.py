@@ -1,7 +1,8 @@
 """
 Brain 2.0 Tool Configuration
 
-Carga y gestiona la configuración de las Core Tools desde Strapi.
+Carga y gestiona la configuración de las Core Tools.
+Usa variables de entorno o configuración por defecto.
 """
 
 import os
@@ -72,8 +73,6 @@ class ToolConfigManager:
     
     def __init__(self):
         self._config: Optional[ToolConfig] = None
-        self._strapi_url = os.getenv("STRAPI_URL", "http://strapi:1337")
-        self._strapi_token = os.getenv("STRAPI_API_TOKEN")
     
     @property
     def config(self) -> ToolConfig:

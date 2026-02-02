@@ -95,7 +95,7 @@ class ChainDefinition(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    type: str  # "rag", "conversational", "tools", "custom"
+    type: str  # "agent" for Brain 2.0 agents
     version: str = "1.0.0"
     
     nodes: list[NodeDefinition] = Field(default_factory=list)

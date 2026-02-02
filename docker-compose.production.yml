@@ -1,8 +1,7 @@
-version: '3.8'
-
 # ===========================================
 # Brain - Production Deployment
 # Portainer Stack: brain-stack
+# Acceso directo a PostgreSQL (sin Strapi)
 # ===========================================
 
 services:
@@ -19,6 +18,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-brain_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
     networks:
       - brain-network
     healthcheck:
@@ -46,52 +46,8 @@ services:
       retries: 5
 
   # ===========================================
-  # Strapi CMS
-  # ===========================================
-  strapi:
-    build:
-      context: ./services/strapi
-      dockerfile: Dockerfile
-    image: brain-strapi:v1.0.0
-    container_name: brain-strapi
-    restart: unless-stopped
-    environment:
-      # TEMPORAL: development por bug en Strapi 5.x admin panel
-      # https://github.com/strapi/strapi/issues/24384
-      NODE_ENV: development
-      DATABASE_CLIENT: postgres
-      DATABASE_HOST: postgres
-      DATABASE_PORT: 5432
-      DATABASE_NAME: ${POSTGRES_DB:-brain_db}
-      DATABASE_USERNAME: ${POSTGRES_USER:-brain}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-brain_secret}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
-      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-change-me}
-      APP_KEYS: ${APP_KEYS:-key1,key2,key3,key4}
-      API_TOKEN_SALT: ${API_TOKEN_SALT:-change-me}
-      TRANSFER_TOKEN_SALT: ${TRANSFER_TOKEN_SALT:-change-me}
-      # URLs públicas del admin
-      STRAPI_ADMIN_CLIENT_URL: http://192.168.7.103:1337
-      STRAPI_ADMIN_BACKEND_URL: http://192.168.7.103:1337
-    ports:
-      - "1337:1337"
-      - "5173:5173"
-    volumes:
-      - strapi_uploads:/app/public/uploads
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - brain-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:1337/admin"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # ===========================================
   # API Python - LangChain/LangGraph
+  # Acceso directo a PostgreSQL
   # ===========================================
   api:
     build:
@@ -107,11 +63,10 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-brain_db}
       DATABASE_USER: ${POSTGRES_USER:-brain}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-brain_secret}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD:-brain_secret}@postgres:5432/${POSTGRES_DB:-brain_db}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      STRAPI_URL: http://strapi:1337
-      STRAPI_PUBLIC_URL: ${STRAPI_PUBLIC_URL:-http://192.168.7.102:1337}
-      STRAPI_API_TOKEN: ${STRAPI_API_TOKEN:-change-me}
+      REDIS_URL: redis://redis:6379
       BROWSER_VNC_HOST: browser-service
       BROWSER_VNC_PORT: 6080
       MCP_PLAYWRIGHT_URL: http://mcp-playwright:3001
@@ -124,8 +79,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      strapi:
-        condition: service_started
     networks:
       - brain-network
     command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -164,12 +117,10 @@ services:
     restart: unless-stopped
     environment:
       API_PUBLIC_URL: ${API_PUBLIC_URL:-http://192.168.7.102:8000}
-      STRAPI_PUBLIC_URL: ${STRAPI_PUBLIC_URL:-http://192.168.7.102:1337}
     ports:
       - "4200:80"
     depends_on:
       - api
-      - strapi
     networks:
       - brain-network
 
@@ -180,8 +131,6 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
-    driver: local
-  strapi_uploads:
     driver: local
 
 # ===========================================

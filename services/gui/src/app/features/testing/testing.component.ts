@@ -13,7 +13,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { StrapiService } from '../../core/services/strapi.service';
+import { StrapiService } from '../../core/services/config.service';
 import { LlmProvider } from '../../core/models';
 import { HttpClient } from '@angular/common/http';
 import { marked } from 'marked';

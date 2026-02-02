@@ -1,6 +1,6 @@
 """
 Auth Router - Endpoints de autenticación para el GUI
-Reemplaza la autenticación de Strapi
+Autenticación directa con PostgreSQL
 """
 
 from fastapi import APIRouter, HTTPException

@@ -45,7 +45,7 @@ echo "=================================================="
 # 1. API (Python FastAPI)
 # ===========================================
 echo ""
-echo "🐍 [1/4] Building API..."
+echo "🐍 [1/3] Building API..."
 docker buildx build \
     --platform $PLATFORMS \
     --tag $REGISTRY/brain-api:$VERSION \
@@ -60,7 +60,7 @@ echo "✅ API pushed successfully"
 # 2. GUI (Angular)
 # ===========================================
 echo ""
-echo "🎨 [2/4] Building GUI..."
+echo "🎨 [2/3] Building GUI..."
 docker buildx build \
     --platform $PLATFORMS \
     --tag $REGISTRY/brain-gui:$VERSION \
@@ -72,25 +72,10 @@ docker buildx build \
 echo "✅ GUI pushed successfully"
 
 # ===========================================
-# 3. Strapi (CMS)
+# 3. Browser Service
 # ===========================================
 echo ""
-echo "📝 [3/4] Building Strapi..."
-docker buildx build \
-    --platform $PLATFORMS \
-    --tag $REGISTRY/brain-strapi:$VERSION \
-    --tag $REGISTRY/brain-strapi:latest \
-    --file ./services/strapi/Dockerfile \
-    --push \
-    ./services/strapi
-
-echo "✅ Strapi pushed successfully"
-
-# ===========================================
-# 4. Browser Service
-# ===========================================
-echo ""
-echo "🌐 [4/4] Building Browser Service..."
+echo "🌐 [3/3] Building Browser Service..."
 docker buildx build \
     --platform linux/amd64 \
     --tag $REGISTRY/brain-browser-service:$VERSION \
@@ -109,7 +94,6 @@ echo ""
 echo "📋 Imágenes disponibles en $REGISTRY:"
 echo "  - brain-api:$VERSION"
 echo "  - brain-gui:$VERSION"
-echo "  - brain-strapi:$VERSION"
 echo "  - brain-browser-service:$VERSION"
 echo ""
 echo "🎯 Próximo paso: Deployment a Portainer"

@@ -15,7 +15,6 @@ if [ -d "/usr/share/nginx/html" ]; then
     echo "Inyectando variables de entorno..."
     
     API_PUBLIC_URL=${API_PUBLIC_URL:-http://localhost:8000}
-    STRAPI_PUBLIC_URL=${STRAPI_PUBLIC_URL:-http://localhost:1337}
     OLLAMA_URL=${OLLAMA_URL:-http://localhost:11434}
     
     # Crear env.js con las variables de entorno
@@ -24,15 +23,12 @@ if [ -d "/usr/share/nginx/html" ]; then
 (function(window) {
   window['env'] = window['env'] || {};
   window['env']['apiUrl'] = '${API_PUBLIC_URL}/api/v1';
-  window['env']['strapiUrl'] = '${STRAPI_PUBLIC_URL}';
-  window['env']['strapiApiUrl'] = '${STRAPI_PUBLIC_URL}/api';
   window['env']['ollamaDefaultUrl'] = '${OLLAMA_URL}';
 })(this);
 EOF
     
     echo "✅ Variables inyectadas:"
     echo "   API: ${API_PUBLIC_URL}"
-    echo "   Strapi: ${STRAPI_PUBLIC_URL}"
     echo "   Ollama: ${OLLAMA_URL}"
     
 else
