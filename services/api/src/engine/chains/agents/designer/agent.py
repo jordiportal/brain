@@ -532,6 +532,18 @@ REGLAS:
         last_image_result = None
         last_presentation_result = None
         
+        # Helper para añadir tool result al historial (compatible con Ollama y OpenAI)
+        def add_tool_result(tool_name: str, tool_args: dict, result_content: str):
+            """Añade resultado de tool de forma compatible con múltiples providers."""
+            # Formato simplificado que funciona en todos los providers:
+            # En lugar de usar el formato complejo de tool_calls/tool,
+            # usamos un mensaje de assistant describiendo la acción
+            args_summary = ", ".join(f"{k}={repr(v)[:50]}" for k, v in tool_args.items())
+            messages.append({
+                "role": "assistant",
+                "content": f"[Ejecuté {tool_name}({args_summary})]\n\nResultado:\n{result_content}"
+            })
+        
         # Loop: permite cargar skills, generar, analizar, regenerar
         max_iterations = 6  # Más iteraciones para ciclo de auto-revisión
         
@@ -565,24 +577,13 @@ REGLAS:
                     
                     if result.get("success"):
                         skill_content = result.get("content", "")
-                        messages.append({
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{"id": tc.id, "type": "function", "function": tc.function}]
-                        })
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": f"Skill '{skill_id}' cargado. Contenido:\n\n{skill_content}"
-                        })
+                        add_tool_result("load_skill", {"skill_id": skill_id}, 
+                                       f"Skill '{skill_id}' cargado.\n\n{skill_content}")
                         logger.info(f"🎯 LLM loaded skill: {skill_id}")
                         continue
                     else:
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": f"Error: {result.get('error')}"
-                        })
+                        add_tool_result("load_skill", {"skill_id": skill_id}, 
+                                       f"Error: {result.get('error')}")
                         continue
 
                 # Tool: generate_image - genera pero NO retorna, permite análisis
@@ -595,16 +596,7 @@ REGLAS:
                     if last_image_result.data and last_image_result.data.get("image_url"):
                         image_info += f"\nURL: {last_image_result.data['image_url']}"
                     
-                    messages.append({
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{"id": tc.id, "type": "function", "function": tc.function}]
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": image_info
-                    })
+                    add_tool_result("generate_image", {"prompt": prompt[:100]}, image_info)
                     logger.info(f"🖼️ Image generated, awaiting analysis decision")
                     continue
                 
@@ -628,23 +620,12 @@ REGLAS:
                         )
                         
                         analysis_text = analysis_result.get("analysis", "No se pudo analizar")
-                        messages.append({
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{"id": tc.id, "type": "function", "function": tc.function}]
-                        })
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": f"Análisis ({analysis_type}):\n\n{analysis_text}"
-                        })
+                        add_tool_result("analyze_image", {"analysis_type": analysis_type}, 
+                                       f"Análisis ({analysis_type}):\n\n{analysis_text}")
                         logger.info(f"🔍 Image analyzed: {analysis_type}")
                     else:
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": "Error: No hay imagen disponible para analizar"
-                        })
+                        add_tool_result("analyze_image", {"analysis_type": analysis_type}, 
+                                       "Error: No hay imagen disponible para analizar")
                     continue
                 
                 # Tool: deliver_result - entrega final
