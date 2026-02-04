@@ -158,6 +158,72 @@ def get_subagent_ids() -> list:
     return subagent_registry.list_ids()
 
 
+async def consult_team_member(
+    agent: str,
+    task: str,
+    context: Optional[str] = None,
+    _llm_url: Optional[str] = None,
+    _model: Optional[str] = None,
+    _provider_type: Optional[str] = None,
+    _api_key: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Consulta a un miembro del equipo para obtener su opinión o propuesta (sin ejecutar la tarea completa).
+    
+    Usa esta tool en modo Team para que cada subagente aporte su perspectiva; luego usa think/reflect/plan
+    para sintetizar y alcanzar consenso. No ejecuta la tarea final del subagente, solo su "propuesta".
+    
+    Args:
+        agent: ID del subagente (media_agent, slides_agent, analyst_agent, communication_agent)
+        task: Pregunta o tema sobre el que quieres la opinión del experto
+        context: Contexto adicional (ej. propuestas de otros miembros)
+        _llm_url, _model, _provider_type, _api_key: Config LLM (inyectada por el sistema)
+    
+    Returns:
+        Dict con response (texto de la propuesta/opinión), agent_name, success.
+    """
+    from src.engine.chains.agents import subagent_registry, register_all_subagents
+    
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    subagent = subagent_registry.get(agent)
+    if not subagent:
+        available = subagent_registry.list_ids()
+        return {
+            "success": False,
+            "error": f"Subagente '{agent}' no encontrado",
+            "available_agents": available,
+            "agent": agent
+        }
+    
+    try:
+        result = await subagent.consult(
+            topic=task,
+            context=context,
+            llm_url=_llm_url,
+            model=_model,
+            provider_type=_provider_type or "ollama",
+            api_key=_api_key
+        )
+        return {
+            "success": result.success,
+            "response": result.response,
+            "agent_id": result.agent_id,
+            "agent_name": result.agent_name,
+            "data": result.data,
+            "error": result.error
+        }
+    except Exception as e:
+        logger.error(f"Consult team member error: {e}", agent=agent, exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "agent": agent,
+            "agent_name": getattr(subagent, "name", agent)
+        }
+
+
 async def get_agent_info(agent: str) -> Dict[str, Any]:
     """
     Obtiene información sobre un subagente, incluyendo su rol, expertise y qué datos necesita.
@@ -257,4 +323,40 @@ IMPORTANTE: Usa get_agent_info primero para saber qué formato de datos espera e
         "required": ["agent", "task"]
     },
     "handler": delegate
+}
+
+
+CONSULT_TEAM_MEMBER_TOOL = {
+    "id": "consult_team_member",
+    "name": "consult_team_member",
+    "description": """Consulta a un miembro del equipo para obtener su opinión o propuesta (sin ejecutar la tarea completa).
+
+Usa esta tool en modo Team para que cada experto aporte su perspectiva. Luego usa think/reflect/plan
+para sintetizar y alcanzar consenso. No ejecuta la tarea final del subagente, solo obtiene su propuesta.
+
+Miembros disponibles:
+- media_agent: Experto en imágenes y arte visual
+- slides_agent: Experto en presentaciones y diseño
+- communication_agent: Experto en comunicación y narrativa
+- analyst_agent: Experto en datos y análisis""",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent": {
+                "type": "string",
+                "enum": ["media_agent", "slides_agent", "communication_agent", "analyst_agent"],
+                "description": "ID del miembro del equipo a consultar"
+            },
+            "task": {
+                "type": "string",
+                "description": "Pregunta o tema sobre el que quieres la opinión del experto"
+            },
+            "context": {
+                "type": "string",
+                "description": "Contexto adicional (ej. propuestas de otros miembros)"
+            }
+        },
+        "required": ["agent", "task"]
+    },
+    "handler": consult_team_member
 }

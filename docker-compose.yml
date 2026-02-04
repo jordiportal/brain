@@ -73,7 +73,7 @@ services:
       - CODE_EXECUTION_CPU_LIMIT=1.0
       - DEBUG=${DEBUG:-true}
     volumes:
-      - ./services/api/src:/app/src:ro
+      - ./services/api/src:/app/src
       - /var/run/docker.sock:/var/run/docker.sock  # Acceso a Docker daemon para code execution
       - ~/Docker/workspace:/workspace  # Workspace compartido accesible desde Mac
     ports:

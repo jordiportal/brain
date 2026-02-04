@@ -114,6 +114,29 @@ class ToolRegistry:
             tools = list(self.tools.values())
         
         return [tool.to_function_schema() for tool in tools]
+
+    # IDs de tools para el Adaptive Agent (sin consult_team_member)
+    ADAPTIVE_TOOL_IDS = [
+        "read_file", "write_file", "edit_file", "list_directory", "search_files",
+        "shell", "python", "javascript",
+        "web_search", "web_fetch",
+        "think", "reflect", "plan", "finish",
+        "calculate",
+        "get_agent_info", "delegate"
+    ]
+
+    def get_tools_for_team(self) -> List[Dict[str, Any]]:
+        """
+        Herramientas para el coordinador Brain Team: cognición + consulta + ejecución.
+        
+        consult_team_member: pedir opiniones. delegate: ejecutar la tarea con el experto elegido
+        (ej. generar presentación con slides_agent tras el consenso).
+        """
+        team_ids = [
+            "think", "reflect", "plan", "finish",
+            "get_agent_info", "consult_team_member", "delegate"
+        ]
+        return self.get_tools_for_llm(team_ids)
     
     def get_all_tool_names(self) -> List[str]:
         """Obtiene lista de nombres de todas las herramientas"""
@@ -198,22 +221,29 @@ class ToolRegistry:
     
     def register_core_tools(self) -> None:
         """
-        Registra las 15 Core Tools de Brain 2.0
+        Registra las Core Tools de Brain 2.0 y las Team tools.
         
-        Filesystem (5): read_file, write_file, edit_file, list_directory, search_files
-        Execution (3): shell, python, javascript
-        Web (2): web_search, web_fetch
-        Reasoning (4): think, reflect, plan, finish
-        Utils (1): calculate
+        Core: Filesystem (5), Execution (3), Web (2), Reasoning (4), Utils (1), Delegation (2)
+        Team: consult_team_member (solo para cadena Brain Team)
         """
         if self._core_registered:
             return
         
-        # Importar core tools
-        from .core import CORE_TOOLS
+        # Importar core y team tools
+        from .core import CORE_TOOLS, TEAM_TOOLS
         
-        # Registrar cada tool
+        # Registrar cada core tool
         for tool_id, tool_def in CORE_TOOLS.items():
+            self.register_core_tool(
+                id=tool_def["id"],
+                name=tool_def["name"],
+                description=tool_def["description"],
+                parameters=tool_def["parameters"],
+                handler=tool_def["handler"]
+            )
+        
+        # Registrar team tools (consult_team_member; coordinador las usa, adaptive no)
+        for tool_id, tool_def in TEAM_TOOLS.items():
             self.register_core_tool(
                 id=tool_def["id"],
                 name=tool_def["name"],
@@ -225,9 +255,9 @@ class ToolRegistry:
         self._core_registered = True
         
         # Log de herramientas registradas
-        tool_names = list(CORE_TOOLS.keys())
+        tool_names = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys())
         logger.info(
-            f"✅ Brain 2.0 Core Tools registradas: {len(tool_names)}",
+            f"✅ Brain 2.0 Core + Team Tools registradas: {len(tool_names)}",
             tools=tool_names
         )
     

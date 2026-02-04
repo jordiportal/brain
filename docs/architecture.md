@@ -141,8 +141,8 @@ Navegador Chrome accesible via noVNC:
 Funciones auxiliares:
 
 - Cache de resultados
-- Cola de tareas asíncronas
-- Pub/Sub para WebSockets
+- Pub/Sub para WebSockets (cuando se use)
+- **Futuro:** colas de jobs para tareas asíncronas y/o agente Swarm (RQ, ARQ o Celery)
 
 ### 6. Persistent Runner
 
@@ -214,6 +214,10 @@ Contenedor para ejecución de código:
 
 - pgvector: Índices HNSW para millones de vectores
 - Workers para tareas pesadas
+
+## Futuro: agente Swarm
+
+Se prevé añadir un agente de tipo Swarm (orquestación multi-agente con DAG y colas) como **una cadena más** en el registry. Redis está previsto para soportar colas de jobs (RQ, ARQ o Celery); la API y el modelo de ejecuciones actuales permiten integrar dicho agente sin cambios estructurales.
 
 ## Seguridad
 

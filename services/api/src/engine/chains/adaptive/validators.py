@@ -28,6 +28,8 @@ VALID_TOOL_NAMES: Set[str] = {
     "calculate",
     # Delegation
     "get_agent_info", "delegate",
+    # Team (consulta a miembros sin ejecutar)
+    "consult_team_member",
 }
 
 # Patrones que indican artifacts de modelos (no son tools reales)

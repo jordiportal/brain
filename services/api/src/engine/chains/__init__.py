@@ -14,9 +14,8 @@ Estructura del módulo adaptive (refactorizado v2.1.0):
 - adaptive/agent.py: Builder y definición
 
 Estructura del módulo team:
-- team/coordinator.py: TeamCoordinator principal
-- team/consensus.py: Motor de consenso
-- team/prompts.py: Prompts de coordinación
+- team/coordinator.py: build_team_coordinator (AdaptiveExecutor + consult_team_member)
+- team/prompts.py: COORDINATOR_SYSTEM_PROMPT
 """
 
 # Import desde el nuevo paquete refactorizado

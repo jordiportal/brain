@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     # Registrar cadenas predefinidas
     register_all_chains()
     logger.info("Cadenas predefinidas registradas")
-    
+
     # Cargar herramientas built-in (core tools)
     tool_registry.register_builtin_tools()
     logger.info("Herramientas built-in registradas")

@@ -8,6 +8,7 @@ from .base import ToolHandler, ToolResult
 from .finish import FinishHandler
 from .delegate import DelegateHandler
 from .reasoning import ReasoningHandler
+from .consult_team import ConsultTeamMemberHandler
 
 # SlidesHandler ya no se usa en el adaptive agent
 # Las presentaciones se manejan via delegate → slides_agent
@@ -17,6 +18,7 @@ from .reasoning import ReasoningHandler
 HANDLER_REGISTRY = {
     "finish": FinishHandler,
     "delegate": DelegateHandler,
+    "consult_team_member": ConsultTeamMemberHandler,
     # generate_slides removido - usar delegate(agent="slides_agent", ...)
     "think": ReasoningHandler,
     "reflect": ReasoningHandler,
@@ -42,6 +44,7 @@ __all__ = [
     "ToolResult",
     "FinishHandler",
     "DelegateHandler",
+    "ConsultTeamMemberHandler",
     "ReasoningHandler",
     "get_handler",
     "HANDLER_REGISTRY",

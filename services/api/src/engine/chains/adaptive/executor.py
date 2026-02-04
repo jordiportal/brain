@@ -53,6 +53,7 @@ class AdaptiveExecutor:
         "reflect": "🔍 Reflexionando",
         "plan": "📋 Planificando",
         "delegate": "🤖 Delegando a subagente",
+        "consult_team_member": "👥 Consultando miembro del equipo",
         "finish": "✅ Finalizando",
         # generate_slides movido a slides_agent - usar delegate
     }
@@ -276,9 +277,15 @@ class AdaptiveExecutor:
                     } for tc in response.tool_calls]
                 })
             
+            # Nombres de tools disponibles en este contexto (LLM puede llamar cualquiera de estas)
+            available_tool_names = {
+                t.get("function", {}).get("name", "")
+                for t in tools
+                if isinstance(t, dict) and t.get("type") == "function"
+            }
             # Ejecutar cada tool
             for tool_call in response.tool_calls:
-                async for event in self._execute_tool(tool_call, messages):
+                async for event in self._execute_tool(tool_call, messages, available_tool_names):
                     yield event
                 
                 # Si terminamos, salir del loop de tools
@@ -288,16 +295,33 @@ class AdaptiveExecutor:
     async def _execute_tool(
         self,
         tool_call: Any,
-        messages: list[dict]
+        messages: list[dict],
+        available_tool_names: Optional[set] = None
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Ejecuta una tool individual.
         """
         tool_name = tool_call.function.get("name", "")
         
-        # Validar nombre
-        if not is_valid_tool_name(tool_name):
+        # Validar: válida si está en VALID_TOOL_NAMES O si está en las tools ofrecidas al LLM
+        is_valid = is_valid_tool_name(tool_name) or (
+            available_tool_names and tool_name in available_tool_names
+        )
+        if not is_valid:
             logger.warning(f"⚠️ Invalid tool ignored: {tool_name}")
+            error_msg = json.dumps({
+                "error": f"Tool '{tool_name}' is not available or invalid",
+                "success": False
+            }, ensure_ascii=False)
+            if self.provider_type == "ollama":
+                messages.append({"role": "tool", "content": error_msg})
+            else:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_name,
+                    "content": error_msg
+                })
             return
         
         # Parsear argumentos

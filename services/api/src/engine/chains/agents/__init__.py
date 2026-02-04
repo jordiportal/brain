@@ -2,7 +2,7 @@
 Brain 2.0 Subagentes Especializados (v2.0.0)
 
 Subagentes de dominio invocables via `delegate` desde el Adaptive Agent
-o coordinados por el TeamCoordinator en modo equipo.
+o consultados via `consult_team_member` desde el coordinador Brain Team.
 
 Estructura:
     agents/

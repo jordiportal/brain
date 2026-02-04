@@ -24,7 +24,6 @@ from ...registry import chain_registry
 from ...reasoning import detect_complexity, get_reasoning_config, ComplexityLevel
 from ....tools import tool_registry
 
-from .prompts import get_system_prompt, get_workflow
 from .validators import is_continue_command
 from .executor import AdaptiveExecutor
 from .events import StreamEmitter, BrainEmitter
@@ -37,9 +36,7 @@ logger = structlog.get_logger()
 # Chain Definition
 # ============================================
 
-# System prompt por defecto (OpenAI)
-ADAPTIVE_AGENT_SYSTEM_PROMPT = get_system_prompt("openai")
-
+# System prompt: único origen es la BD (GUI). Sin duplicidad en código.
 ADAPTIVE_AGENT_DEFINITION = ChainDefinition(
     id="adaptive",
     name="Brain 2.0 Adaptive Agent",
@@ -51,7 +48,7 @@ ADAPTIVE_AGENT_DEFINITION = ChainDefinition(
             id="adaptive_agent",
             type=NodeType.LLM,
             name="Adaptive Agent",
-            system_prompt=ADAPTIVE_AGENT_SYSTEM_PROMPT,
+            system_prompt=None,  # Se lee de BD
             temperature=0.5
         )
     ],
@@ -147,20 +144,16 @@ async def build_adaptive_agent(
     
     # ========== FASE 2: PREPARAR MENSAJES Y TOOLS ==========
     
-    # Workflow único - el LLM decide
-    workflow = get_workflow("normal")
-    
-    # Obtener prompt para el proveedor
-    system_prompt = get_system_prompt(provider_type).format(
-        workflow_instructions=workflow
-    )
-    
-    # Registrar y obtener tools
+    # System prompt: desde fichero (prompts/system_prompt.txt)
+    from ...prompt_files import read_prompt
+    system_prompt = read_prompt("adaptive")
+
+    # Registrar y obtener tools (solo las del adaptive; consult_team_member es solo para Team)
     tool_registry.register_core_tools()
-    tools = tool_registry.get_tools_for_llm()
-    
+    tools = tool_registry.get_tools_for_llm(tool_registry.ADAPTIVE_TOOL_IDS)
+
     logger.info(f"📦 {len(tools)} core tools loaded")
-    logger.info(f"📝 Using prompt for provider: {provider_type}")
+    logger.info(f"📝 Using system prompt from BD" if system_prompt else "📝 No system prompt in BD")
     
     # Construir mensajes
     messages = [{"role": "system", "content": system_prompt}]

@@ -25,12 +25,10 @@ from .agent import (
     build_adaptive_agent,
     register_adaptive_agent,
     ADAPTIVE_AGENT_DEFINITION,
-    ADAPTIVE_AGENT_SYSTEM_PROMPT
 )
 
 __all__ = [
     "build_adaptive_agent",
     "register_adaptive_agent",
     "ADAPTIVE_AGENT_DEFINITION",
-    "ADAPTIVE_AGENT_SYSTEM_PROMPT",
 ]

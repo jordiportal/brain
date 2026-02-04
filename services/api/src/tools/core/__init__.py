@@ -51,9 +51,11 @@ from .utils import (
 from .delegation import (
     delegate,
     get_agent_info,
+    consult_team_member,
     get_available_subagents_description,
     DELEGATE_TOOL,
-    GET_AGENT_INFO_TOOL
+    GET_AGENT_INFO_TOOL,
+    CONSULT_TEAM_MEMBER_TOOL
 )
 
 # Mantener imports para uso interno por subagentes
@@ -66,6 +68,11 @@ from .slides import (
 DELEGATION_TOOLS = {
     "get_agent_info": GET_AGENT_INFO_TOOL,
     "delegate": DELEGATE_TOOL
+}
+
+# Team-only tools (coordinador usa cognición + consult_team_member)
+TEAM_TOOLS = {
+    "consult_team_member": CONSULT_TEAM_MEMBER_TOOL
 }
 
 # Slides tools dict (NO incluido en CORE_TOOLS, usado por slides_agent)
@@ -120,5 +127,7 @@ __all__ = [
     "REASONING_TOOLS",
     "UTILS_TOOLS",
     "DELEGATION_TOOLS",
-    "SLIDES_TOOLS"
+    "TEAM_TOOLS",
+    "SLIDES_TOOLS",
+    "consult_team_member"
 ]

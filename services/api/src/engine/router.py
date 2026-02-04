@@ -259,18 +259,21 @@ async def update_chain_llm_config(chain_id: str, request: ChainLLMConfigRequest)
 
 @router.put("/{chain_id}/prompt")
 async def update_chain_prompt(chain_id: str, request: ChainPromptUpdateRequest):
-    """Actualizar el system prompt de una cadena"""
+    """Actualizar el system prompt de una cadena (fichero para adaptive/team, BD para otras)"""
     chain = chain_registry.get(chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
-    
-    from ..db.repositories.chains import ChainRepository
-    
-    success = await ChainRepository.update_system_prompt(
-        slug=chain_id,
-        system_prompt=request.system_prompt
-    )
-    
+
+    if chain_id in ("adaptive", "team"):
+        from .prompt_files import write_prompt
+        success = write_prompt(chain_id, request.system_prompt)
+    else:
+        from ..db.repositories.chains import ChainRepository
+        success = await ChainRepository.update_system_prompt(
+            slug=chain_id,
+            system_prompt=request.system_prompt
+        )
+
     if success:
         return {
             "status": "ok",
@@ -340,15 +343,9 @@ async def get_chain_details(chain_id: str):
         # Si falla, continuar sin subagentes
         pass
     
-    # Extraer system prompt del primer nodo LLM
-    system_prompt = ""
-    for node in chain.nodes:
-        if node.system_prompt:
-            system_prompt = node.system_prompt
-            break
-    
-    # Obtener proveedor LLM desde la relación en BD
+    # Obtener proveedor LLM y prompt persistido desde BD (antes de extraer de nodos)
     llm_provider = None
+    db_chain = None
     try:
         from ..db.repositories.chains import ChainRepository
         db_chain = await ChainRepository.get_by_slug(chain_id)
@@ -365,7 +362,16 @@ async def get_chain_details(chain_id: str):
             }
     except Exception:
         pass
-    
+
+    # System prompt: desde fichero (adaptive, team) o BD (otras cadenas)
+    from .prompt_files import read_prompt
+    if chain_id in ("adaptive", "team"):
+        system_prompt = read_prompt(chain_id)
+    else:
+        system_prompt = ""
+        if db_chain and getattr(db_chain, "prompts", None) and isinstance(db_chain.prompts, dict) and db_chain.prompts.get("system"):
+            system_prompt = db_chain.prompts.get("system", "")
+
     return {
         "chain": {
             "id": chain.id,
