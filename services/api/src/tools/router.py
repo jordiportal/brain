@@ -232,3 +232,98 @@ async def get_tools_for_llm(tool_ids: Optional[str] = None):
         "tools": schemas,
         "count": len(schemas)
     }
+
+
+# ============================================
+# Configuración de Herramientas Core
+# ============================================
+
+import json
+from pathlib import Path
+import structlog
+
+logger = structlog.get_logger()
+
+# Archivo de configuración de herramientas
+TOOLS_CONFIG_FILE = Path(__file__).parent.parent / "config" / "tools_config.json"
+
+
+def _ensure_config_dir():
+    """Asegura que el directorio de config existe"""
+    TOOLS_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _load_tools_config() -> Dict[str, Any]:
+    """Carga la configuración de herramientas desde archivo"""
+    _ensure_config_dir()
+    
+    if not TOOLS_CONFIG_FILE.exists():
+        return {}
+    
+    try:
+        with open(TOOLS_CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading tools config: {e}")
+        return {}
+
+
+def _save_tools_config(configs: Dict[str, Any]) -> None:
+    """Guarda la configuración de herramientas"""
+    _ensure_config_dir()
+    
+    try:
+        with open(TOOLS_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(configs, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error saving tools config: {e}")
+        raise
+
+
+@router.get("/config")
+async def get_tools_config():
+    """Obtiene la configuración de todas las herramientas core"""
+    configs = _load_tools_config()
+    
+    return {
+        "configs": configs,
+        "count": len(configs)
+    }
+
+
+@router.get("/config/{tool_id}")
+async def get_tool_config(tool_id: str):
+    """Obtiene la configuración de una herramienta específica"""
+    configs = _load_tools_config()
+    
+    if tool_id not in configs:
+        # Devolver configuración vacía si no existe
+        return {
+            "tool_id": tool_id,
+            "config": {}
+        }
+    
+    return {
+        "tool_id": tool_id,
+        "config": configs[tool_id]
+    }
+
+
+@router.put("/config/{tool_id}")
+async def update_tool_config(tool_id: str, config: Dict[str, Any] = Body(...)):
+    """Actualiza la configuración de una herramienta"""
+    configs = _load_tools_config()
+    
+    # Actualizar config
+    configs[tool_id] = config
+    
+    # Guardar
+    _save_tools_config(configs)
+    
+    logger.info(f"🔧 Tool config updated: {tool_id}", config=config)
+    
+    return {
+        "status": "ok",
+        "tool_id": tool_id,
+        "config": config
+    }

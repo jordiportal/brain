@@ -41,6 +41,25 @@ interface Tool {
   path?: string;
 }
 
+interface CoreToolConfig {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+  config: Record<string, any>;
+  configSchema: ConfigField[];
+}
+
+interface ConfigField {
+  key: string;
+  label: string;
+  type: 'text' | 'select' | 'number' | 'boolean';
+  options?: { value: string; label: string }[];
+  placeholder?: string;
+  hint?: string;
+}
+
 @Component({
   selector: 'app-tools',
   standalone: true,
@@ -293,6 +312,92 @@ interface Tool {
             </div>
           }
         </mat-tab>
+
+        <!-- Tab de Configuración de Herramientas Core -->
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <mat-icon>settings</mat-icon>
+            <span class="tab-label">Configuración</span>
+          </ng-template>
+
+          <div class="core-tools-config">
+            <div class="config-header">
+              <h2>Configuración de Herramientas</h2>
+              <p>Configura los proveedores y parámetros por defecto de las herramientas del sistema</p>
+            </div>
+
+            @if (loadingCoreConfig()) {
+              <div class="loading-container">
+                <mat-spinner diameter="48"></mat-spinner>
+                <p>Cargando configuración...</p>
+              </div>
+            } @else {
+              <div class="core-tools-grid">
+                @for (tool of coreToolConfigs(); track tool.id) {
+                  <mat-card class="core-tool-card" [id]="'tool-config-' + tool.id">
+                    <mat-card-header>
+                      <div class="tool-icon" [ngClass]="tool.category">
+                        <mat-icon>{{ tool.icon }}</mat-icon>
+                      </div>
+                      <mat-card-title>{{ tool.name }}</mat-card-title>
+                      <mat-card-subtitle>{{ tool.description }}</mat-card-subtitle>
+                    </mat-card-header>
+
+                    <mat-card-content>
+                      <div class="config-fields">
+                        @for (field of tool.configSchema; track field.key) {
+                          @if (field.type === 'select') {
+                            <mat-form-field appearance="outline" class="full-width">
+                              <mat-label>{{ field.label }}</mat-label>
+                              <mat-select [(ngModel)]="tool.config[field.key]">
+                                @for (opt of field.options; track opt.value) {
+                                  <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                                }
+                              </mat-select>
+                              @if (field.hint) {
+                                <mat-hint>{{ field.hint }}</mat-hint>
+                              }
+                            </mat-form-field>
+                          } @else if (field.type === 'text') {
+                            <mat-form-field appearance="outline" class="full-width">
+                              <mat-label>{{ field.label }}</mat-label>
+                              <input matInput [(ngModel)]="tool.config[field.key]" 
+                                     [placeholder]="field.placeholder || ''">
+                              @if (field.hint) {
+                                <mat-hint>{{ field.hint }}</mat-hint>
+                              }
+                            </mat-form-field>
+                          } @else if (field.type === 'number') {
+                            <mat-form-field appearance="outline" class="full-width">
+                              <mat-label>{{ field.label }}</mat-label>
+                              <input matInput type="number" [(ngModel)]="tool.config[field.key]" 
+                                     [placeholder]="field.placeholder || ''">
+                              @if (field.hint) {
+                                <mat-hint>{{ field.hint }}</mat-hint>
+                              }
+                            </mat-form-field>
+                          }
+                        }
+                      </div>
+                    </mat-card-content>
+
+                    <mat-card-actions align="end">
+                      <button mat-button color="primary" (click)="saveCoreToolConfig(tool)" 
+                              [disabled]="savingToolConfig() === tool.id">
+                        @if (savingToolConfig() === tool.id) {
+                          <mat-spinner diameter="20"></mat-spinner>
+                        } @else {
+                          <mat-icon>save</mat-icon>
+                        }
+                        Guardar
+                      </button>
+                    </mat-card-actions>
+                  </mat-card>
+                }
+              </div>
+            }
+          </div>
+        </mat-tab>
       </mat-tab-group>
     </div>
   `,
@@ -530,6 +635,63 @@ interface Tool {
 
     mat-chip.bearer, mat-chip.apikey { background: #e8f5e9 !important; color: #388e3c !important; }
     mat-chip.none { background: #f5f5f5 !important; color: #888 !important; }
+
+    /* Core Tools Config */
+    .core-tools-config {
+      padding: 24px 0;
+    }
+
+    .config-header {
+      margin-bottom: 24px;
+    }
+
+    .config-header h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 500;
+    }
+
+    .config-header p {
+      color: #666;
+      margin: 0;
+    }
+
+    .core-tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 20px;
+    }
+
+    .core-tool-card {
+      border-radius: 12px;
+    }
+
+    .tool-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 16px;
+    }
+
+    .tool-icon mat-icon {
+      color: white;
+      font-size: 24px;
+    }
+
+    .tool-icon.media { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .tool-icon.web { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+    .tool-icon.ai { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .tool-icon.filesystem { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+
+    .config-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 16px;
+    }
   `]
 })
 export class ToolsComponent implements OnInit {
@@ -544,6 +706,11 @@ export class ToolsComponent implements OnInit {
   executingTool = signal(false);
   refreshingConnections = signal(false);
   toolResult = signal<any>(null);
+  
+  // Core tools config
+  coreToolConfigs = signal<CoreToolConfig[]>([]);
+  loadingCoreConfig = signal(false);
+  savingToolConfig = signal<string | null>(null);
 
   generatingConnectionId = '';
   searchTerm = '';
@@ -554,6 +721,178 @@ export class ToolsComponent implements OnInit {
   ngOnInit(): void {
     this.loadConnections();
     this.loadTools();
+    this.loadCoreToolConfigs();
+  }
+  
+  loadCoreToolConfigs(): void {
+    this.loadingCoreConfig.set(true);
+    
+    // Por ahora, definir configuración localmente (TODO: cargar desde backend)
+    const defaultConfigs: CoreToolConfig[] = [
+      {
+        id: 'generate_image',
+        name: 'Generación de Imágenes',
+        description: 'Configura el proveedor para generar imágenes con IA',
+        icon: 'image',
+        category: 'media',
+        config: {
+          provider: 'openai',
+          model: 'dall-e-3',
+          size: '1024x1024',
+          quality: 'standard',
+          style: 'vivid'
+        },
+        configSchema: [
+          {
+            key: 'provider',
+            label: 'Proveedor',
+            type: 'select',
+            options: [
+              { value: 'openai', label: 'OpenAI (DALL-E)' },
+              { value: 'replicate', label: 'Replicate (Flux/SD)' },
+              { value: 'stability', label: 'Stability AI' }
+            ],
+            hint: 'API para generar imágenes'
+          },
+          {
+            key: 'model',
+            label: 'Modelo',
+            type: 'select',
+            options: [
+              { value: 'dall-e-3', label: 'DALL-E 3 (mejor calidad)' },
+              { value: 'dall-e-2', label: 'DALL-E 2 (más rápido)' },
+              { value: 'flux-schnell', label: 'Flux Schnell' },
+              { value: 'sdxl', label: 'Stable Diffusion XL' }
+            ]
+          },
+          {
+            key: 'size',
+            label: 'Tamaño por defecto',
+            type: 'select',
+            options: [
+              { value: '1024x1024', label: '1024x1024 (Cuadrado)' },
+              { value: '1792x1024', label: '1792x1024 (Paisaje)' },
+              { value: '1024x1792', label: '1024x1792 (Retrato)' }
+            ]
+          },
+          {
+            key: 'quality',
+            label: 'Calidad',
+            type: 'select',
+            options: [
+              { value: 'standard', label: 'Estándar' },
+              { value: 'hd', label: 'HD (más detalle)' }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'analyze_image',
+        name: 'Análisis de Imágenes',
+        description: 'Configura el modelo visual para analizar imágenes',
+        icon: 'visibility',
+        category: 'ai',
+        config: {
+          provider: 'openai',
+          model: 'gpt-4o'
+        },
+        configSchema: [
+          {
+            key: 'provider',
+            label: 'Proveedor',
+            type: 'select',
+            options: [
+              { value: 'openai', label: 'OpenAI (GPT-4o)' },
+              { value: 'ollama', label: 'Ollama (LLaVA)' },
+              { value: 'anthropic', label: 'Anthropic (Claude)' }
+            ]
+          },
+          {
+            key: 'model',
+            label: 'Modelo',
+            type: 'text',
+            placeholder: 'gpt-4o, llava, claude-3-5-sonnet',
+            hint: 'Modelo con capacidad visual'
+          }
+        ]
+      },
+      {
+        id: 'web_search',
+        name: 'Búsqueda Web',
+        description: 'Configura el proveedor de búsqueda web',
+        icon: 'search',
+        category: 'web',
+        config: {
+          provider: 'tavily',
+          max_results: 10
+        },
+        configSchema: [
+          {
+            key: 'provider',
+            label: 'Proveedor',
+            type: 'select',
+            options: [
+              { value: 'tavily', label: 'Tavily (recomendado)' },
+              { value: 'serper', label: 'Serper (Google)' },
+              { value: 'duckduckgo', label: 'DuckDuckGo (gratis)' }
+            ]
+          },
+          {
+            key: 'max_results',
+            label: 'Resultados máximos',
+            type: 'number',
+            placeholder: '10'
+          }
+        ]
+      }
+    ];
+    
+    // Cargar config guardada desde el backend
+    this.http.get<any>(`${environment.apiUrl}/tools/config`)
+      .subscribe({
+        next: (response) => {
+          // Mezclar configuración guardada con defaults
+          const savedConfigs = response.configs || {};
+          defaultConfigs.forEach(tool => {
+            if (savedConfigs[tool.id]) {
+              tool.config = { ...tool.config, ...savedConfigs[tool.id] };
+            }
+          });
+          this.coreToolConfigs.set(defaultConfigs);
+          this.loadingCoreConfig.set(false);
+        },
+        error: () => {
+          // Si falla, usar defaults
+          this.coreToolConfigs.set(defaultConfigs);
+          this.loadingCoreConfig.set(false);
+        }
+      });
+  }
+  
+  saveCoreToolConfig(tool: CoreToolConfig): void {
+    this.savingToolConfig.set(tool.id);
+    
+    this.http.put<any>(`${environment.apiUrl}/tools/config/${tool.id}`, tool.config)
+      .subscribe({
+        next: () => {
+          this.snackBar.open(`Configuración de ${tool.name} guardada`, 'Cerrar', { duration: 3000 });
+          this.savingToolConfig.set(null);
+        },
+        error: (err) => {
+          this.snackBar.open('Error guardando configuración', 'Cerrar', { duration: 3000 });
+          this.savingToolConfig.set(null);
+        }
+      });
+  }
+  
+  // Navegar a la configuración de una herramienta específica (para links externos)
+  scrollToToolConfig(toolId: string): void {
+    const element = document.getElementById(`tool-config-${toolId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      element.classList.add('highlight');
+      setTimeout(() => element.classList.remove('highlight'), 2000);
+    }
   }
 
   loadConnections(): void {

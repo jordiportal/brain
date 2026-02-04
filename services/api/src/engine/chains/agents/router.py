@@ -701,6 +701,7 @@ def _get_agent_config(agent_id: str) -> Dict[str, Any]:
     # TODO: Implementar lectura desde Strapi
     
     # Configuración base común a todos los subagentes
+    # NOTA: La configuración de herramientas (DALL-E, etc.) está en /tools/config
     base_config = {
         "enabled": True,
         "llm_provider": "ollama",
@@ -709,25 +710,17 @@ def _get_agent_config(agent_id: str) -> Dict[str, Any]:
         "settings": {}
     }
     
-    # Configuraciones específicas por agente
+    # Configuraciones específicas por agente (solo LLM y settings del agente)
     agent_configs = {
         "designer_agent": {
             **base_config,
             "llm_model": "llama3.3",  # Modelo con buena capacidad para diseño
-            # Configuración de herramientas de media
-            "default_provider": "openai",
-            "default_model": "dall-e-3",
-            "settings": {
-                "default_size": "1024x1024",
-                "quality": "standard",
-                "style": "vivid"
-            }
+            "settings": {}
         },
         "researcher_agent": {
             **base_config,
             "llm_model": "llama3.3",
             "settings": {
-                "max_search_results": 10,
                 "search_depth": "comprehensive"
             }
         },
@@ -735,8 +728,7 @@ def _get_agent_config(agent_id: str) -> Dict[str, Any]:
             **base_config,
             "llm_model": "llama3.3",
             "settings": {
-                "default_tone": "professional",
-                "max_length": 2000
+                "default_tone": "professional"
             }
         }
     }

@@ -1,6 +1,7 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
@@ -131,6 +132,7 @@ interface TestRunResult {
   imports: [
     CommonModule,
     FormsModule,
+    RouterLink,
     MatCardModule,
     MatButtonModule,
     MatIconModule,
@@ -701,49 +703,20 @@ interface TestRunResult {
                         </mat-form-field>
                       </div>
 
-                      @if (selectedAgent.id === 'designer_agent') {
+                      <!-- Link a configuración de herramientas -->
+                      @if (agentTools().length > 0) {
                         <mat-divider></mat-divider>
-                        <h4 class="config-section-title">Configuración de Media</h4>
-                        
-                        <mat-form-field appearance="outline" class="full-width">
-                          <mat-label>Proveedor por defecto</mat-label>
-                          <mat-select [(ngModel)]="agentConfig.default_provider">
-                            <mat-option value="openai">OpenAI (DALL-E)</mat-option>
-                            <mat-option value="replicate">Replicate (Flux/SD)</mat-option>
-                          </mat-select>
-                        </mat-form-field>
-
-                        <mat-form-field appearance="outline" class="full-width">
-                          <mat-label>Modelo por defecto</mat-label>
-                          <mat-select [(ngModel)]="agentConfig.default_model">
-                            <mat-option value="dall-e-3">DALL-E 3</mat-option>
-                            <mat-option value="dall-e-2">DALL-E 2</mat-option>
-                            <mat-option value="flux-schnell">Flux Schnell</mat-option>
-                          </mat-select>
-                        </mat-form-field>
-
-                        <mat-form-field appearance="outline" class="full-width">
-                          <mat-label>Tamaño por defecto</mat-label>
-                          <mat-select [(ngModel)]="agentConfig.settings['default_size']">
-                            <mat-option value="1024x1024">1024x1024 (Cuadrado)</mat-option>
-                            <mat-option value="1792x1024">1792x1024 (Paisaje)</mat-option>
-                            <mat-option value="1024x1792">1024x1792 (Retrato)</mat-option>
-                          </mat-select>
-                        </mat-form-field>
-                      }
-
-                      @if (selectedAgent.id === 'designer_agent') {
-                        <mat-divider></mat-divider>
-                        <h4 class="config-section-title">Configuración de Presentaciones</h4>
-                        
-                        <mat-form-field appearance="outline" class="full-width">
-                          <mat-label>Estilo por defecto</mat-label>
-                          <mat-select [(ngModel)]="agentConfig.settings['default_style']">
-                            <mat-option value="modern">Moderno</mat-option>
-                            <mat-option value="corporate">Corporativo</mat-option>
-                            <mat-option value="minimal">Minimalista</mat-option>
-                          </mat-select>
-                        </mat-form-field>
+                        <div class="tools-config-link">
+                          <mat-icon>build</mat-icon>
+                          <div>
+                            <h4>Configuración de Herramientas</h4>
+                            <p>Las herramientas de este agente ({{ agentTools().length }}) se configuran en la sección de Herramientas</p>
+                          </div>
+                          <a mat-raised-button color="accent" routerLink="/tools" fragment="config">
+                            <mat-icon>settings</mat-icon>
+                            Ir a Configuración
+                          </a>
+                        </div>
                       }
 
                       <div class="config-actions">
@@ -1373,6 +1346,40 @@ interface TestRunResult {
 
     .half-width {
       flex: 1;
+    }
+
+    /* Tools Config Link */
+    .tools-config-link {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+      border-radius: 12px;
+      margin: 16px 0;
+    }
+
+    .tools-config-link > mat-icon {
+      font-size: 32px;
+      width: 32px;
+      height: 32px;
+      color: #667eea;
+    }
+
+    .tools-config-link > div {
+      flex: 1;
+    }
+
+    .tools-config-link h4 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .tools-config-link p {
+      margin: 0;
+      font-size: 12px;
+      color: #666;
     }
 
     /* Test Result */
