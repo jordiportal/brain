@@ -55,15 +55,16 @@ class DesignerAgent(BaseSubAgent):
 
     id = "designer_agent"
     name = "Designer"
-    description = "Diseñador visual: imágenes, presentaciones, logos"
-    version = "2.0.0"  # Versión con skills
-    domain_tools = ["generate_image", "generate_slides"]
+    description = "Diseñador visual: imágenes, presentaciones, logos, con auto-crítica"
+    version = "2.1.0"  # Versión con analyze_image y auto-crítica
+    domain_tools = ["generate_image", "generate_slides", "analyze_image"]
     system_prompt = ""  # Se carga desde fichero
     available_skills = DESIGNER_SKILLS  # Skills disponibles
 
     role = "Diseñador Visual"
     expertise = """Soy diseñador visual. Creo imágenes (logos, ilustraciones, fotos) y presentaciones profesionales.
 Puedo combinar ambos: presentaciones con imágenes generadas.
+Tengo capacidad de auto-crítica: analizo mis propias creaciones para verificar calidad.
 Tengo skills especializados en: slides modernas, branding, visualización de datos."""
 
     task_requirements = "Describe la tarea: imagen, presentación, o ambos. Puedes enviar texto libre o JSON con outline."
@@ -436,8 +437,9 @@ REGLAS:
         api_key: Optional[str],
         start_time: float
     ) -> SubAgentResult:
-        """Ejecuta con LLM que decide si cargar skills y qué herramienta usar."""
+        """Ejecuta con LLM que decide si cargar skills, generar y auto-revisar."""
         from ...llm_utils import call_llm_with_tools
+        from src.tools.domains.media import analyze_image
 
         # Tools de ejecución
         execution_tools = [
@@ -467,6 +469,41 @@ REGLAS:
                         "required": ["outline"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "analyze_image",
+                    "description": "Analiza una imagen para evaluar calidad o comparar con expectativas. Usar después de generate_image para auto-revisión.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "image": {"type": "string", "description": "URL o base64 de la imagen a analizar"},
+                            "analysis_type": {
+                                "type": "string",
+                                "enum": ["describe", "critique", "extract", "compare"],
+                                "description": "Tipo: critique para evaluar calidad (1-10), compare para verificar requisitos"
+                            },
+                            "context": {"type": "string", "description": "Requisitos originales para comparar"}
+                        },
+                        "required": ["image", "analysis_type"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "deliver_result",
+                    "description": "Entrega el resultado final al usuario. Usar cuando el trabajo está completo y verificado.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "result_type": {"type": "string", "enum": ["image", "presentation"], "description": "Tipo de resultado"},
+                            "message": {"type": "string", "description": "Mensaje explicativo del resultado"}
+                        },
+                        "required": ["result_type"]
+                    }
+                }
             }
         ]
 
@@ -486,8 +523,12 @@ REGLAS:
             {"role": "user", "content": user_content}
         ]
         
-        # Loop: el LLM puede cargar skills antes de ejecutar
-        max_iterations = 3
+        # Estado para tracking de resultados generados
+        last_image_result = None
+        last_presentation_result = None
+        
+        # Loop: permite cargar skills, generar, analizar, regenerar
+        max_iterations = 6  # Más iteraciones para ciclo de auto-revisión
         
         for iteration in range(max_iterations):
             response = await call_llm_with_tools(
@@ -501,7 +542,11 @@ REGLAS:
             )
 
             if not response.tool_calls:
-                # Sin tool call: fallback a presentación
+                # Sin tool call: retornar último resultado o fallback
+                if last_image_result:
+                    return last_image_result
+                if last_presentation_result:
+                    return last_presentation_result
                 break
             
             for tc in response.tool_calls:
@@ -514,7 +559,6 @@ REGLAS:
                     result = self.load_skill(skill_id)
                     
                     if result.get("success"):
-                        # Añadir skill al contexto y continuar el loop
                         skill_content = result.get("content", "")
                         messages.append({
                             "role": "assistant",
@@ -527,9 +571,8 @@ REGLAS:
                             "content": f"Skill '{skill_id}' cargado. Contenido:\n\n{skill_content}"
                         })
                         logger.info(f"🎯 LLM loaded skill: {skill_id}")
-                        continue  # Siguiente iteración para que el LLM use el skill
+                        continue
                     else:
-                        # Error cargando skill
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.id,
@@ -537,14 +580,83 @@ REGLAS:
                         })
                         continue
 
-                # Tool: generate_image - ejecutar y retornar
+                # Tool: generate_image - genera pero NO retorna, permite análisis
                 elif name == "generate_image":
-                    return await self._generate_image(
-                        args.get("prompt", task),
-                        start_time
-                    )
+                    prompt = args.get("prompt", task)
+                    last_image_result = await self._generate_image(prompt, start_time)
+                    
+                    # Añadir resultado a messages para que LLM pueda analizarlo
+                    image_info = "Imagen generada exitosamente."
+                    if last_image_result.data and last_image_result.data.get("image_url"):
+                        image_info += f"\nURL: {last_image_result.data['image_url']}"
+                    
+                    messages.append({
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [{"id": tc.id, "type": "function", "function": tc.function}]
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": image_info
+                    })
+                    logger.info(f"🖼️ Image generated, awaiting analysis decision")
+                    continue
                 
-                # Tool: generate_presentation - ejecutar y retornar
+                # Tool: analyze_image - analiza y continúa
+                elif name == "analyze_image":
+                    image_source = args.get("image", "")
+                    analysis_type = args.get("analysis_type", "critique")
+                    analysis_context = args.get("context", task)
+                    
+                    # Si no hay imagen especificada, usar la última generada
+                    if not image_source and last_image_result and last_image_result.data:
+                        image_source = last_image_result.data.get("image_url") or last_image_result.data.get("image_base64", "")
+                    
+                    if image_source:
+                        analysis_result = await analyze_image(
+                            image=image_source,
+                            analysis_type=analysis_type,
+                            context=analysis_context,
+                            provider="openai",
+                            api_key=api_key
+                        )
+                        
+                        analysis_text = analysis_result.get("analysis", "No se pudo analizar")
+                        messages.append({
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{"id": tc.id, "type": "function", "function": tc.function}]
+                        })
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": f"Análisis ({analysis_type}):\n\n{analysis_text}"
+                        })
+                        logger.info(f"🔍 Image analyzed: {analysis_type}")
+                    else:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": "Error: No hay imagen disponible para analizar"
+                        })
+                    continue
+                
+                # Tool: deliver_result - entrega final
+                elif name == "deliver_result":
+                    result_type = args.get("result_type", "image")
+                    if result_type == "image" and last_image_result:
+                        return last_image_result
+                    elif result_type == "presentation" and last_presentation_result:
+                        return last_presentation_result
+                    elif last_image_result:
+                        return last_image_result
+                    elif last_presentation_result:
+                        return last_presentation_result
+                    # Continuar si no hay resultado
+                    continue
+                
+                # Tool: generate_presentation - genera y retorna (presentaciones son más complejas de revisar)
                 elif name == "generate_presentation":
                     outline_str = args.get("outline", "{}")
                     outline = self._parse_outline(outline_str)
@@ -554,11 +666,18 @@ REGLAS:
                             args.get("context") or context,
                             llm_url, model, provider_type, api_key
                         )
-                    return await self._generate_presentation(
+                    last_presentation_result = await self._generate_presentation(
                         outline, outline_str, context, api_key, start_time
                     )
+                    # Presentaciones son más complejas, retornar directamente
+                    return last_presentation_result
 
-        # Fallback: intentar presentación sin skill
+        # Fallback: retornar último resultado o generar presentación
+        if last_image_result:
+            return last_image_result
+        if last_presentation_result:
+            return last_presentation_result
+            
         outline = await self._create_outline_from_task(
             task, context, llm_url, model, provider_type, api_key
         )
