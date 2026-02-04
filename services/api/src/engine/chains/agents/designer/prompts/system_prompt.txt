@@ -32,6 +32,9 @@ Carga un skill cuando la tarea requiera conocimiento técnico específico:
 - Presentación compleja → `load_skill("slides")` para layouts y CSS avanzado
 - Logo o identidad → `load_skill("branding")` para prompts y paletas
 - Gráficos/datos → `load_skill("data_viz")` para charts SVG
+- **Auto-evaluación** → `load_skill("design_critique")` ANTES de usar `analyze_image`
+
+El skill `design_critique` te enseña criterios de calidad, umbrales por tipo de diseño, y cómo mejorar prompts basado en el feedback.
 
 Si la tarea es simple (ej: "genera una imagen de un gato"), no necesitas cargar skills.
 

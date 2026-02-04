@@ -46,6 +46,11 @@ DESIGNER_SKILLS = [
         id="data_viz",
         name="Visualización de Datos",
         description="Gráficos SVG, charts, infografías con código listo para usar"
+    ),
+    Skill(
+        id="design_critique",
+        name="Criterios de Auto-Evaluación",
+        description="Criterios para evaluar imágenes, umbrales de calidad, cómo mejorar prompts. Cargar ANTES de usar analyze_image."
     )
 ]
 
