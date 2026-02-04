@@ -56,6 +56,7 @@ async def list_subagents():
                 "description": agent.description,
                 "version": agent.version,
                 "domain_tools": agent.domain_tools,
+                "skills": agent.list_available_skills(),
                 "status": "active",  # TODO: Cargar desde config
                 "icon": _get_agent_icon(agent.id)
             }
@@ -299,14 +300,142 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
 
 
 # ============================================
+# Skills de Subagentes
+# ============================================
+
+@router.get("/{agent_id}/skills")
+async def get_subagent_skills(agent_id: str):
+    """Obtiene los skills disponibles de un subagente"""
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Subagente no encontrado: {agent_id}"
+        )
+    
+    skills = agent.list_available_skills()
+    
+    return {
+        "agent_id": agent_id,
+        "skills": skills,
+        "total": len(skills)
+    }
+
+
+@router.get("/{agent_id}/skills/{skill_id}")
+async def get_skill_content(agent_id: str, skill_id: str):
+    """Obtiene el contenido de un skill específico"""
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Subagente no encontrado: {agent_id}"
+        )
+    
+    # Verificar que el skill existe
+    available_skills = [s["id"] for s in agent.list_available_skills()]
+    if skill_id not in available_skills:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill no encontrado: {skill_id}"
+        )
+    
+    # Cargar contenido del skill
+    result = agent.load_skill(skill_id)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Error cargando skill")
+        )
+    
+    return {
+        "agent_id": agent_id,
+        "skill_id": skill_id,
+        "content": result.get("content", ""),
+        "chars": len(result.get("content", ""))
+    }
+
+
+class SkillContentUpdate(BaseModel):
+    """Request para actualizar contenido de un skill"""
+    content: str
+
+
+@router.put("/{agent_id}/skills/{skill_id}")
+async def update_skill_content(agent_id: str, skill_id: str, update: SkillContentUpdate):
+    """Actualiza el contenido de un skill"""
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Subagente no encontrado: {agent_id}"
+        )
+    
+    # Verificar que el skill existe
+    available_skills = [s["id"] for s in agent.list_available_skills()]
+    if skill_id not in available_skills:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill no encontrado: {skill_id}"
+        )
+    
+    # Guardar contenido en el archivo
+    try:
+        skills_dir = agent.get_skills_dir()
+        skill_file = skills_dir / f"{skill_id}.md"
+        
+        if not skills_dir.exists():
+            skills_dir.mkdir(parents=True, exist_ok=True)
+        
+        skill_file.write_text(update.content, encoding="utf-8")
+        
+        # Invalidar cache
+        if skill_id in agent._skills_cache:
+            del agent._skills_cache[skill_id]
+        
+        logger.info(
+            f"📝 Updated skill content",
+            agent_id=agent_id,
+            skill_id=skill_id,
+            chars=len(update.content)
+        )
+        
+        return {
+            "status": "ok",
+            "message": f"Skill '{skill_id}' actualizado",
+            "agent_id": agent_id,
+            "skill_id": skill_id,
+            "chars": len(update.content)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving skill {skill_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error guardando skill: {str(e)}"
+        )
+
+
+# ============================================
 # Helpers
 # ============================================
 
 def _get_agent_icon(agent_id: str) -> str:
     """Retorna el icono para un subagente"""
     icons = {
-        "media_agent": "image",
-        "slides_agent": "slideshow",
+        "designer_agent": "palette",
+        "researcher_agent": "search",
+        "communication_agent": "campaign",
         "sap_agent": "business",
         "mail_agent": "email",
         "office_agent": "description"
@@ -318,7 +447,7 @@ def _get_agent_config(agent_id: str) -> Dict[str, Any]:
     """Obtiene configuración de un subagente (placeholder para Strapi)"""
     # TODO: Implementar lectura desde Strapi
     default_configs = {
-        "media_agent": {
+        "designer_agent": {
             "enabled": True,
             "default_provider": "openai",
             "default_model": "dall-e-3",

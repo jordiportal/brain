@@ -6,6 +6,7 @@ Responsable de:
 - Estructurar la narrativa
 - Crear storytelling y arco emocional
 - Definir mensajes clave y call-to-action
+Sistema de Skills: carga conocimiento especializado según la tarea.
 """
 
 import json
@@ -13,14 +14,24 @@ from typing import Optional, Dict, Any, List
 
 import structlog
 
-from ..base import BaseSubAgent, SubAgentResult
+from ..base import BaseSubAgent, SubAgentResult, Skill
 
 logger = structlog.get_logger()
 
 
+# Skills disponibles para Communication (el LLM decide cuándo cargar)
+COMMUNICATION_SKILLS = [
+    Skill(
+        id="storytelling",
+        name="Storytelling y Narrativa",
+        description="Estructuras narrativas, tonos de comunicación, arcos emocionales, hooks"
+    )
+]
+
+
 class CommunicationAgent(BaseSubAgent):
     """
-    Agente especializado en comunicación y narrativa.
+    Agente especializado en comunicación y narrativa con sistema de skills.
     
     No tiene herramientas de ejecución - su valor está en el
     razonamiento sobre cómo comunicar efectivamente.
@@ -29,7 +40,8 @@ class CommunicationAgent(BaseSubAgent):
     id = "communication_agent"
     name = "Communication Strategist"
     description = "Estratega de comunicación experto en storytelling y narrativa efectiva"
-    version = "1.0.0"
+    version = "2.0.0"  # Versión con skills
+    available_skills = COMMUNICATION_SKILLS
     
     role = "Director de Comunicación"
     expertise = """Soy experto en comunicación estratégica y storytelling. Puedo ayudarte con:
@@ -37,7 +49,8 @@ class CommunicationAgent(BaseSubAgent):
 - Estructurar narrativas efectivas (problema-solución, viaje del héroe, comparativo)
 - Crear arcos emocionales que conecten con la audiencia
 - Identificar mensajes clave y call-to-actions
-- Adaptar el mensaje según el contexto cultural y empresarial"""
+- Adaptar el mensaje según el contexto cultural y empresarial
+Tengo skills especializados en: storytelling y técnicas narrativas."""
     
     task_requirements = """## MODOS DE USO
 
@@ -227,9 +240,9 @@ Inicio → Desarrollo → Cierre
             agent = p.get("agent", "Agente")
             content = p.get("content", {})
             if isinstance(content, dict):
-                content_str = json.dumps(content, ensure_ascii=False, indent=2)[:500]
+                content_str = json.dumps(content, ensure_ascii=False, indent=2)
             else:
-                content_str = str(content)[:500]
+                content_str = str(content)
             others_text += f"\n**{agent}:**\n{content_str}\n"
         
         prompt = f"""Eres un Director de Comunicación revisando propuestas del equipo.

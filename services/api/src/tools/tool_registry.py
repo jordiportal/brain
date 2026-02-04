@@ -130,7 +130,7 @@ class ToolRegistry:
         Herramientas para el coordinador Brain Team: cognición + consulta + ejecución.
         
         consult_team_member: pedir opiniones. delegate: ejecutar la tarea con el experto elegido
-        (ej. generar presentación con slides_agent tras el consenso).
+        (ej. generar presentación con designer_agent tras el consenso).
         """
         team_ids = [
             "think", "reflect", "plan", "finish",
@@ -232,24 +232,26 @@ class ToolRegistry:
         # Importar core y team tools
         from .core import CORE_TOOLS, TEAM_TOOLS
         
-        # Registrar cada core tool
+        # Registrar cada core tool (delegation tools son callables para enum dinámico)
         for tool_id, tool_def in CORE_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
             self.register_core_tool(
-                id=tool_def["id"],
-                name=tool_def["name"],
-                description=tool_def["description"],
-                parameters=tool_def["parameters"],
-                handler=tool_def["handler"]
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
             )
         
-        # Registrar team tools (consult_team_member; coordinador las usa, adaptive no)
+        # Registrar team tools
         for tool_id, tool_def in TEAM_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
             self.register_core_tool(
-                id=tool_def["id"],
-                name=tool_def["name"],
-                description=tool_def["description"],
-                parameters=tool_def["parameters"],
-                handler=tool_def["handler"]
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
             )
         
         self._core_registered = True

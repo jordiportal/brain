@@ -279,10 +279,8 @@ def get_action_type_for_tool(tool_name: str, agent: Optional[str] = None) -> str
         action_type para el Brain Event
     """
     if tool_name == "delegate" and agent:
-        if agent == "slides_agent":
-            return "slides"
-        elif agent == "media_agent":
-            return "image"
+        if agent == "designer_agent":
+            return "slides"  # Imágenes y presentaciones
         else:
             return "data"
     

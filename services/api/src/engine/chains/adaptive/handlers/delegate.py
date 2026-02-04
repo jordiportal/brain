@@ -105,5 +105,5 @@ class DelegateHandler(ToolHandler):
             final_answer=final_answer,
             events=events,
             brain_events=brain_events,
-            message_content=response_text or str(result)[:4000]
+            message_content=response_text or str(result)[:16000]
         )

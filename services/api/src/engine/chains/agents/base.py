@@ -3,10 +3,17 @@ Base Subagent - Clase base simplificada para subagentes especializados.
 
 Define la interfaz común y el registry para subagentes de dominio
 (media, slides, sap, mail, office, etc.)
+
+Sistema de Skills:
+- Cada subagente puede tener skills en su directorio skills/
+- Los skills son archivos .md con conocimiento especializado
+- El LLM decide si cargar un skill usando la tool `load_skill`
+- Los skills no sobrecargan el prompt base, se cargan bajo demanda
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -48,6 +55,15 @@ class SubAgentResult:
         }
 
 
+@dataclass
+class Skill:
+    """Representa un skill cargable por un subagente."""
+    id: str
+    name: str
+    description: str  # Descripción para que el LLM sepa cuándo usarlo
+    content: str = ""  # Contenido del skill (cargado desde archivo)
+
+
 class BaseSubAgent(ABC):
     """
     Clase base abstracta para subagentes especializados.
@@ -59,6 +75,7 @@ class BaseSubAgent(ABC):
     - task_requirements: Qué necesita recibir para ejecutar
     - domain_tools: Lista de IDs de herramientas del dominio
     - system_prompt: Prompt de sistema
+    - skills: Lista de skills disponibles (cargados bajo demanda)
     - execute(): Método principal de ejecución
     - consult(): Método para consultas de expertise (opcional)
     """
@@ -77,8 +94,141 @@ class BaseSubAgent(ABC):
     # Qué necesita para ejecutar
     task_requirements: str = "Descripción de la tarea a realizar."
     
+    # Skills disponibles (definidos por cada subagente)
+    available_skills: List[Skill] = []
+    
     def __init__(self):
         logger.info(f"🤖 SubAgent initialized: {self.id} ({self.role})")
+        self._skills_cache: Dict[str, str] = {}  # Cache de skills cargados
+        self._loaded_skills: List[str] = []  # Skills cargados en la sesión actual
+    
+    def get_skills_dir(self) -> Path:
+        """Obtiene el directorio de skills del subagente."""
+        import inspect
+        agent_file = inspect.getfile(self.__class__)
+        return Path(agent_file).parent / "skills"
+    
+    def load_skill(self, skill_id: str) -> Dict[str, Any]:
+        """
+        Carga un skill desde archivo. Llamado por el LLM via tool.
+        
+        Returns:
+            Dict con success, content (si ok), o error (si falla)
+        """
+        # Validar que el skill existe en available_skills
+        valid_ids = [s.id for s in self.available_skills]
+        if skill_id not in valid_ids:
+            return {
+                "success": False,
+                "error": f"Skill '{skill_id}' no disponible. Skills válidos: {valid_ids}"
+            }
+        
+        # Usar cache si ya está cargado
+        if skill_id in self._skills_cache:
+            logger.info(f"📚 Skill from cache: {skill_id}")
+            return {
+                "success": True,
+                "skill_id": skill_id,
+                "content": self._skills_cache[skill_id],
+                "from_cache": True
+            }
+        
+        # Cargar desde archivo
+        skills_dir = self.get_skills_dir()
+        skill_file = skills_dir / f"{skill_id}.md"
+        
+        if not skill_file.exists():
+            logger.warning(f"Skill file not found: {skill_file}")
+            return {
+                "success": False,
+                "error": f"Archivo de skill no encontrado: {skill_id}.md"
+            }
+        
+        try:
+            content = skill_file.read_text(encoding="utf-8")
+            self._skills_cache[skill_id] = content
+            self._loaded_skills.append(skill_id)
+            logger.info(f"📚 Loaded skill: {skill_id} ({len(content)} chars)")
+            return {
+                "success": True,
+                "skill_id": skill_id,
+                "content": content,
+                "chars": len(content)
+            }
+        except Exception as e:
+            logger.error(f"Error loading skill {skill_id}: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def get_load_skill_tool(self) -> Optional[Dict[str, Any]]:
+        """
+        Genera la definición de la tool `load_skill` para el LLM.
+        Solo si el subagente tiene skills disponibles.
+        
+        Returns:
+            Tool definition dict o None si no hay skills
+        """
+        if not self.available_skills:
+            return None
+        
+        skill_descriptions = "\n".join(
+            f"- {s.id}: {s.description}"
+            for s in self.available_skills
+        )
+        
+        return {
+            "type": "function",
+            "function": {
+                "name": "load_skill",
+                "description": f"""Carga conocimiento especializado para mejorar tu trabajo.
+Usa esta herramienta ANTES de ejecutar la tarea si necesitas conocimiento específico.
+
+Skills disponibles:
+{skill_descriptions}
+
+El skill cargado te dará ejemplos, templates y mejores prácticas.""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "skill_id": {
+                            "type": "string",
+                            "enum": [s.id for s in self.available_skills],
+                            "description": "ID del skill a cargar"
+                        }
+                    },
+                    "required": ["skill_id"]
+                }
+            }
+        }
+    
+    def get_skills_for_prompt(self) -> str:
+        """
+        Genera texto para incluir en el prompt sobre skills disponibles.
+        """
+        if not self.available_skills:
+            return ""
+        
+        skills_list = "\n".join(
+            f"- **{s.id}**: {s.description}"
+            for s in self.available_skills
+        )
+        
+        return f"""
+## SKILLS DISPONIBLES
+
+Tienes acceso a conocimiento especializado. Usa `load_skill(skill_id)` para cargar:
+{skills_list}
+
+Carga un skill si la tarea requiere conocimiento técnico específico."""
+    
+    def list_available_skills(self) -> List[Dict[str, Any]]:
+        """Lista los skills disponibles."""
+        return [
+            {"id": s.id, "name": s.name, "description": s.description}
+            for s in self.available_skills
+        ]
     
     async def consult(
         self,

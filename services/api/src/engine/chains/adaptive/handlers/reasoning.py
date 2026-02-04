@@ -75,5 +75,5 @@ class ReasoningHandler(ToolHandler):
             is_terminal=False,
             events=events,
             brain_events=brain_events,
-            message_content=thinking_content[:4000] if thinking_content else ""
+            message_content=thinking_content[:16000] if thinking_content else ""
         )

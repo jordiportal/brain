@@ -323,7 +323,7 @@ async def get_chain_details(chain_id: str):
         
         # Mapeo de iconos por agente
         agent_icons = {
-            "media_agent": "image",
+            "designer_agent": "image",
             "sap_agent": "storage",
             "mail_agent": "email",
             "office_agent": "description"

@@ -42,5 +42,5 @@ class ConsultTeamMemberHandler(ToolHandler):
         return ToolResult(
             success=True,
             data=result,
-            message_content=message or str(result)[:4000]
+            message_content=message or str(result)[:16000]
         )

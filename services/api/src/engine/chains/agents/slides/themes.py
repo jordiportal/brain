@@ -193,134 +193,349 @@ def get_theme(name: str) -> ThemeColors:
 
 
 def generate_css(theme: ThemeColors) -> str:
-    """Genera CSS dinámico basado en el tema."""
+    """Genera CSS dinámico basado en el tema con layouts modernos."""
     return f"""
 <style>
+/* === RESET Y BASE === */
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
+/* === SLIDE BASE === */
 .slide {{
-  padding: 32px;
-  margin-bottom: 16px;
-  border-radius: 12px;
+  padding: 60px;
+  margin-bottom: 24px;
+  border-radius: 16px;
   background: linear-gradient(135deg, {theme.background_start} 0%, {theme.background_end} 100%);
   color: {theme.text};
-  min-height: 400px;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }}
+
+/* Fondo con gradiente sutil */
+.slide::before {{
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(ellipse at top right, rgba({_hex_to_rgb(theme.primary)}, 0.15), transparent 50%),
+              radial-gradient(ellipse at bottom left, rgba({_hex_to_rgb(theme.secondary)}, 0.1), transparent 50%);
+  pointer-events: none;
+}}
+
+.slide > * {{ position: relative; z-index: 1; }}
+
+/* === TIPOGRAFÍA === */
 .slide h1 {{
-  font-size: 2.2rem;
-  margin-bottom: 16px;
-  color: {theme.primary};
-}}
-.slide h2 {{
-  font-size: 1.6rem;
-  margin-bottom: 12px;
-  background: linear-gradient(90deg, {theme.primary}, {theme.secondary});
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, {theme.text} 0%, {theme.text_muted} 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  background-clip: text;
 }}
+
+.slide h2 {{
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 24px;
+  color: {theme.text};
+}}
+
+.slide h3 {{
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: {theme.text};
+}}
+
 .slide p {{
   font-size: 1.1rem;
-  line-height: 1.6;
-  margin-bottom: 12px;
+  line-height: 1.7;
+  color: {theme.text_muted};
+  max-width: 600px;
 }}
-.slide ul, .slide ol {{
-  margin-left: 24px;
-  margin-bottom: 16px;
+
+.subtitle {{
+  font-size: 1.4rem;
+  color: {theme.text_muted};
+  margin-top: 12px;
 }}
-.slide li {{
-  margin-bottom: 8px;
-  line-height: 1.5;
-}}
+
+/* === BADGE === */
 .badge {{
   display: inline-block;
-  padding: 4px 12px;
-  font-size: 0.75rem;
+  padding: 8px 16px;
+  font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  border-radius: 20px;
-  background: {theme.badge_bg};
-  color: {theme.badge_text};
-  margin-bottom: 12px;
+  letter-spacing: 0.1em;
+  background: linear-gradient(135deg, {theme.primary}, {theme.secondary});
+  color: white;
+  border-radius: 100px;
+  margin-bottom: 20px;
 }}
-.highlight {{
-  color: {theme.secondary};
-  font-weight: 600;
+
+/* === SLIDE TITLE (PORTADA) === */
+.slide-title {{
+  text-align: center;
+  align-items: center;
 }}
-.stats {{
+
+.slide-title h1 {{
+  font-size: 3.5rem;
+}}
+
+.slide-title .title-image {{
+  margin-top: 32px;
+}}
+
+.slide-title .title-image img {{
+  max-height: 200px;
+  border-radius: 16px;
+}}
+
+/* === SLIDE SPLIT === */
+.slide-split {{
+  flex-direction: row;
+  gap: 60px;
+  padding: 40px 60px;
+}}
+
+.split-content {{
+  flex: 1;
   display: flex;
-  gap: 32px;
-  margin: 24px 0;
+  flex-direction: column;
+  justify-content: center;
 }}
-.stat-value {{
-  font-size: 2.5rem;
-  font-weight: 700;
+
+.split-visual {{
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}}
+
+.split-visual img {{
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: cover;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4);
+}}
+
+/* === FEATURES/BULLETS === */
+.features {{
+  list-style: none;
+  margin-top: 24px;
+}}
+
+.features li {{
+  font-size: 1.05rem;
+  color: {theme.text};
+  padding: 12px 0;
+  padding-left: 28px;
+  position: relative;
+  line-height: 1.5;
+}}
+
+.features li::before {{
+  content: '→';
+  position: absolute;
+  left: 0;
   color: {theme.primary};
+  font-weight: bold;
 }}
-.stat-label {{
-  font-size: 0.9rem;
-  color: {theme.text_muted};
+
+/* === CARDS === */
+.slide-cards {{
+  padding: 50px 60px;
 }}
-.grid {{
+
+.cards-grid {{
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-  margin: 20px 0;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+  margin-top: 32px;
 }}
+
 .card {{
   background: rgba(255,255,255,0.05);
-  padding: 20px;
-  border-radius: 8px;
+  padding: 32px;
+  border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.1);
+  transition: all 0.3s ease;
 }}
-.card-title {{
-  font-size: 1.1rem;
-  font-weight: 600;
+
+.card:hover {{
+  transform: translateY(-4px);
+  border-color: {theme.primary};
+  box-shadow: 0 20px 40px rgba({_hex_to_rgb(theme.primary)}, 0.15);
+}}
+
+.card-icon {{
+  font-size: 2.5rem;
+  margin-bottom: 16px;
+}}
+
+.card h3 {{
+  font-size: 1.2rem;
   margin-bottom: 8px;
-  color: {theme.primary};
+  color: {theme.text};
 }}
-.card-desc {{
+
+.card p {{
   font-size: 0.95rem;
   color: {theme.text_muted};
+  max-width: none;
 }}
-.quote {{
-  border-left: 4px solid {theme.primary};
-  padding-left: 20px;
-  font-style: italic;
-  margin: 20px 0;
-  color: {theme.text_muted};
-}}
-.code {{
-  background: rgba(0,0,0,0.3);
-  padding: 16px;
-  border-radius: 8px;
-  font-family: monospace;
-  overflow-x: auto;
-}}
-.slide-image {{
-  margin: 20px 0;
+
+/* === STATS === */
+.slide-stats {{
   text-align: center;
 }}
+
+.stats-grid {{
+  display: flex;
+  justify-content: center;
+  gap: 60px;
+  margin-top: 40px;
+}}
+
+.stat {{
+  text-align: center;
+}}
+
+.stat-number {{
+  display: block;
+  font-size: 3.5rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, {theme.primary}, {theme.secondary});
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}}
+
+.stat-label {{
+  display: block;
+  font-size: 1rem;
+  color: {theme.text_muted};
+  margin-top: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}}
+
+/* === QUOTE === */
+.slide-quote {{
+  text-align: center;
+  padding: 80px;
+}}
+
+.slide-quote blockquote {{
+  max-width: 800px;
+  margin: 0 auto;
+}}
+
+.slide-quote p {{
+  font-size: 1.8rem;
+  font-style: italic;
+  line-height: 1.5;
+  color: {theme.text};
+  max-width: none;
+}}
+
+.slide-quote footer {{
+  margin-top: 32px;
+}}
+
+.slide-quote cite {{
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 600;
+  font-style: normal;
+  color: {theme.text};
+}}
+
+/* === TIMELINE === */
+.timeline {{
+  display: flex;
+  justify-content: space-between;
+  margin-top: 48px;
+  position: relative;
+}}
+
+.timeline::before {{
+  content: '';
+  position: absolute;
+  top: 20px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, {theme.primary}, {theme.secondary});
+}}
+
+.timeline-item {{
+  flex: 1;
+  text-align: center;
+  padding: 0 16px;
+}}
+
+.timeline-year {{
+  display: inline-block;
+  padding: 10px 20px;
+  background: {theme.primary};
+  color: white;
+  font-weight: 700;
+  border-radius: 100px;
+  margin-bottom: 20px;
+  position: relative;
+  z-index: 1;
+}}
+
+.timeline-item h3 {{
+  font-size: 1.1rem;
+  margin-bottom: 8px;
+}}
+
+.timeline-item p {{
+  font-size: 0.9rem;
+  max-width: none;
+}}
+
+/* === IMAGEN EN SLIDE === */
+.slide-image {{
+  margin: 24px 0;
+  text-align: center;
+}}
+
 .slide-image img {{
   max-width: 100%;
   max-height: 300px;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3);
 }}
-.image-caption {{
-  font-size: 0.9rem;
-  color: {theme.text_muted};
-  margin-top: 12px;
-  text-align: center;
-  font-style: italic;
+
+/* === ANIMACIONES === */
+@keyframes fadeInUp {{
+  from {{ opacity: 0; transform: translateY(20px); }}
+  to {{ opacity: 1; transform: translateY(0); }}
 }}
-.slide.with-image {{
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  align-items: center;
-}}
-.slide.with-image .slide-image {{
-  margin: 0;
-}}
+
+.slide h1, .slide h2 {{ animation: fadeInUp 0.6s ease-out; }}
+.slide p, .slide .badge {{ animation: fadeInUp 0.6s ease-out 0.1s both; }}
+.card {{ animation: fadeInUp 0.5s ease-out; }}
+.card:nth-child(2) {{ animation-delay: 0.1s; }}
+.card:nth-child(3) {{ animation-delay: 0.2s; }}
+.stat {{ animation: fadeInUp 0.6s ease-out; }}
+.stat:nth-child(2) {{ animation-delay: 0.1s; }}
+.stat:nth-child(3) {{ animation-delay: 0.2s; }}
 </style>
 """
 

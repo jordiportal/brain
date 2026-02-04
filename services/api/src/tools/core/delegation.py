@@ -270,93 +270,101 @@ async def get_agent_info(agent: str) -> Dict[str, Any]:
 # Tool Definitions
 # ============================================
 
-GET_AGENT_INFO_TOOL = {
-    "id": "get_agent_info",
-    "name": "get_agent_info",
-    "description": """Obtiene información sobre un subagente, incluyendo qué datos necesita.
+def _get_agent_ids() -> list:
+    """Obtiene IDs de subagentes registrados (enum dinámico)."""
+    try:
+        from src.engine.chains.agents import subagent_registry, register_all_subagents
+        if not subagent_registry.is_initialized():
+            register_all_subagents()
+        return subagent_registry.list_ids()
+    except Exception:
+        return ["designer_agent", "researcher_agent", "communication_agent"]
 
-Usa esta tool ANTES de delegar para saber exactamente qué formato de datos
-espera el subagente. Cada subagente tiene requisitos específicos.
 
-Subagentes disponibles:
-- media_agent: Generación de imágenes
-- slides_agent: Generación de presentaciones""",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "agent": {
-                "type": "string",
-                "enum": ["media_agent", "slides_agent"],
-                "description": "ID del subagente"
-            }
+def get_agent_info_tool() -> dict:
+    """Tool get_agent_info con enum dinámico."""
+    return {
+        "id": "get_agent_info",
+        "name": "get_agent_info",
+        "description": """Obtiene información sobre un subagente (rol, expertise, formato de datos).
+
+Usa ANTES de delegar para saber qué espera cada subagente.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "enum": _get_agent_ids(),
+                    "description": "ID del subagente"
+                }
+            },
+            "required": ["agent"]
         },
-        "required": ["agent"]
-    },
-    "handler": get_agent_info
-}
+        "handler": get_agent_info
+    }
 
 
-DELEGATE_TOOL = {
-    "id": "delegate",
-    "name": "delegate",
-    "description": """Delega una tarea a un subagente especializado.
+def get_delegate_tool() -> dict:
+    """Tool delegate con enum dinámico."""
+    return {
+        "id": "delegate",
+        "name": "delegate",
+        "description": """Delega una tarea a un subagente. Usa get_agent_info primero si no conoces el formato.
 
-Usa esta tool cuando la tarea requiere capacidades de un dominio específico.
-IMPORTANTE: Usa get_agent_info primero para saber qué formato de datos espera el subagente.""",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "agent": {
-                "type": "string",
-                "enum": ["media_agent", "slides_agent"],
-                "description": "ID del subagente especializado"
+- designer_agent: Imágenes y presentaciones
+- researcher_agent: Búsqueda web (datos actuales)
+- communication_agent: Estrategia y narrativa""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "enum": _get_agent_ids(),
+                    "description": "ID del subagente"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Tarea para el subagente"
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Contexto adicional (opcional)"
+                }
             },
-            "task": {
-                "type": "string",
-                "description": "Datos para el subagente (usa get_agent_info para saber el formato)"
-            },
-            "context": {
-                "type": "string",
-                "description": "Contexto adicional (opcional)"
-            }
+            "required": ["agent", "task"]
         },
-        "required": ["agent", "task"]
-    },
-    "handler": delegate
-}
+        "handler": delegate
+    }
 
 
-CONSULT_TEAM_MEMBER_TOOL = {
-    "id": "consult_team_member",
-    "name": "consult_team_member",
-    "description": """Consulta a un miembro del equipo para obtener su opinión o propuesta (sin ejecutar la tarea completa).
+def get_consult_team_member_tool() -> dict:
+    """Tool consult_team_member con enum dinámico."""
+    return {
+        "id": "consult_team_member",
+        "name": "consult_team_member",
+        "description": """Consulta a un miembro del equipo (obtiene opinión, no ejecuta).
 
-Usa esta tool en modo Team para que cada experto aporte su perspectiva. Luego usa think/reflect/plan
-para sintetizar y alcanzar consenso. No ejecuta la tarea final del subagente, solo obtiene su propuesta.
-
-Miembros disponibles:
-- media_agent: Experto en imágenes y arte visual
-- slides_agent: Experto en presentaciones y diseño
-- communication_agent: Experto en comunicación y narrativa
-- analyst_agent: Experto en datos y análisis""",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "agent": {
-                "type": "string",
-                "enum": ["media_agent", "slides_agent", "communication_agent", "analyst_agent"],
-                "description": "ID del miembro del equipo a consultar"
+Usa think/reflect/plan para sintetizar las propuestas.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "enum": _get_agent_ids(),
+                    "description": "ID del miembro"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Pregunta o tema"
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Contexto adicional"
+                }
             },
-            "task": {
-                "type": "string",
-                "description": "Pregunta o tema sobre el que quieres la opinión del experto"
-            },
-            "context": {
-                "type": "string",
-                "description": "Contexto adicional (ej. propuestas de otros miembros)"
-            }
+            "required": ["agent", "task"]
         },
-        "required": ["agent", "task"]
-    },
-    "handler": consult_team_member
-}
+        "handler": consult_team_member
+    }
+
+

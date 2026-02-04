@@ -105,18 +105,21 @@ class ToolHandler(ABC):
             data={"tool": self.tool_name, "arguments": args}
         )
     
-    def create_node_end_event(self, result: ToolResult, preview: str = "") -> StreamEvent:
+    def create_node_end_event(self, result: ToolResult, preview: str = "", conversation: str = "") -> StreamEvent:
         """Crea evento de fin de nodo."""
+        data = {
+            "tool": self.tool_name,
+            "success": result.success,
+            "result_preview": preview[:200] if preview else "",
+            "done": result.is_terminal
+        }
+        if conversation:
+            data["conversation"] = conversation
         return StreamEvent(
             event_type="node_end",
             execution_id=self.execution_id,
             node_id=f"tool_{self.tool_name}_{self.iteration}",
-            data={
-                "tool": self.tool_name,
-                "success": result.success,
-                "result_preview": preview[:200] if preview else "",
-                "done": result.is_terminal
-            }
+            data=data
         )
     
     def create_token_event(self, content: str, node_id: str = "") -> StreamEvent:
@@ -161,5 +164,5 @@ class DefaultHandler(ToolHandler):
         return ToolResult(
             success=result.get("success", True),
             data=result,
-            message_content=str(result)[:4000]
+            message_content=str(result)[:16000]
         )

@@ -9,7 +9,7 @@ Utils (1): calculate
 Delegation (1): delegate (para subagentes especializados)
 
 NOTA: generate_image y generate_slides NO están en CORE_TOOLS.
-Estas herramientas las usan los subagentes especializados (media_agent, slides_agent).
+Estas herramientas las usan los subagentes especializados (designer_agent).
 El agente principal usa `delegate` para acceder a estas funcionalidades.
 """
 
@@ -53,9 +53,9 @@ from .delegation import (
     get_agent_info,
     consult_team_member,
     get_available_subagents_description,
-    DELEGATE_TOOL,
-    GET_AGENT_INFO_TOOL,
-    CONSULT_TEAM_MEMBER_TOOL
+    get_agent_info_tool,
+    get_delegate_tool,
+    get_consult_team_member_tool
 )
 
 # Mantener imports para uso interno por subagentes
@@ -64,18 +64,18 @@ from .slides import (
     GENERATE_SLIDES_TOOL
 )
 
-# Delegation tools dict
+# Delegation tools (se resuelven en registro para enum dinámico)
 DELEGATION_TOOLS = {
-    "get_agent_info": GET_AGENT_INFO_TOOL,
-    "delegate": DELEGATE_TOOL
+    "get_agent_info": get_agent_info_tool,
+    "delegate": get_delegate_tool
 }
 
-# Team-only tools (coordinador usa cognición + consult_team_member)
+# Team-only tools
 TEAM_TOOLS = {
-    "consult_team_member": CONSULT_TEAM_MEMBER_TOOL
+    "consult_team_member": get_consult_team_member_tool
 }
 
-# Slides tools dict (NO incluido en CORE_TOOLS, usado por slides_agent)
+# Slides tools dict (NO incluido en CORE_TOOLS, usado por designer_agent)
 SLIDES_TOOLS = {
     "generate_slides": GENERATE_SLIDES_TOOL
 }
@@ -89,7 +89,7 @@ CORE_TOOLS = {
     **REASONING_TOOLS,
     **UTILS_TOOLS,
     **DELEGATION_TOOLS,
-    # NO incluir SLIDES_TOOLS - el agente usa delegate → slides_agent
+    # NO incluir SLIDES_TOOLS - el agente usa delegate → designer_agent
 }
 
 __all__ = [

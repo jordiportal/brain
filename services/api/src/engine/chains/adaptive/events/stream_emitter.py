@@ -124,7 +124,9 @@ class StreamEmitter:
         success: bool = True,
         preview: str = "",
         thinking: Optional[str] = None,
-        done: bool = False
+        done: bool = False,
+        html: Optional[str] = None,
+        conversation: Optional[str] = None
     ) -> StreamEvent:
         """Evento de fin de tool."""
         data = {
@@ -135,6 +137,10 @@ class StreamEmitter:
         }
         if thinking:
             data["thinking"] = thinking
+        if html:
+            data["html"] = html
+        if conversation:
+            data["conversation"] = conversation  # Contenido completo de la conversación
         
         return StreamEvent(
             event_type="node_end",

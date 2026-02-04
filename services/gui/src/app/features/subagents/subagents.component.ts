@@ -21,12 +21,21 @@ import { MatBadgeModule } from '@angular/material/badge';
 import { MatListModule } from '@angular/material/list';
 import { environment } from '../../../environments/environment';
 
+interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  content?: string;
+  loaded?: boolean;
+}
+
 interface Subagent {
   id: string;
   name: string;
   description: string;
   version: string;
   domain_tools: string[];
+  skills?: Skill[];
   status: string;
   icon: string;
 }
@@ -141,6 +150,20 @@ interface ExecuteResult {
                     }
                   </div>
                 </div>
+
+                @if (agent.skills && agent.skills.length > 0) {
+                  <div class="skills-section">
+                    <span class="skills-label">
+                      <mat-icon>school</mat-icon>
+                      Skills:
+                    </span>
+                    <div class="skills-chips">
+                      @for (skill of agent.skills; track skill.id) {
+                        <mat-chip class="skill-chip" [matTooltip]="skill.description">{{ skill.name }}</mat-chip>
+                      }
+                    </div>
+                  </div>
+                }
               </mat-card-content>
 
               <mat-card-actions align="end">
@@ -216,6 +239,101 @@ interface ExecuteResult {
                 </div>
               </mat-tab>
 
+              <!-- Tab de Skills -->
+              <mat-tab label="Skills">
+                <div class="tab-content">
+                  @if (loadingSkills()) {
+                    <div class="loading-container">
+                      <mat-spinner diameter="32"></mat-spinner>
+                    </div>
+                  } @else if (agentSkills().length === 0) {
+                    <div class="empty-skills">
+                      <mat-icon>school</mat-icon>
+                      <h3>Sin skills especializados</h3>
+                      <p>Este subagente no tiene skills configurados</p>
+                    </div>
+                  } @else {
+                    <div class="skills-header">
+                      <div class="skills-info">
+                        <mat-icon>auto_awesome</mat-icon>
+                        <span>El LLM decide cuándo cargar cada skill según la tarea</span>
+                      </div>
+                    </div>
+
+                    <div class="skills-list">
+                      @for (skill of agentSkills(); track skill.id) {
+                        <mat-expansion-panel class="skill-panel" [expanded]="expandedSkill === skill.id">
+                          <mat-expansion-panel-header (click)="toggleSkill(skill)">
+                            <mat-panel-title>
+                              <mat-icon class="skill-icon">school</mat-icon>
+                              <span class="skill-name">{{ skill.name }}</span>
+                            </mat-panel-title>
+                            <mat-panel-description>
+                              <span class="skill-id">{{ skill.id }}</span>
+                            </mat-panel-description>
+                          </mat-expansion-panel-header>
+                          
+                          <div class="skill-content">
+                            <div class="skill-description">
+                              <mat-icon>info</mat-icon>
+                              <span>{{ skill.description }}</span>
+                            </div>
+                            
+                            @if (loadingSkillContent() === skill.id) {
+                              <div class="skill-loading">
+                                <mat-spinner diameter="24"></mat-spinner>
+                                <span>Cargando contenido...</span>
+                              </div>
+                            } @else if (skill.content) {
+                              <div class="skill-editor">
+                                <div class="editor-header">
+                                  <span class="editor-label">
+                                    <mat-icon>description</mat-icon>
+                                    Contenido del Skill ({{ skill.id }}.md)
+                                  </span>
+                                  <div class="editor-actions">
+                                    <button mat-icon-button matTooltip="Copiar contenido" (click)="copySkillContent(skill)">
+                                      <mat-icon>content_copy</mat-icon>
+                                    </button>
+                                    <button mat-icon-button matTooltip="Expandir" (click)="expandSkillEditor = !expandSkillEditor">
+                                      <mat-icon>{{ expandSkillEditor ? 'fullscreen_exit' : 'fullscreen' }}</mat-icon>
+                                    </button>
+                                  </div>
+                                </div>
+                                <textarea 
+                                  class="skill-textarea"
+                                  [class.expanded]="expandSkillEditor"
+                                  [(ngModel)]="skill.content"
+                                  (ngModelChange)="markSkillDirty(skill.id)"
+                                  placeholder="Contenido markdown del skill..."></textarea>
+                                <div class="editor-footer">
+                                  <span class="char-count">{{ skill.content?.length || 0 }} caracteres</span>
+                                  @if (dirtySkills.has(skill.id)) {
+                                    <button mat-raised-button color="primary" (click)="saveSkillContent(skill)" [disabled]="savingSkill()">
+                                      @if (savingSkill()) {
+                                        <mat-spinner diameter="16"></mat-spinner>
+                                      } @else {
+                                        <mat-icon>save</mat-icon>
+                                      }
+                                      Guardar Skill
+                                    </button>
+                                  }
+                                </div>
+                              </div>
+                            } @else {
+                              <button mat-stroked-button color="primary" (click)="loadSkillContent(skill)">
+                                <mat-icon>visibility</mat-icon>
+                                Ver contenido
+                              </button>
+                            }
+                          </div>
+                        </mat-expansion-panel>
+                      }
+                    </div>
+                  }
+                </div>
+              </mat-tab>
+
               <!-- Tab de Configuración -->
               <mat-tab label="Configuración">
                 <div class="tab-content">
@@ -246,7 +364,7 @@ interface ExecuteResult {
                         </mat-form-field>
                       </div>
 
-                      @if (selectedAgent.id === 'media_agent') {
+                      @if (selectedAgent.id === 'designer_agent') {
                         <mat-divider></mat-divider>
                         <h4 class="config-section-title">Configuración de Media</h4>
                         
@@ -277,7 +395,7 @@ interface ExecuteResult {
                         </mat-form-field>
                       }
 
-                      @if (selectedAgent.id === 'slides_agent') {
+                      @if (selectedAgent.id === 'designer_agent') {
                         <mat-divider></mat-divider>
                         <h4 class="config-section-title">Configuración de Presentaciones</h4>
                         
@@ -529,12 +647,12 @@ interface ExecuteResult {
       font-size: 24px;
     }
 
-    .agent-icon.media_agent {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    .agent-icon.designer_agent {
+      background: linear-gradient(135deg, #667eea 0%, #f093fb 100%);
     }
 
-    .agent-icon.slides_agent {
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    .agent-icon.researcher_agent {
+      background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
     }
 
     .agent-icon.sap_agent {
@@ -591,6 +709,41 @@ interface ExecuteResult {
       font-size: 11px !important;
       min-height: 24px !important;
       background: #f5f5f5 !important;
+    }
+
+    .skills-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .skills-label {
+      font-size: 12px;
+      color: #667eea;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .skills-label mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+    }
+
+    .skills-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .skill-chip {
+      font-size: 10px !important;
+      min-height: 22px !important;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%) !important;
+      color: #667eea !important;
+      border: 1px solid rgba(102, 126, 234, 0.3) !important;
     }
 
     /* Detail Panel */
@@ -939,6 +1092,193 @@ interface ExecuteResult {
       height: 72px;
       color: #ccc;
     }
+
+    /* Skills Tab Styles */
+    .empty-skills {
+      text-align: center;
+      padding: 48px;
+      color: #666;
+    }
+
+    .empty-skills mat-icon {
+      font-size: 64px;
+      width: 64px;
+      height: 64px;
+      color: #ccc;
+      margin-bottom: 16px;
+    }
+
+    .empty-skills h3 {
+      margin: 0 0 8px;
+      color: #333;
+    }
+
+    .empty-skills p {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .skills-header {
+      margin-bottom: 16px;
+    }
+
+    .skills-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      border-radius: 8px;
+      font-size: 13px;
+      color: #667eea;
+    }
+
+    .skills-info mat-icon {
+      color: #667eea;
+    }
+
+    .skills-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .skill-panel {
+      border-radius: 12px !important;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+    }
+
+    .skill-panel .mat-expansion-panel-header {
+      padding: 12px 24px;
+    }
+
+    .skill-icon {
+      color: #667eea;
+      margin-right: 12px;
+    }
+
+    .skill-name {
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+
+    .skill-id {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      color: #888;
+      background: #f5f5f5;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .skill-content {
+      padding: 16px 24px 24px;
+    }
+
+    .skill-description {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      color: #555;
+    }
+
+    .skill-description mat-icon {
+      color: #667eea;
+      font-size: 20px;
+      margin-top: 2px;
+    }
+
+    .skill-loading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 24px;
+      color: #666;
+    }
+
+    .skill-editor {
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .skill-editor .editor-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .editor-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .editor-label mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+
+    .editor-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .skill-textarea {
+      width: 100%;
+      min-height: 300px;
+      border: none;
+      padding: 16px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: vertical;
+      background: #fafbfc;
+    }
+
+    .skill-textarea:focus {
+      outline: none;
+      background: white;
+    }
+
+    .skill-textarea.expanded {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 1000;
+      min-height: 100vh;
+      border-radius: 0;
+    }
+
+    .editor-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .char-count {
+      font-size: 12px;
+      color: #888;
+    }
   `]
 })
 export class SubagentsComponent implements OnInit {
@@ -947,13 +1287,17 @@ export class SubagentsComponent implements OnInit {
 
   subagents = signal<Subagent[]>([]);
   agentTools = signal<SubagentTool[]>([]);
+  agentSkills = signal<Skill[]>([]);
   testResult = signal<TestResult | null>(null);
   executeResult = signal<ExecuteResult | null>(null);
 
   loading = signal(true);
   loadingTools = signal(false);
   loadingConfig = signal(false);
+  loadingSkills = signal(false);
+  loadingSkillContent = signal<string | null>(null);
   savingConfig = signal(false);
+  savingSkill = signal(false);
   testingAgent = signal<string | null>(null);
   executing = signal(false);
 
@@ -964,6 +1308,11 @@ export class SubagentsComponent implements OnInit {
     enabled: true,
     settings: {}
   };
+
+  // Skills editor
+  expandedSkill: string | null = null;
+  expandSkillEditor = false;
+  dirtySkills = new Set<string>();
 
   // Execute form
   executeTask = '';
@@ -994,8 +1343,11 @@ export class SubagentsComponent implements OnInit {
   selectAgent(agent: Subagent): void {
     this.selectedAgent = agent;
     this.testResult.set(null);
+    this.expandedSkill = null;
+    this.dirtySkills.clear();
     this.loadAgentTools(agent.id);
     this.loadAgentConfig(agent.id);
+    this.loadAgentSkills(agent.id);
   }
 
   loadAgentTools(agentId: string): void {
@@ -1126,5 +1478,98 @@ export class SubagentsComponent implements OnInit {
     // Recargar config desde el servidor para obtener el prompt original
     this.loadAgentConfig(this.selectedAgent.id);
     this.snackBar.open('Prompt restaurado', 'Cerrar', { duration: 2000 });
+  }
+
+  // Skills methods
+  loadAgentSkills(agentId: string): void {
+    this.loadingSkills.set(true);
+    this.agentSkills.set([]);
+    
+    this.http.get<any>(`${environment.apiUrl}/subagents/${agentId}/skills`)
+      .subscribe({
+        next: (response) => {
+          this.agentSkills.set(response.skills || []);
+          this.loadingSkills.set(false);
+        },
+        error: (err) => {
+          console.error('Error loading skills:', err);
+          this.agentSkills.set([]);
+          this.loadingSkills.set(false);
+        }
+      });
+  }
+
+  toggleSkill(skill: Skill): void {
+    if (this.expandedSkill === skill.id) {
+      this.expandedSkill = null;
+    } else {
+      this.expandedSkill = skill.id;
+      // Cargar contenido si no está cargado
+      if (!skill.content && !skill.loaded) {
+        this.loadSkillContent(skill);
+      }
+    }
+  }
+
+  loadSkillContent(skill: Skill): void {
+    if (!this.selectedAgent) return;
+    
+    this.loadingSkillContent.set(skill.id);
+    
+    this.http.get<any>(`${environment.apiUrl}/subagents/${this.selectedAgent.id}/skills/${skill.id}`)
+      .subscribe({
+        next: (response) => {
+          // Actualizar el skill en el array
+          const skills = this.agentSkills();
+          const idx = skills.findIndex(s => s.id === skill.id);
+          if (idx >= 0) {
+            skills[idx] = {
+              ...skills[idx],
+              content: response.content || '',
+              loaded: true
+            };
+            this.agentSkills.set([...skills]);
+          }
+          this.loadingSkillContent.set(null);
+        },
+        error: (err) => {
+          console.error('Error loading skill content:', err);
+          this.snackBar.open('Error cargando contenido del skill', 'Cerrar', { duration: 3000 });
+          this.loadingSkillContent.set(null);
+        }
+      });
+  }
+
+  markSkillDirty(skillId: string): void {
+    this.dirtySkills.add(skillId);
+  }
+
+  saveSkillContent(skill: Skill): void {
+    if (!this.selectedAgent || !skill.content) return;
+    
+    this.savingSkill.set(true);
+    
+    this.http.put<any>(`${environment.apiUrl}/subagents/${this.selectedAgent.id}/skills/${skill.id}`, {
+      content: skill.content
+    }).subscribe({
+      next: () => {
+        this.dirtySkills.delete(skill.id);
+        this.savingSkill.set(false);
+        this.snackBar.open(`Skill "${skill.name}" guardado`, 'Cerrar', { duration: 3000 });
+      },
+      error: (err) => {
+        console.error('Error saving skill:', err);
+        this.snackBar.open('Error guardando skill', 'Cerrar', { duration: 3000 });
+        this.savingSkill.set(false);
+      }
+    });
+  }
+
+  copySkillContent(skill: Skill): void {
+    if (!skill.content) return;
+    
+    navigator.clipboard.writeText(skill.content).then(() => {
+      this.snackBar.open('Contenido copiado', 'Cerrar', { duration: 2000 });
+    });
   }
 }

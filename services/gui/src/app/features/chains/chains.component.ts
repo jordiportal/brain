@@ -345,13 +345,23 @@ interface ImageData {
                                   </mat-expansion-panel-header>
                                   
                                   <div class="step-content">
-                                    @if (step.content) {
-                                      <div class="step-text" [innerHTML]="step.content | markdown"></div>
+                                    @if (getStepDisplayContent(step)) {
+                                      <div class="step-conversation">
+                                        <div class="step-text" [innerHTML]="getStepDisplayContent(step) | markdown"></div>
+                                      </div>
                                     }
-                                    @if (step.data) {
+                                    @if (step.data?.html) {
+                                      <div class="presentation-viewer">
+                                        <button mat-raised-button color="primary" (click)="openPresentation(step.data.html)">
+                                          <mat-icon>slideshow</mat-icon>
+                                          Ver presentación
+                                        </button>
+                                      </div>
+                                    }
+                                    @if (step.data && hasAdvancedData(step)) {
                                       <details class="step-data-details">
-                                        <summary>Ver datos</summary>
-                                        <pre class="step-data">{{ step.data | json }}</pre>
+                                        <summary>Datos avanzados</summary>
+                                        <pre class="step-data">{{ getAdvancedData(step) | json }}</pre>
                                       </details>
                                     }
                                   </div>
@@ -368,6 +378,16 @@ interface ImageData {
                                 Respuesta Final
                               </div>
                               <div class="markdown-content" [innerHTML]="msg.content | markdown"></div>
+                              
+                              <!-- Presentación generada (si hay en algún paso) -->
+                              @if (getPresentationHtml(msg)) {
+                                <div class="presentation-viewer">
+                                  <button mat-raised-button color="primary" (click)="openPresentation(getPresentationHtml(msg)!)">
+                                    <mat-icon>slideshow</mat-icon>
+                                    Ver presentación
+                                  </button>
+                                </div>
+                              }
                               
                               <!-- Imágenes generadas -->
                               @if (msg.images && msg.images.length > 0) {
@@ -780,10 +800,29 @@ interface ImageData {
       padding: 8px 0;
     }
 
+    .step-conversation {
+      margin-bottom: 12px;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 3px solid #667eea;
+    }
+
     .step-text {
       font-size: 13px;
       line-height: 1.6;
       color: #444;
+    }
+
+    .presentation-viewer {
+      margin: 12px 0;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea22 0%, #764ba222 100%);
+      border-radius: 8px;
+    }
+
+    .presentation-viewer button {
+      margin-right: 8px;
     }
 
     .step-data-details {
@@ -1259,12 +1298,12 @@ export class ChainsComponent implements OnInit {
               
             } else if (data.event_type === 'token' && data.content) {
               // Token recibido
-              if (data.node_id === 'synthesizer' || !data.node_id) {
-                // Token de respuesta final
+              const isFinalResponse = data.node_id === 'synthesizer' || data.node_id === 'adaptive_agent' || !data.node_id;
+              if (isFinalResponse) {
                 finalContent += data.content;
                 this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
               } else if (currentStepId && this.activeSteps.has(currentStepId)) {
-                // Token de paso intermedio
+                // Token de paso intermedio (tool, subagente, conversación interna)
                 stepContentBuffer += data.content;
                 const step = this.activeSteps.get(currentStepId)!;
                 step.content = stepContentBuffer;
@@ -1281,17 +1320,10 @@ export class ChainsComponent implements OnInit {
                 step.endTime = new Date();
                 // Se mantiene desplegado hasta que empiece el siguiente paso
                 
-                // Agregar datos finales del paso
+                // Agregar datos finales del paso - construir contenido rico para conversación/pensamiento
                 if (data.data) {
-                  // Prioridad: thinking > observation > result_preview
-                  if (data.data.thinking) {
-                    step.content = data.data.thinking;
-                  } else if (data.data.observation) {
-                    step.content = data.data.observation;
-                  } else if (data.data.result_preview) {
-                    step.content = data.data.result_preview;
-                  }
                   step.data = { ...step.data, ...data.data };
+                  step.content = this.buildStepContent(step);
                 }
                 
                 if (data.data?.tokens) tokens = data.data.tokens;
@@ -1357,17 +1389,22 @@ export class ChainsComponent implements OnInit {
     }, sessionId).subscribe({
       next: (response) => {
         const content = response.output?.response || 'Sin respuesta';
-        const steps: IntermediateStep[] = response.steps?.map((s: any, i: number) => ({
-          id: s.node_id || `step-${i}`,
-          name: s.node_name || 'Paso',
-          icon: this.getStepIconName(s.node_name),
-          status: 'completed' as const,
-          content: s.output_data?.response || JSON.stringify(s.output_data) || '',
-          data: s.output_data,
-          startTime: new Date(s.started_at),
-          endTime: new Date(s.completed_at),
-          expanded: false
-        })) || [];
+        const steps: IntermediateStep[] = response.steps?.map((s: any, i: number) => {
+          const step: IntermediateStep = {
+            id: s.node_id || `step-${i}`,
+            name: s.node_name || 'Paso',
+            icon: this.getStepIconName(s.node_name),
+            status: 'completed' as const,
+            content: '',
+            data: s.output_data,
+            startTime: new Date(s.started_at),
+            endTime: new Date(s.completed_at),
+            expanded: false
+          };
+          step.content = this.buildStepContent(step);
+          if (!step.content && s.output_data?.response) step.content = s.output_data.response;
+          return step;
+        }) || [];
         
         this.messages.update(msgs => [...msgs, {
           role: 'assistant',
@@ -1459,13 +1496,15 @@ export class ChainsComponent implements OnInit {
     const name = (nodeName || '').toLowerCase();
     
     if (name.includes('planificador') || name.includes('planner')) return 'assignment';
-    if (name.includes('pensando') || name.includes('think')) return 'psychology';
-    if (name.includes('actuando') || name.includes('act') || name.includes('delegando')) return 'bolt';
+    if (name.includes('pensando') || name.includes('think') || name.includes('reflexion')) return 'psychology';
+    if (name.includes('actuando') || name.includes('act') || name.includes('delegando') || name.includes('delegate')) return 'bolt';
     if (name.includes('observando') || name.includes('observ')) return 'visibility';
     if (name.includes('sintetiz') || name.includes('synthes') || name.includes('respuesta final')) return 'auto_awesome';
     if (name.includes('sap')) return 'storage';
     if (name.includes('rag') || name.includes('búsqueda')) return 'search';
     if (name.includes('llm') || name.includes('generación')) return 'smart_toy';
+    if (name.includes('consult') || name.includes('miembro') || name.includes('equipo')) return 'groups';
+    if (name.includes('iteration')) return 'loop';
     
     return 'radio_button_checked';
   }
@@ -1474,5 +1513,54 @@ export class ChainsComponent implements OnInit {
     const ms = new Date(end).getTime() - new Date(start).getTime();
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  /** Construye el contenido legible del paso (pensamiento, conversación, resultado) */
+  private buildStepContent(step: IntermediateStep): string {
+    const d = step.data || {};
+    const parts: string[] = [];
+    if (step.content) parts.push(step.content);
+    if (d.thinking) parts.push('**Pensamiento:**\n' + d.thinking);
+    if (d.observation) parts.push('**Observación:**\n' + d.observation);
+    // Usar conversation (completo) si existe, sino result_preview (truncado)
+    if (d.conversation) parts.push(d.conversation);
+    else if (d.result_preview) parts.push('**Resultado:**\n' + d.result_preview);
+    if (d.arguments && Object.keys(d.arguments).length > 0) {
+      const args = typeof d.arguments === 'string' ? d.arguments : JSON.stringify(d.arguments, null, 2);
+      parts.push('**Argumentos:**\n```json\n' + args + '\n```');
+    }
+    return parts.join('\n\n');
+  }
+
+  /** Contenido a mostrar en el paso (conversación/pensamiento visible) */
+  getStepDisplayContent(step: IntermediateStep): string {
+    return step.content || '';
+  }
+
+  /** Hay datos avanzados además del contenido principal (excluir html y conversation) */
+  hasAdvancedData(step: IntermediateStep): boolean {
+    const d = step.data || {};
+    const keys = Object.keys(d).filter(k => !['html', 'conversation', 'thinking', 'result_preview'].includes(k));
+    return keys.length > 0;
+  }
+
+  /** Datos para "Datos avanzados" (sin html/conversation que ya se muestran) */
+  getAdvancedData(step: IntermediateStep): object {
+    const d = step.data || {};
+    const { html, conversation, thinking, result_preview, ...rest } = d;
+    return Object.keys(rest).length ? rest : {};
+  }
+
+  /** Obtiene HTML de presentación de los pasos del mensaje (si existe) */
+  getPresentationHtml(msg: ChatMessage): string | null {
+    const html = msg.intermediateSteps?.find(s => s.data?.html)?.data?.html;
+    return html || null;
+  }
+
+  /** Abre la presentación HTML en nueva pestaña */
+  openPresentation(html: string): void {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
   }
 }

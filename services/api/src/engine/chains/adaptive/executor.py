@@ -389,21 +389,25 @@ class AdaptiveExecutor:
             self.execution_complete = True
             self.final_answer = result.final_answer
         
-        # Evento de fin de tool
-        preview = result.message_content[:200] if result.message_content else ""
+        # Evento de fin de tool (incluir html si es presentación)
+        # Usar message_content completo como "conversation" para la UI
+        conversation = result.message_content or ""
+        html = raw_result.get("data", {}).get("html") if isinstance(raw_result, dict) else None
         yield self.stream_emitter.tool_end(
             tool_name,
             self.iteration,
             success=result.success,
-            preview=preview,
+            preview=conversation[:200] if conversation else "",
             thinking=result.data.get("thinking"),
-            done=result.is_terminal
+            done=result.is_terminal,
+            html=html,
+            conversation=conversation  # Contenido completo para la UI
         )
         
         # Agregar resultado a mensajes
         result_str = json.dumps(raw_result, ensure_ascii=False, default=str)
-        if len(result_str) > 4000:
-            result_str = result_str[:4000] + "... [truncated]"
+        if len(result_str) > 16000:
+            result_str = result_str[:16000] + "... [truncated]"
         
         if self.provider_type == "ollama":
             messages.append({

@@ -1,5 +1,23 @@
-"""Slides Agent - Generación de presentaciones."""
+"""Módulo compartido: templates, themes, events para presentaciones.
 
-from .agent import SlidesAgent
+El DesignerAgent usa estos componentes. No hay agente slides independiente.
+"""
 
-__all__ = ["SlidesAgent"]
+from .templates import SlideOutline, PresentationOutline, generate_slide_html
+from .themes import get_theme, generate_css, detect_theme_from_topic, create_custom_theme, THEMES, ThemeColors
+from .events import thinking_event, action_event, artifact_event
+
+__all__ = [
+    "SlideOutline",
+    "PresentationOutline",
+    "generate_slide_html",
+    "get_theme",
+    "generate_css",
+    "detect_theme_from_topic",
+    "create_custom_theme",
+    "THEMES",
+    "ThemeColors",
+    "thinking_event",
+    "action_event",
+    "artifact_event",
+]
