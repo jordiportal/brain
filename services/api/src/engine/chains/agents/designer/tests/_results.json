@@ -1,0 +1,17 @@
+{
+  "IMG-01": {
+    "status": "pass",
+    "notes": "",
+    "timestamp": "2026-02-04T15:05:54.397881"
+  },
+  "IMG-02": {
+    "status": "pass",
+    "notes": "",
+    "timestamp": "2026-02-04T15:06:36.917330"
+  },
+  "IMG-04": {
+    "status": "fail",
+    "notes": "",
+    "timestamp": "2026-02-04T15:07:53.233116"
+  }
+}

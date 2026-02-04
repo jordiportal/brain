@@ -609,6 +609,10 @@ def _load_agent_tests(agent_id: str) -> List[Dict[str, Any]]:
     categories = []
     
     for test_file in sorted(base_path.glob("*.json")):
+        # Ignorar archivos internos (empiezan con _)
+        if test_file.stem.startswith("_"):
+            continue
+            
         try:
             with open(test_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
