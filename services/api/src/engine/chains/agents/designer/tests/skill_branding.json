@@ -1,0 +1,60 @@
+{
+  "category": "skill",
+  "skill_id": "branding",
+  "tests": [
+    {
+      "id": "SKL-BR-01",
+      "name": "Logo para sector específico",
+      "description": "Genera logo apropiado para cafetería artesanal",
+      "input": {
+        "task": "Diseña un logo para una cafetería artesanal llamada 'El Grano Dorado'. Debe transmitir calidez, artesanía y calidad.",
+        "context": null
+      },
+      "expected": {
+        "type": "image",
+        "criteria": [
+          "Imagen de logo generada",
+          "Estilo apropiado para cafetería",
+          "Transmite calidez/artesanía",
+          "Nombre o inicial incluido"
+        ]
+      }
+    },
+    {
+      "id": "SKL-BR-02",
+      "name": "Paleta de colores",
+      "description": "Genera paleta apropiada para app de meditación",
+      "input": {
+        "task": "Propón una paleta de colores para una aplicación de meditación y bienestar. Debe transmitir calma y serenidad.",
+        "context": null
+      },
+      "expected": {
+        "type": "text",
+        "criteria": [
+          "5-6 colores propuestos",
+          "Códigos hex incluidos",
+          "Colores transmiten calma",
+          "Explicación del porqué de cada color"
+        ]
+      }
+    },
+    {
+      "id": "SKL-BR-03",
+      "name": "Tipografías para marca",
+      "description": "Sugiere tipografías para marca de lujo",
+      "input": {
+        "task": "Recomienda tipografías para una marca de relojes de lujo. Necesito una para títulos y otra para texto.",
+        "context": null
+      },
+      "expected": {
+        "type": "text",
+        "criteria": [
+          "2-3 fuentes sugeridas",
+          "Nombres de fuentes reales (no inventadas)",
+          "Apropiadas para lujo",
+          "Explicación de cada elección"
+        ]
+      }
+    }
+  ]
+}

@@ -427,6 +427,250 @@ async def update_skill_content(agent_id: str, skill_id: str, update: SkillConten
 
 
 # ============================================
+# Tests de Subagentes
+# ============================================
+
+class TestResultUpdate(BaseModel):
+    """Request para actualizar resultado de un test"""
+    status: str  # pass, fail, pending
+    notes: Optional[str] = None
+
+
+@router.get("/{agent_id}/tests")
+async def get_subagent_tests(agent_id: str):
+    """Obtiene los tests definidos para un subagente"""
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Subagente no encontrado: {agent_id}"
+        )
+    
+    # Cargar tests desde archivos JSON
+    tests = _load_agent_tests(agent_id)
+    
+    # Cargar resultados guardados
+    results = _load_test_results(agent_id)
+    
+    # Combinar tests con sus resultados
+    for category in tests:
+        for test in category.get("tests", []):
+            test_id = test["id"]
+            if test_id in results:
+                test["lastRun"] = results[test_id]
+    
+    return {
+        "agent_id": agent_id,
+        "categories": tests,
+        "total_tests": sum(len(c.get("tests", [])) for c in tests)
+    }
+
+
+@router.post("/{agent_id}/tests/{test_id}/run")
+async def run_subagent_test(
+    agent_id: str, 
+    test_id: str,
+    llm_url: Optional[str] = None,
+    model: Optional[str] = None,
+    provider_type: str = "ollama",
+    api_key: Optional[str] = None
+):
+    """Ejecuta un test específico de un subagente"""
+    import time
+    
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Subagente no encontrado: {agent_id}"
+        )
+    
+    # Buscar el test
+    test = _find_test(agent_id, test_id)
+    if not test:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Test no encontrado: {test_id}"
+        )
+    
+    logger.info(
+        f"🧪 Running test",
+        agent_id=agent_id,
+        test_id=test_id,
+        test_name=test.get("name")
+    )
+    
+    start_time = time.time()
+    
+    try:
+        # Ejecutar el subagente con el input del test
+        result = await agent.execute(
+            task=test["input"]["task"],
+            context=test["input"].get("context"),
+            llm_url=llm_url,
+            model=model,
+            provider_type=provider_type,
+            api_key=api_key
+        )
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        return {
+            "agent_id": agent_id,
+            "test_id": test_id,
+            "test_name": test["name"],
+            "status": "executed",
+            "duration_ms": duration_ms,
+            "result": result.to_dict(),
+            "expected": test["expected"],
+            "criteria": test["expected"].get("criteria", [])
+        }
+        
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"Test execution error: {e}", exc_info=True)
+        
+        return {
+            "agent_id": agent_id,
+            "test_id": test_id,
+            "test_name": test["name"],
+            "status": "error",
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "expected": test["expected"],
+            "criteria": test["expected"].get("criteria", [])
+        }
+
+
+@router.put("/{agent_id}/tests/{test_id}/result")
+async def update_test_result(agent_id: str, test_id: str, update: TestResultUpdate):
+    """Guarda el resultado de validación manual de un test"""
+    from datetime import datetime
+    
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Subagente no encontrado: {agent_id}"
+        )
+    
+    # Verificar que el test existe
+    test = _find_test(agent_id, test_id)
+    if not test:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Test no encontrado: {test_id}"
+        )
+    
+    # Guardar resultado
+    result = {
+        "status": update.status,
+        "notes": update.notes,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    _save_test_result(agent_id, test_id, result)
+    
+    logger.info(
+        f"📝 Test result saved",
+        agent_id=agent_id,
+        test_id=test_id,
+        status=update.status
+    )
+    
+    return {
+        "status": "ok",
+        "agent_id": agent_id,
+        "test_id": test_id,
+        "result": result
+    }
+
+
+def _load_agent_tests(agent_id: str) -> List[Dict[str, Any]]:
+    """Carga los tests definidos para un subagente"""
+    import json
+    from pathlib import Path
+    
+    # Buscar directorio de tests del agente
+    base_path = Path(__file__).parent / agent_id.replace("_agent", "") / "tests"
+    
+    if not base_path.exists():
+        return []
+    
+    categories = []
+    
+    for test_file in sorted(base_path.glob("*.json")):
+        try:
+            with open(test_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                data["file"] = test_file.stem
+                categories.append(data)
+        except Exception as e:
+            logger.error(f"Error loading test file {test_file}: {e}")
+    
+    return categories
+
+
+def _find_test(agent_id: str, test_id: str) -> Optional[Dict[str, Any]]:
+    """Busca un test específico por ID"""
+    categories = _load_agent_tests(agent_id)
+    
+    for category in categories:
+        for test in category.get("tests", []):
+            if test["id"] == test_id:
+                return test
+    
+    return None
+
+
+def _load_test_results(agent_id: str) -> Dict[str, Any]:
+    """Carga los resultados guardados de tests"""
+    import json
+    from pathlib import Path
+    
+    results_file = Path(__file__).parent / agent_id.replace("_agent", "") / "tests" / "_results.json"
+    
+    if not results_file.exists():
+        return {}
+    
+    try:
+        with open(results_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_test_result(agent_id: str, test_id: str, result: Dict[str, Any]) -> None:
+    """Guarda el resultado de un test"""
+    import json
+    from pathlib import Path
+    
+    results_file = Path(__file__).parent / agent_id.replace("_agent", "") / "tests" / "_results.json"
+    
+    # Cargar resultados existentes
+    results = _load_test_results(agent_id)
+    
+    # Actualizar
+    results[test_id] = result
+    
+    # Guardar
+    try:
+        with open(results_file, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error saving test result: {e}")
+
+
+# ============================================
 # Helpers
 # ============================================
 

@@ -1,0 +1,96 @@
+{
+  "category": "tool",
+  "tool_id": "generate_image",
+  "tests": [
+    {
+      "id": "IMG-01",
+      "name": "Logo minimalista",
+      "description": "Genera un logo minimalista para app de fitness",
+      "input": {
+        "task": "Genera un logo minimalista para una aplicación de fitness llamada FitPro. Estilo limpio y moderno.",
+        "context": null
+      },
+      "expected": {
+        "type": "image",
+        "criteria": [
+          "Imagen válida generada",
+          "Relevante al concepto fitness",
+          "Estilo minimalista",
+          "Legible y reconocible"
+        ]
+      }
+    },
+    {
+      "id": "IMG-02",
+      "name": "Fotografía profesional",
+      "description": "Genera una imagen fotorrealista de oficina moderna",
+      "input": {
+        "task": "Genera una fotografía profesional de una oficina moderna con escritorios de pie, plantas y luz natural",
+        "context": null
+      },
+      "expected": {
+        "type": "image",
+        "criteria": [
+          "Imagen válida generada",
+          "Estilo fotorrealista (no ilustración)",
+          "Elementos solicitados presentes",
+          "Iluminación natural visible"
+        ]
+      }
+    },
+    {
+      "id": "IMG-03",
+      "name": "Ilustración abstracta",
+      "description": "Genera ilustración conceptual de innovación tecnológica",
+      "input": {
+        "task": "Crea una ilustración abstracta que represente la innovación tecnológica y la transformación digital. Colores vibrantes, estilo moderno.",
+        "context": null
+      },
+      "expected": {
+        "type": "image",
+        "criteria": [
+          "Imagen válida generada",
+          "Estilo ilustración (no foto)",
+          "Concepto tecnológico transmitido",
+          "Colores vibrantes"
+        ]
+      }
+    },
+    {
+      "id": "IMG-04",
+      "name": "Icono para app",
+      "description": "Genera un icono simple para aplicación móvil",
+      "input": {
+        "task": "Diseña un icono de usuario para una app móvil. Debe ser simple, reconocible y funcionar en tamaño pequeño.",
+        "context": null
+      },
+      "expected": {
+        "type": "image",
+        "criteria": [
+          "Imagen válida generada",
+          "Diseño simple y limpio",
+          "Reconocible como icono de usuario",
+          "Funcionaría en tamaño pequeño"
+        ]
+      }
+    },
+    {
+      "id": "IMG-05",
+      "name": "Prompt en español",
+      "description": "Verifica que interpreta correctamente prompts en español",
+      "input": {
+        "task": "Genera una imagen de un gato astronauta flotando en el espacio con la Tierra de fondo",
+        "context": null
+      },
+      "expected": {
+        "type": "image",
+        "criteria": [
+          "Imagen válida generada",
+          "Gato presente en la imagen",
+          "Traje de astronauta visible",
+          "Espacio/Tierra de fondo"
+        ]
+      }
+    }
+  ]
+}

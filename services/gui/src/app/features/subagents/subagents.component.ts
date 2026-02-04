@@ -19,6 +19,7 @@ import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatListModule } from '@angular/material/list';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { environment } from '../../../environments/environment';
 
 interface Skill {
@@ -77,6 +78,48 @@ interface ExecuteResult {
   };
 }
 
+interface SubagentTest {
+  id: string;
+  name: string;
+  description: string;
+  input: {
+    task: string;
+    context?: string;
+  };
+  expected: {
+    type: string;
+    criteria: string[];
+  };
+  lastRun?: {
+    status: string;
+    timestamp: string;
+    notes?: string;
+  };
+}
+
+interface TestCategory {
+  category: string;
+  tool_id?: string;
+  skill_id?: string;
+  file: string;
+  tests: SubagentTest[];
+}
+
+interface TestRunResult {
+  agent_id: string;
+  test_id: string;
+  test_name: string;
+  status: string;
+  duration_ms: number;
+  result?: any;
+  error?: string;
+  expected: {
+    type: string;
+    criteria: string[];
+  };
+  criteria: string[];
+}
+
 @Component({
   selector: 'app-subagents',
   standalone: true,
@@ -99,7 +142,8 @@ interface ExecuteResult {
     MatDialogModule,
     MatSlideToggleModule,
     MatBadgeModule,
-    MatListModule
+    MatListModule,
+    MatCheckboxModule
   ],
   template: `
     <div class="subagents-page">
@@ -330,6 +374,192 @@ interface ExecuteResult {
                         </mat-expansion-panel>
                       }
                     </div>
+                  }
+                </div>
+              </mat-tab>
+
+              <!-- Tab de Tests -->
+              <mat-tab label="Tests">
+                <div class="tab-content">
+                  @if (loadingTests()) {
+                    <div class="loading-container">
+                      <mat-spinner diameter="32"></mat-spinner>
+                    </div>
+                  } @else if (testCategories().length === 0) {
+                    <div class="empty-tests">
+                      <mat-icon>science</mat-icon>
+                      <h3>Sin tests definidos</h3>
+                      <p>Este subagente no tiene tests configurados</p>
+                    </div>
+                  } @else {
+                    <div class="tests-header">
+                      <div class="tests-summary">
+                        <span class="summary-item passed">
+                          <mat-icon>check_circle</mat-icon>
+                          {{ getTestStats().passed }} pass
+                        </span>
+                        <span class="summary-item failed">
+                          <mat-icon>cancel</mat-icon>
+                          {{ getTestStats().failed }} fail
+                        </span>
+                        <span class="summary-item pending">
+                          <mat-icon>pending</mat-icon>
+                          {{ getTestStats().pending }} pending
+                        </span>
+                      </div>
+                      <button mat-raised-button color="primary" (click)="runAllTests()" [disabled]="runningAllTests()">
+                        @if (runningAllTests()) {
+                          <mat-spinner diameter="18"></mat-spinner>
+                        } @else {
+                          <mat-icon>play_arrow</mat-icon>
+                        }
+                        Ejecutar Todos
+                      </button>
+                    </div>
+
+                    <div class="tests-categories">
+                      @for (category of testCategories(); track category.file) {
+                        <mat-expansion-panel class="category-panel">
+                          <mat-expansion-panel-header>
+                            <mat-panel-title>
+                              <mat-icon class="category-icon">{{ getCategoryIcon(category) }}</mat-icon>
+                              <span>{{ getCategoryName(category) }}</span>
+                              <span class="tests-count">({{ category.tests.length }} tests)</span>
+                            </mat-panel-title>
+                            <mat-panel-description>
+                              <span class="category-stats">
+                                {{ getCategoryStats(category).passed }}/{{ category.tests.length }} ✓
+                              </span>
+                            </mat-panel-description>
+                          </mat-expansion-panel-header>
+                          
+                          <div class="tests-list">
+                            @for (test of category.tests; track test.id) {
+                              <div class="test-item" [class]="test.lastRun?.status || 'pending'">
+                                <div class="test-status">
+                                  @if (runningTest() === test.id) {
+                                    <mat-spinner diameter="20"></mat-spinner>
+                                  } @else {
+                                    <mat-icon [class]="test.lastRun?.status || 'pending'">
+                                      {{ getStatusIcon(test.lastRun?.status) }}
+                                    </mat-icon>
+                                  }
+                                </div>
+                                <div class="test-info">
+                                  <span class="test-id">{{ test.id }}</span>
+                                  <span class="test-name">{{ test.name }}</span>
+                                  <span class="test-desc">{{ test.description }}</span>
+                                </div>
+                                <div class="test-actions">
+                                  <button mat-icon-button matTooltip="Ejecutar test" 
+                                          (click)="runTest(test)" [disabled]="runningTest() === test.id">
+                                    <mat-icon>play_arrow</mat-icon>
+                                  </button>
+                                  <button mat-icon-button matTooltip="Ver detalles" 
+                                          (click)="selectTest(test)">
+                                    <mat-icon>visibility</mat-icon>
+                                  </button>
+                                </div>
+                              </div>
+                            }
+                          </div>
+                        </mat-expansion-panel>
+                      }
+                    </div>
+
+                    <!-- Panel de resultado del test seleccionado -->
+                    @if (selectedTest) {
+                      <mat-card class="test-result-panel">
+                        <mat-card-header>
+                          <mat-card-title>
+                            <mat-icon>science</mat-icon>
+                            {{ selectedTest.id }}: {{ selectedTest.name }}
+                          </mat-card-title>
+                          <button mat-icon-button (click)="selectedTest = null" class="close-btn">
+                            <mat-icon>close</mat-icon>
+                          </button>
+                        </mat-card-header>
+                        
+                        <mat-card-content>
+                          <div class="test-input">
+                            <h4>Input</h4>
+                            <div class="input-task">{{ selectedTest.input.task }}</div>
+                            @if (selectedTest.input.context) {
+                              <div class="input-context">{{ selectedTest.input.context }}</div>
+                            }
+                          </div>
+
+                          <div class="test-criteria">
+                            <h4>Criterios de validación</h4>
+                            <div class="criteria-list">
+                              @for (criterion of selectedTest.expected.criteria; track $index) {
+                                <div class="criterion-item">
+                                  <mat-checkbox [(ngModel)]="criteriaChecks[$index]" 
+                                                (change)="updateCriteriaStatus()">
+                                    {{ criterion }}
+                                  </mat-checkbox>
+                                </div>
+                              }
+                            </div>
+                          </div>
+
+                          @if (currentTestResult()) {
+                            <div class="test-output">
+                              <h4>
+                                Resultado 
+                                <span class="duration">({{ currentTestResult()!.duration_ms }}ms)</span>
+                              </h4>
+                              
+                              @if (currentTestResult()!.error) {
+                                <div class="output-error">
+                                  <mat-icon>error</mat-icon>
+                                  {{ currentTestResult()!.error }}
+                                </div>
+                              } @else {
+                                <div class="output-content">
+                                  @if (currentTestResult()!.result?.images?.length) {
+                                    <div class="output-images">
+                                      @for (img of currentTestResult()!.result.images; track $index) {
+                                        <img [src]="img.url || ('data:image/png;base64,' + img.base64)" 
+                                             class="result-image" alt="Generated image">
+                                      }
+                                    </div>
+                                  }
+                                  @if (currentTestResult()!.result?.data?.html) {
+                                    <div class="output-html">
+                                      <button mat-stroked-button (click)="previewHtml(currentTestResult()!.result.data.html)">
+                                        <mat-icon>preview</mat-icon>
+                                        Ver presentación
+                                      </button>
+                                    </div>
+                                  }
+                                  <div class="output-response">
+                                    {{ currentTestResult()!.result?.response }}
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          }
+
+                          <mat-form-field appearance="outline" class="full-width">
+                            <mat-label>Notas</mat-label>
+                            <textarea matInput [(ngModel)]="testNotes" rows="2" 
+                                      placeholder="Observaciones sobre el resultado..."></textarea>
+                          </mat-form-field>
+                        </mat-card-content>
+
+                        <mat-card-actions align="end">
+                          <button mat-button color="warn" (click)="markTestResult('fail')" [disabled]="savingTestResult()">
+                            <mat-icon>close</mat-icon>
+                            Marcar Fail
+                          </button>
+                          <button mat-raised-button color="primary" (click)="markTestResult('pass')" [disabled]="savingTestResult()">
+                            <mat-icon>check</mat-icon>
+                            Marcar Pass
+                          </button>
+                        </mat-card-actions>
+                      </mat-card>
+                    }
                   }
                 </div>
               </mat-tab>
@@ -1279,6 +1509,277 @@ interface ExecuteResult {
       font-size: 12px;
       color: #888;
     }
+
+    /* Tests Tab Styles */
+    .empty-tests {
+      text-align: center;
+      padding: 48px;
+      color: #666;
+    }
+
+    .empty-tests mat-icon {
+      font-size: 64px;
+      width: 64px;
+      height: 64px;
+      color: #ccc;
+      margin-bottom: 16px;
+    }
+
+    .tests-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: #f8f9fa;
+      border-radius: 12px;
+    }
+
+    .tests-summary {
+      display: flex;
+      gap: 24px;
+    }
+
+    .summary-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .summary-item.passed { color: #388e3c; }
+    .summary-item.failed { color: #d32f2f; }
+    .summary-item.pending { color: #f57c00; }
+
+    .summary-item mat-icon {
+      font-size: 20px;
+      width: 20px;
+      height: 20px;
+    }
+
+    .tests-categories {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .category-panel {
+      border-radius: 12px !important;
+    }
+
+    .category-icon {
+      color: #667eea;
+      margin-right: 12px;
+    }
+
+    .tests-count {
+      margin-left: 8px;
+      color: #888;
+      font-weight: 400;
+    }
+
+    .category-stats {
+      font-size: 12px;
+      color: #388e3c;
+      font-weight: 500;
+    }
+
+    .tests-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 0;
+    }
+
+    .test-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 3px solid #e0e0e0;
+      transition: all 0.2s;
+    }
+
+    .test-item:hover {
+      background: #f0f0f0;
+    }
+
+    .test-item.pass {
+      border-left-color: #388e3c;
+      background: rgba(56, 142, 60, 0.05);
+    }
+
+    .test-item.fail {
+      border-left-color: #d32f2f;
+      background: rgba(211, 47, 47, 0.05);
+    }
+
+    .test-item.pending {
+      border-left-color: #f57c00;
+    }
+
+    .test-status {
+      width: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .test-status mat-icon.pass { color: #388e3c; }
+    .test-status mat-icon.fail { color: #d32f2f; }
+    .test-status mat-icon.pending { color: #bdbdbd; }
+
+    .test-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .test-id {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    .test-name {
+      font-weight: 500;
+      color: #333;
+    }
+
+    .test-desc {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .test-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    /* Test Result Panel */
+    .test-result-panel {
+      margin-top: 20px;
+      border-radius: 12px;
+      border: 2px solid #667eea;
+    }
+
+    .test-result-panel mat-card-header {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      padding: 16px;
+      border-radius: 12px 12px 0 0;
+    }
+
+    .test-result-panel mat-card-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+    }
+
+    .test-result-panel mat-card-title mat-icon {
+      color: #667eea;
+    }
+
+    .test-input {
+      margin-bottom: 20px;
+    }
+
+    .test-input h4, .test-criteria h4, .test-output h4 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      margin: 0 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .input-task {
+      padding: 12px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .input-context {
+      padding: 12px;
+      background: #fff3e0;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-top: 8px;
+      color: #e65100;
+    }
+
+    .test-criteria {
+      margin-bottom: 20px;
+    }
+
+    .criteria-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+
+    .criterion-item {
+      font-size: 14px;
+    }
+
+    .test-output {
+      margin-bottom: 20px;
+    }
+
+    .duration {
+      font-weight: 400;
+      font-size: 12px;
+      color: #888;
+    }
+
+    .output-error {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 16px;
+      background: #ffebee;
+      border-radius: 8px;
+      color: #d32f2f;
+    }
+
+    .output-content {
+      padding: 16px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+
+    .output-images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .result-image {
+      max-width: 300px;
+      max-height: 200px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .output-html {
+      margin-bottom: 12px;
+    }
+
+    .output-response {
+      white-space: pre-wrap;
+      font-size: 14px;
+      line-height: 1.6;
+    }
   `]
 })
 export class SubagentsComponent implements OnInit {
@@ -1314,6 +1815,17 @@ export class SubagentsComponent implements OnInit {
   expandSkillEditor = false;
   dirtySkills = new Set<string>();
 
+  // Tests
+  testCategories = signal<TestCategory[]>([]);
+  loadingTests = signal(false);
+  runningTest = signal<string | null>(null);
+  runningAllTests = signal(false);
+  currentTestResult = signal<TestRunResult | null>(null);
+  savingTestResult = signal(false);
+  selectedTest: SubagentTest | null = null;
+  criteriaChecks: boolean[] = [];
+  testNotes = '';
+
   // Execute form
   executeTask = '';
   executeContext = '';
@@ -1345,9 +1857,12 @@ export class SubagentsComponent implements OnInit {
     this.testResult.set(null);
     this.expandedSkill = null;
     this.dirtySkills.clear();
+    this.selectedTest = null;
+    this.currentTestResult.set(null);
     this.loadAgentTools(agent.id);
     this.loadAgentConfig(agent.id);
     this.loadAgentSkills(agent.id);
+    this.loadAgentTests(agent.id);
   }
 
   loadAgentTools(agentId: string): void {
@@ -1571,5 +2086,203 @@ export class SubagentsComponent implements OnInit {
     navigator.clipboard.writeText(skill.content).then(() => {
       this.snackBar.open('Contenido copiado', 'Cerrar', { duration: 2000 });
     });
+  }
+
+  // Tests methods
+  loadAgentTests(agentId: string): void {
+    this.loadingTests.set(true);
+    this.testCategories.set([]);
+    
+    this.http.get<any>(`${environment.apiUrl}/subagents/${agentId}/tests`)
+      .subscribe({
+        next: (response) => {
+          this.testCategories.set(response.categories || []);
+          this.loadingTests.set(false);
+        },
+        error: (err) => {
+          console.error('Error loading tests:', err);
+          this.testCategories.set([]);
+          this.loadingTests.set(false);
+        }
+      });
+  }
+
+  getTestStats(): { passed: number; failed: number; pending: number } {
+    let passed = 0, failed = 0, pending = 0;
+    
+    for (const category of this.testCategories()) {
+      for (const test of category.tests) {
+        if (test.lastRun?.status === 'pass') passed++;
+        else if (test.lastRun?.status === 'fail') failed++;
+        else pending++;
+      }
+    }
+    
+    return { passed, failed, pending };
+  }
+
+  getCategoryStats(category: TestCategory): { passed: number } {
+    let passed = 0;
+    for (const test of category.tests) {
+      if (test.lastRun?.status === 'pass') passed++;
+    }
+    return { passed };
+  }
+
+  getCategoryIcon(category: TestCategory): string {
+    if (category.category === 'tool') return 'build';
+    if (category.category === 'skill') return 'school';
+    if (category.category === 'integration') return 'integration_instructions';
+    return 'science';
+  }
+
+  getCategoryName(category: TestCategory): string {
+    if (category.tool_id) return category.tool_id;
+    if (category.skill_id) return `skill: ${category.skill_id}`;
+    return category.category;
+  }
+
+  getStatusIcon(status?: string): string {
+    if (status === 'pass') return 'check_circle';
+    if (status === 'fail') return 'cancel';
+    return 'radio_button_unchecked';
+  }
+
+  selectTest(test: SubagentTest): void {
+    this.selectedTest = test;
+    this.criteriaChecks = test.expected.criteria.map(() => false);
+    this.testNotes = test.lastRun?.notes || '';
+    this.currentTestResult.set(null);
+  }
+
+  runTest(test: SubagentTest): void {
+    if (!this.selectedAgent) return;
+    
+    this.runningTest.set(test.id);
+    this.selectedTest = test;
+    this.criteriaChecks = test.expected.criteria.map(() => false);
+    
+    this.http.post<TestRunResult>(
+      `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/${test.id}/run`,
+      null,
+      {
+        params: {
+          llm_url: this.executeLlmUrl,
+          model: this.executeModel,
+          provider_type: 'ollama'
+        }
+      }
+    ).subscribe({
+      next: (result) => {
+        this.currentTestResult.set(result);
+        this.runningTest.set(null);
+        this.snackBar.open(`Test ${test.id} ejecutado`, 'Cerrar', { duration: 3000 });
+      },
+      error: (err) => {
+        console.error('Error running test:', err);
+        this.runningTest.set(null);
+        this.snackBar.open('Error ejecutando test', 'Cerrar', { duration: 3000 });
+      }
+    });
+  }
+
+  async runAllTests(): Promise<void> {
+    if (!this.selectedAgent) return;
+    
+    this.runningAllTests.set(true);
+    
+    const allTests: SubagentTest[] = [];
+    for (const category of this.testCategories()) {
+      allTests.push(...category.tests);
+    }
+    
+    for (const test of allTests) {
+      await this.runTestAsync(test);
+    }
+    
+    this.runningAllTests.set(false);
+    this.snackBar.open(`${allTests.length} tests ejecutados`, 'Cerrar', { duration: 3000 });
+  }
+
+  private runTestAsync(test: SubagentTest): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.selectedAgent) {
+        resolve();
+        return;
+      }
+      
+      this.runningTest.set(test.id);
+      
+      this.http.post<TestRunResult>(
+        `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/${test.id}/run`,
+        null,
+        {
+          params: {
+            llm_url: this.executeLlmUrl,
+            model: this.executeModel,
+            provider_type: 'ollama'
+          }
+        }
+      ).subscribe({
+        next: () => {
+          this.runningTest.set(null);
+          resolve();
+        },
+        error: () => {
+          this.runningTest.set(null);
+          resolve();
+        }
+      });
+    });
+  }
+
+  updateCriteriaStatus(): void {
+    // Los checkboxes se actualizan con ngModel
+  }
+
+  markTestResult(status: 'pass' | 'fail'): void {
+    if (!this.selectedAgent || !this.selectedTest) return;
+    
+    this.savingTestResult.set(true);
+    
+    this.http.put<any>(
+      `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/${this.selectedTest.id}/result`,
+      {
+        status: status,
+        notes: this.testNotes
+      }
+    ).subscribe({
+      next: () => {
+        // Actualizar el test en la lista
+        const categories = this.testCategories();
+        for (const category of categories) {
+          const test = category.tests.find(t => t.id === this.selectedTest?.id);
+          if (test) {
+            test.lastRun = {
+              status: status,
+              timestamp: new Date().toISOString(),
+              notes: this.testNotes
+            };
+          }
+        }
+        this.testCategories.set([...categories]);
+        
+        this.savingTestResult.set(false);
+        this.snackBar.open(`Test marcado como ${status}`, 'Cerrar', { duration: 3000 });
+      },
+      error: (err) => {
+        console.error('Error saving test result:', err);
+        this.savingTestResult.set(false);
+        this.snackBar.open('Error guardando resultado', 'Cerrar', { duration: 3000 });
+      }
+    });
+  }
+
+  previewHtml(html: string): void {
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+    }
   }
 }

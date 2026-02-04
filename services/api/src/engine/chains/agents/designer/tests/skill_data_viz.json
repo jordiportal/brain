@@ -1,0 +1,78 @@
+{
+  "category": "skill",
+  "skill_id": "data_viz",
+  "tests": [
+    {
+      "id": "SKL-DV-01",
+      "name": "Gráfico de barras",
+      "description": "Genera gráfico de barras desde datos",
+      "input": {
+        "task": "Crea un gráfico de barras con las ventas por región: Norte 45000, Sur 32000, Este 28000, Oeste 51000",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Gráfico de barras visible",
+          "4 barras con valores correctos",
+          "Labels de región presentes",
+          "Proporciones correctas"
+        ]
+      }
+    },
+    {
+      "id": "SKL-DV-02",
+      "name": "Gráfico de líneas temporal",
+      "description": "Genera gráfico de tendencia temporal",
+      "input": {
+        "task": "Muestra la evolución de usuarios: Enero 1000, Febrero 1500, Marzo 2200, Abril 3100, Mayo 4500",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Gráfico de líneas visible",
+          "Tendencia ascendente clara",
+          "Meses en eje X",
+          "Valores en eje Y"
+        ]
+      }
+    },
+    {
+      "id": "SKL-DV-03",
+      "name": "Gráfico donut",
+      "description": "Genera gráfico de distribución porcentual",
+      "input": {
+        "task": "Crea un gráfico de distribución de mercado: Empresa A 35%, Empresa B 28%, Empresa C 22%, Otros 15%",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Gráfico donut/tarta visible",
+          "Proporciones correctas visualmente",
+          "Leyenda con empresas",
+          "Porcentajes visibles"
+        ]
+      }
+    },
+    {
+      "id": "SKL-DV-04",
+      "name": "KPI destacado",
+      "description": "Muestra un único número de forma impactante",
+      "input": {
+        "task": "Destaca el KPI de satisfacción del cliente: 98%",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Número 98% muy grande y destacado",
+          "Label 'Satisfacción' visible",
+          "Diseño impactante",
+          "Legible de lejos"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "category": "skill",
+  "skill_id": "slides",
+  "tests": [
+    {
+      "id": "SKL-SL-01",
+      "name": "Layout slide-split",
+      "description": "Verifica correcto renderizado de layout split (texto + imagen)",
+      "input": {
+        "task": "Crea una slide sobre trabajo remoto con imagen a la derecha mostrando una persona trabajando desde casa",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Layout de dos columnas",
+          "Texto a la izquierda",
+          "Imagen a la derecha",
+          "Proporción visual equilibrada"
+        ]
+      }
+    },
+    {
+      "id": "SKL-SL-02",
+      "name": "Layout slide-stats",
+      "description": "Verifica correcto renderizado de métricas/KPIs",
+      "input": {
+        "task": "Crea una slide mostrando 3 KPIs: Revenue 1.2M, Growth 23%, NPS 72",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Números grandes y destacados",
+          "Labels debajo de cada número",
+          "Distribución horizontal",
+          "Legible de lejos"
+        ]
+      }
+    },
+    {
+      "id": "SKL-SL-03",
+      "name": "Layout slide-cards",
+      "description": "Verifica correcto renderizado de grid de cards",
+      "input": {
+        "task": "Crea una slide con 4 servicios: Consultoría, Desarrollo, Diseño, Soporte. Cada uno con icono y breve descripción.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Grid de 4 cards",
+          "Cada card tiene icono",
+          "Cada card tiene título y descripción",
+          "Espaciado consistente"
+        ]
+      }
+    },
+    {
+      "id": "SKL-SL-04",
+      "name": "Layout slide-timeline",
+      "description": "Verifica correcto renderizado de línea temporal",
+      "input": {
+        "task": "Crea una slide con el roadmap del producto: Q1 MVP, Q2 Beta, Q3 Launch, Q4 Expansion",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Línea temporal visible",
+          "4 puntos/hitos marcados",
+          "Orden cronológico claro",
+          "Fechas/períodos visibles"
+        ]
+      }
+    },
+    {
+      "id": "SKL-SL-05",
+      "name": "Variedad de layouts",
+      "description": "Verifica que no repite layouts consecutivamente",
+      "input": {
+        "task": "Crea una presentación de 5 slides sobre marketing digital",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "5 slides generadas",
+          "Al menos 3 layouts diferentes usados",
+          "No hay 2 layouts iguales consecutivos",
+          "Variedad visual"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "category": "integration",
+  "tests": [
+    {
+      "id": "INT-01",
+      "name": "Decisión imagen vs presentación",
+      "description": "Verifica que elige correctamente entre generar imagen o presentación",
+      "input": {
+        "task": "Haz algo visual sobre inteligencia artificial",
+        "context": null
+      },
+      "expected": {
+        "type": "any",
+        "criteria": [
+          "Decide sin preguntar",
+          "Elección razonable (imagen O presentación)",
+          "Resultado coherente con la decisión"
+        ]
+      }
+    },
+    {
+      "id": "INT-02",
+      "name": "Carga de skill automática",
+      "description": "Verifica que carga skill cuando es necesario",
+      "input": {
+        "task": "Crea una presentación profesional de 6 slides sobre ciberseguridad para el comité de dirección",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Carga skill 'slides' antes de ejecutar",
+          "Usa layouts variados",
+          "Calidad profesional",
+          "6 slides generadas"
+        ]
+      }
+    },
+    {
+      "id": "INT-03",
+      "name": "Presentación con datos visualizados",
+      "description": "Integra datos numéricos como gráficos en presentación",
+      "input": {
+        "task": "Crea una presentación con los resultados de ventas",
+        "context": "Datos del Q4: Ventas totales 2.5M€. Por producto: Software 1.2M, Servicios 800K, Hardware 500K. Crecimiento vs Q3: +15%"
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Presentación generada",
+          "Datos visualizados (gráficos o stats)",
+          "Todos los datos incluidos",
+          "Presentación coherente"
+        ]
+      }
+    },
+    {
+      "id": "INT-04",
+      "name": "Manejo de error graceful",
+      "description": "Verifica respuesta útil cuando algo falla",
+      "input": {
+        "task": "Genera una imagen de @#$%^&*() formato inválido [[[]]]",
+        "context": null
+      },
+      "expected": {
+        "type": "text",
+        "criteria": [
+          "No falla silenciosamente",
+          "Mensaje de error claro",
+          "Sugiere alternativa o pide clarificación"
+        ]
+      }
+    }
+  ]
+}

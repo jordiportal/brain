@@ -1,0 +1,115 @@
+{
+  "category": "tool",
+  "tool_id": "generate_presentation",
+  "tests": [
+    {
+      "id": "PRES-01",
+      "name": "Presentación IA para directivos",
+      "description": "Genera presentación profesional sobre IA",
+      "input": {
+        "task": "Crea una presentación sobre Inteligencia Artificial para directivos no técnicos. Debe explicar qué es, beneficios y casos de uso empresariales.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "5-7 slides",
+          "Estructura lógica (intro, contenido, cierre)",
+          "Lenguaje no técnico",
+          "Diseño profesional"
+        ]
+      }
+    },
+    {
+      "id": "PRES-02",
+      "name": "Presentación con datos numéricos",
+      "description": "Verifica uso de layout slide-stats",
+      "input": {
+        "task": "Crea una presentación sobre resultados del Q4. Incluir: ventas 2.5M€, crecimiento 15%, satisfacción cliente 92%, nuevos clientes 340.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Usa layout slide-stats para métricas",
+          "Números destacados visualmente",
+          "Todos los datos incluidos"
+        ]
+      }
+    },
+    {
+      "id": "PRES-03",
+      "name": "Pitch deck startup",
+      "description": "Genera pitch deck completo para inversores",
+      "input": {
+        "task": "Crea un pitch deck para una startup de delivery de comida saludable llamada GreenBite. Mercado objetivo: profesionales urbanos 25-45 años.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Incluye: problema, solución, mercado",
+          "Tono persuasivo",
+          "Nombre de la startup presente"
+        ]
+      }
+    },
+    {
+      "id": "PRES-04",
+      "name": "Presentación con imágenes",
+      "description": "Verifica generación e inclusión de imágenes",
+      "input": {
+        "task": "Crea una presentación sobre energías renovables. Incluye imágenes ilustrativas de paneles solares, turbinas eólicas y naturaleza.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Imágenes generadas e incluidas",
+          "Imágenes relevantes al tema",
+          "Buen balance texto/imagen"
+        ]
+      }
+    },
+    {
+      "id": "PRES-05",
+      "name": "Síntesis de contenido largo",
+      "description": "Verifica capacidad de sintetizar información",
+      "input": {
+        "task": "Crea una presentación resumiendo los puntos clave",
+        "context": "La transformación digital es un proceso que implica la integración de tecnología digital en todas las áreas de una empresa, cambiando fundamentalmente cómo opera y entrega valor a sus clientes. También implica un cambio cultural que requiere que las organizaciones desafíen continuamente el status quo, experimenten y se sientan cómodas con el fracaso. Los beneficios incluyen: mayor eficiencia operativa, mejor experiencia del cliente, nuevos modelos de negocio, decisiones basadas en datos, mayor agilidad y competitividad. Los desafíos incluyen: resistencia al cambio, falta de habilidades digitales, sistemas legacy, seguridad y privacidad, inversión inicial alta."
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Información sintetizada correctamente",
+          "Puntos clave identificados",
+          "No se pierde información importante"
+        ]
+      }
+    },
+    {
+      "id": "PRES-06",
+      "name": "Título vago",
+      "description": "Verifica inferencia de contenido desde título mínimo",
+      "input": {
+        "task": "Haz una presentación sobre blockchain",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Contenido razonable inferido",
+          "Estructura completa",
+          "No pide más información, genera directamente"
+        ]
+      }
+    }
+  ]
+}
