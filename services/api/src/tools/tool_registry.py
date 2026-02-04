@@ -221,16 +221,18 @@ class ToolRegistry:
     
     def register_core_tools(self) -> None:
         """
-        Registra las Core Tools de Brain 2.0 y las Team tools.
+        Registra las Core Tools de Brain 2.0, Team tools y Domain tools.
         
         Core: Filesystem (5), Execution (3), Web (2), Reasoning (4), Utils (1), Delegation (2)
         Team: consult_team_member (solo para cadena Brain Team)
+        Domain: Media (generate_image, analyze_image), Slides (generate_slides)
         """
         if self._core_registered:
             return
         
         # Importar core y team tools
-        from .core import CORE_TOOLS, TEAM_TOOLS
+        from .core import CORE_TOOLS, TEAM_TOOLS, SLIDES_TOOLS
+        from .domains.media import MEDIA_TOOLS
         
         # Registrar cada core tool (delegation tools son callables para enum dinámico)
         for tool_id, tool_def in CORE_TOOLS.items():
@@ -254,13 +256,35 @@ class ToolRegistry:
                 handler=td["handler"]
             )
         
+        # Registrar domain tools: Media
+        for tool_id, tool_def in MEDIA_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
+            self.register_core_tool(
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
+            )
+        
+        # Registrar domain tools: Slides
+        for tool_id, tool_def in SLIDES_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
+            self.register_core_tool(
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
+            )
+        
         self._core_registered = True
         
         # Log de herramientas registradas
-        tool_names = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys())
+        all_tools = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys()) + list(MEDIA_TOOLS.keys()) + list(SLIDES_TOOLS.keys())
         logger.info(
-            f"✅ Brain 2.0 Core + Team Tools registradas: {len(tool_names)}",
-            tools=tool_names
+            f"✅ Brain 2.0 Tools registradas: {len(all_tools)}",
+            tools=all_tools
         )
     
     def get_tools_summary(self) -> str:
