@@ -259,26 +259,84 @@ interface TestRunResult {
               <!-- Tab de Información -->
               <mat-tab label="Información">
                 <div class="tab-content">
-                  <div class="info-section">
-                    <h3>Descripción</h3>
-                    <p>{{ selectedAgent.description }}</p>
-                  </div>
+                  <div class="info-grid">
+                    <!-- Columna izquierda: Info general -->
+                    <div class="info-column">
+                      <div class="info-card">
+                        <div class="info-card-header">
+                          <mat-icon>info</mat-icon>
+                          <h3>Información General</h3>
+                        </div>
+                        <div class="info-card-content">
+                          <div class="info-row">
+                            <span class="info-label">ID</span>
+                            <span class="info-value mono">{{ selectedAgent.id }}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Versión</span>
+                            <span class="info-value">v{{ selectedAgent.version }}</span>
+                          </div>
+                          <div class="info-row">
+                            <span class="info-label">Estado</span>
+                            <mat-chip [class]="selectedAgent.status" class="status-chip-small">
+                              {{ selectedAgent.status }}
+                            </mat-chip>
+                          </div>
+                        </div>
+                      </div>
 
-                  <div class="info-section">
-                    <h3>Herramientas Disponibles</h3>
-                    @if (loadingTools()) {
-                      <mat-spinner diameter="24"></mat-spinner>
-                    } @else {
-                      <mat-list>
-                        @for (tool of agentTools(); track tool.id) {
-                          <mat-list-item>
-                            <mat-icon matListItemIcon>build</mat-icon>
-                            <div matListItemTitle>{{ tool.name }}</div>
-                            <div matListItemLine>{{ tool.description }}</div>
-                          </mat-list-item>
-                        }
-                      </mat-list>
-                    }
+                      <div class="info-card">
+                        <div class="info-card-header">
+                          <mat-icon>description</mat-icon>
+                          <h3>Descripción</h3>
+                        </div>
+                        <div class="info-card-content">
+                          <p class="description-text">{{ selectedAgent.description }}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Columna derecha: Herramientas -->
+                    <div class="info-column">
+                      <div class="info-card tools-card">
+                        <div class="info-card-header">
+                          <mat-icon>build</mat-icon>
+                          <h3>Herramientas ({{ agentTools().length }})</h3>
+                          @if (loadingTools()) {
+                            <mat-spinner diameter="20" class="header-spinner"></mat-spinner>
+                          }
+                        </div>
+                        <div class="info-card-content">
+                          @if (loadingTools()) {
+                            <div class="loading-tools">
+                              <mat-spinner diameter="32"></mat-spinner>
+                              <span>Cargando herramientas...</span>
+                            </div>
+                          } @else if (agentTools().length === 0) {
+                            <div class="empty-tools">
+                              <mat-icon>handyman</mat-icon>
+                              <span>Sin herramientas registradas</span>
+                            </div>
+                          } @else {
+                            <div class="tools-list">
+                              @for (tool of agentTools(); track tool.id) {
+                                <div class="tool-item-card">
+                                  <div class="tool-icon-wrapper">
+                                    <mat-icon>{{ getToolTypeIcon(tool.type) }}</mat-icon>
+                                  </div>
+                                  <div class="tool-details">
+                                    <span class="tool-name">{{ tool.name }}</span>
+                                    <span class="tool-id">{{ tool.id }}</span>
+                                    <span class="tool-desc">{{ tool.description }}</span>
+                                  </div>
+                                  <mat-chip class="tool-type-chip">{{ tool.type }}</mat-chip>
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </mat-tab>
@@ -1006,6 +1064,183 @@ interface TestRunResult {
 
     .tab-content {
       padding: 24px;
+    }
+
+    /* Info Grid Layout */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .info-column {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .info-card {
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+      overflow: hidden;
+    }
+
+    .info-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .info-card-header mat-icon {
+      color: #667eea;
+    }
+
+    .info-card-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      flex: 1;
+    }
+
+    .header-spinner {
+      margin-left: auto;
+    }
+
+    .info-card-content {
+      padding: 16px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .info-value {
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .info-value.mono {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      background: #e8e8e8;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .status-chip-small {
+      font-size: 11px !important;
+      min-height: 22px !important;
+    }
+
+    .description-text {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #555;
+    }
+
+    /* Tools Card */
+    .tools-card {
+      flex: 1;
+    }
+
+    .loading-tools, .empty-tools {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      color: #888;
+      gap: 12px;
+    }
+
+    .empty-tools mat-icon {
+      font-size: 40px;
+      width: 40px;
+      height: 40px;
+      color: #ccc;
+    }
+
+    .tools-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .tool-item-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e8e8e8;
+    }
+
+    .tool-icon-wrapper {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tool-icon-wrapper mat-icon {
+      color: #667eea;
+      font-size: 20px;
+    }
+
+    .tool-details {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .tool-details .tool-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: #333;
+    }
+
+    .tool-details .tool-id {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 10px;
+      color: #888;
+    }
+
+    .tool-details .tool-desc {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+    }
+
+    .tool-type-chip {
+      font-size: 10px !important;
+      min-height: 20px !important;
+      background: #e8e8e8 !important;
     }
 
     .info-section {
@@ -2061,6 +2296,20 @@ export class SubagentsComponent implements OnInit {
       label: labels[key] || key,
       value
     }));
+  }
+
+  getToolTypeIcon(type: string): string {
+    const icons: Record<string, string> = {
+      'builtin': 'extension',
+      'media': 'image',
+      'slides': 'slideshow',
+      'delegation': 'share',
+      'reasoning': 'psychology',
+      'web': 'language',
+      'filesystem': 'folder',
+      'execution': 'terminal'
+    };
+    return icons[type] || 'build';
   }
 
   resetPrompt(): void {
