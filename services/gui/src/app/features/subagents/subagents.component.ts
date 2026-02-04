@@ -380,7 +380,7 @@ interface TestRunResult {
 
               <!-- Tab de Tests -->
               <mat-tab label="Tests">
-                <div class="tab-content">
+                <div class="tab-content tests-tab-content">
                   @if (loadingTests()) {
                     <div class="loading-container">
                       <mat-spinner diameter="32"></mat-spinner>
@@ -392,96 +392,88 @@ interface TestRunResult {
                       <p>Este subagente no tiene tests configurados</p>
                     </div>
                   } @else {
-                    <div class="tests-header">
-                      <div class="tests-summary">
-                        <span class="summary-item passed">
-                          <mat-icon>check_circle</mat-icon>
-                          {{ getTestStats().passed }} pass
-                        </span>
-                        <span class="summary-item failed">
-                          <mat-icon>cancel</mat-icon>
-                          {{ getTestStats().failed }} fail
-                        </span>
-                        <span class="summary-item pending">
-                          <mat-icon>pending</mat-icon>
-                          {{ getTestStats().pending }} pending
-                        </span>
-                      </div>
-                      <button mat-raised-button color="primary" (click)="runAllTests()" [disabled]="runningAllTests()">
-                        @if (runningAllTests()) {
-                          <mat-spinner diameter="18"></mat-spinner>
-                        } @else {
-                          <mat-icon>play_arrow</mat-icon>
-                        }
-                        Ejecutar Todos
-                      </button>
-                    </div>
-
-                    <div class="tests-categories">
-                      @for (category of testCategories(); track category.file) {
-                        <mat-expansion-panel class="category-panel">
-                          <mat-expansion-panel-header>
-                            <mat-panel-title>
-                              <mat-icon class="category-icon">{{ getCategoryIcon(category) }}</mat-icon>
-                              <span>{{ getCategoryName(category) }}</span>
-                              <span class="tests-count">({{ category.tests.length }} tests)</span>
-                            </mat-panel-title>
-                            <mat-panel-description>
-                              <span class="category-stats">
-                                {{ getCategoryStats(category).passed }}/{{ category.tests.length }} ✓
-                              </span>
-                            </mat-panel-description>
-                          </mat-expansion-panel-header>
-                          
-                          <div class="tests-list">
-                            @for (test of category.tests; track test.id) {
-                              <div class="test-item" [class]="test.lastRun?.status || 'pending'">
-                                <div class="test-status">
-                                  @if (runningTest() === test.id) {
-                                    <mat-spinner diameter="20"></mat-spinner>
-                                  } @else {
-                                    <mat-icon [class]="test.lastRun?.status || 'pending'">
-                                      {{ getStatusIcon(test.lastRun?.status) }}
-                                    </mat-icon>
-                                  }
-                                </div>
-                                <div class="test-info">
-                                  <span class="test-id">{{ test.id }}</span>
-                                  <span class="test-name">{{ test.name }}</span>
-                                  <span class="test-desc">{{ test.description }}</span>
-                                </div>
-                                <div class="test-actions">
-                                  <button mat-icon-button matTooltip="Ejecutar test" 
-                                          (click)="runTest(test)" [disabled]="runningTest() === test.id">
-                                    <mat-icon>play_arrow</mat-icon>
-                                  </button>
-                                  <button mat-icon-button matTooltip="Ver detalles" 
-                                          (click)="selectTest(test)">
-                                    <mat-icon>visibility</mat-icon>
-                                  </button>
-                                </div>
-                              </div>
-                            }
+                    <div class="tests-layout">
+                      <!-- Panel izquierdo: Lista de tests -->
+                      <div class="tests-list-panel">
+                        <div class="tests-header">
+                          <div class="tests-summary">
+                            <span class="summary-item passed">
+                              <mat-icon>check_circle</mat-icon>
+                              {{ getTestStats().passed }}
+                            </span>
+                            <span class="summary-item failed">
+                              <mat-icon>cancel</mat-icon>
+                              {{ getTestStats().failed }}
+                            </span>
+                            <span class="summary-item pending">
+                              <mat-icon>pending</mat-icon>
+                              {{ getTestStats().pending }}
+                            </span>
                           </div>
-                        </mat-expansion-panel>
-                      }
-                    </div>
-
-                    <!-- Panel de resultado del test seleccionado -->
-                    @if (selectedTest) {
-                      <mat-card class="test-result-panel">
-                        <mat-card-header>
-                          <mat-card-title>
-                            <mat-icon>science</mat-icon>
-                            {{ selectedTest.id }}: {{ selectedTest.name }}
-                          </mat-card-title>
-                          <button mat-icon-button (click)="selectedTest = null" class="close-btn">
-                            <mat-icon>close</mat-icon>
+                          <button mat-raised-button color="primary" (click)="runAllTests()" [disabled]="runningAllTests()">
+                            @if (runningAllTests()) {
+                              <mat-spinner diameter="18"></mat-spinner>
+                            } @else {
+                              <mat-icon>play_arrow</mat-icon>
+                            }
+                            Todos
                           </button>
-                        </mat-card-header>
-                        
-                        <mat-card-content>
-                          <div class="test-input">
+                        </div>
+
+                        <div class="tests-categories">
+                          @for (category of testCategories(); track category.file) {
+                            <mat-expansion-panel class="category-panel" [expanded]="true">
+                              <mat-expansion-panel-header>
+                                <mat-panel-title>
+                                  <mat-icon class="category-icon">{{ getCategoryIcon(category) }}</mat-icon>
+                                  <span>{{ getCategoryName(category) }}</span>
+                                  <span class="tests-count">({{ category.tests.length }})</span>
+                                </mat-panel-title>
+                              </mat-expansion-panel-header>
+                              
+                              <div class="tests-list">
+                                @for (test of category.tests; track test.id) {
+                                  <div class="test-item" 
+                                       [class]="test.lastRun?.status || 'pending'"
+                                       [class.selected]="selectedTest?.id === test.id"
+                                       (click)="selectTest(test)">
+                                    <div class="test-status">
+                                      @if (runningTest() === test.id) {
+                                        <mat-spinner diameter="18"></mat-spinner>
+                                      } @else {
+                                        <mat-icon [class]="test.lastRun?.status || 'pending'">
+                                          {{ getStatusIcon(test.lastRun?.status) }}
+                                        </mat-icon>
+                                      }
+                                    </div>
+                                    <div class="test-info">
+                                      <span class="test-id">{{ test.id }}</span>
+                                      <span class="test-name">{{ test.name }}</span>
+                                    </div>
+                                    <button mat-icon-button matTooltip="Ejecutar" 
+                                            (click)="runTest(test); $event.stopPropagation()" 
+                                            [disabled]="runningTest() === test.id"
+                                            class="run-btn">
+                                      <mat-icon>play_arrow</mat-icon>
+                                    </button>
+                                  </div>
+                                }
+                              </div>
+                            </mat-expansion-panel>
+                          }
+                        </div>
+                      </div>
+
+                      <!-- Panel derecho: Detalle del test -->
+                      <div class="test-detail-panel">
+                        @if (selectedTest) {
+                          <div class="detail-header">
+                            <span class="detail-id">{{ selectedTest.id }}</span>
+                            <h3>{{ selectedTest.name }}</h3>
+                            <p>{{ selectedTest.description }}</p>
+                          </div>
+
+                          <div class="detail-section">
                             <h4>Input</h4>
                             <div class="input-task">{{ selectedTest.input.task }}</div>
                             @if (selectedTest.input.context) {
@@ -489,22 +481,19 @@ interface TestRunResult {
                             }
                           </div>
 
-                          <div class="test-criteria">
+                          <div class="detail-section">
                             <h4>Criterios de validación</h4>
                             <div class="criteria-list">
                               @for (criterion of selectedTest.expected.criteria; track $index) {
-                                <div class="criterion-item">
-                                  <mat-checkbox [(ngModel)]="criteriaChecks[$index]" 
-                                                (change)="updateCriteriaStatus()">
-                                    {{ criterion }}
-                                  </mat-checkbox>
-                                </div>
+                                <mat-checkbox [(ngModel)]="criteriaChecks[$index]">
+                                  {{ criterion }}
+                                </mat-checkbox>
                               }
                             </div>
                           </div>
 
                           @if (currentTestResult()) {
-                            <div class="test-output">
+                            <div class="detail-section result-section">
                               <h4>
                                 Resultado 
                                 <span class="duration">({{ currentTestResult()!.duration_ms }}ms)</span>
@@ -516,50 +505,68 @@ interface TestRunResult {
                                   {{ currentTestResult()!.error }}
                                 </div>
                               } @else {
-                                <div class="output-content">
-                                  @if (currentTestResult()!.result?.images?.length) {
-                                    <div class="output-images">
-                                      @for (img of currentTestResult()!.result.images; track $index) {
-                                        <img [src]="img.url || ('data:image/png;base64,' + img.base64)" 
-                                             class="result-image" alt="Generated image">
-                                      }
-                                    </div>
-                                  }
-                                  @if (currentTestResult()!.result?.data?.html) {
-                                    <div class="output-html">
-                                      <button mat-stroked-button (click)="previewHtml(currentTestResult()!.result.data.html)">
-                                        <mat-icon>preview</mat-icon>
-                                        Ver presentación
-                                      </button>
-                                    </div>
-                                  }
-                                  <div class="output-response">
-                                    {{ currentTestResult()!.result?.response }}
+                                @if (currentTestResult()!.result?.images?.length) {
+                                  <div class="output-images">
+                                    @for (img of currentTestResult()!.result.images; track $index) {
+                                      <img [src]="img.url || ('data:image/png;base64,' + img.base64)" 
+                                           class="result-image" alt="Generated image">
+                                    }
                                   </div>
-                                </div>
+                                }
+                                @if (currentTestResult()!.result?.data?.html) {
+                                  <button mat-stroked-button (click)="previewHtml(currentTestResult()!.result.data.html)">
+                                    <mat-icon>preview</mat-icon>
+                                    Ver presentación
+                                  </button>
+                                }
+                                @if (currentTestResult()!.result?.response) {
+                                  <div class="output-response">
+                                    {{ currentTestResult()!.result.response }}
+                                  </div>
+                                }
                               }
+                            </div>
+                          } @else {
+                            <div class="no-result">
+                              <mat-icon>play_circle</mat-icon>
+                              <p>Ejecuta el test para ver resultados</p>
+                              <button mat-raised-button color="primary" (click)="runTest(selectedTest)" [disabled]="runningTest() === selectedTest.id">
+                                @if (runningTest() === selectedTest.id) {
+                                  <mat-spinner diameter="18"></mat-spinner>
+                                } @else {
+                                  <mat-icon>play_arrow</mat-icon>
+                                }
+                                Ejecutar Test
+                              </button>
                             </div>
                           }
 
-                          <mat-form-field appearance="outline" class="full-width">
-                            <mat-label>Notas</mat-label>
-                            <textarea matInput [(ngModel)]="testNotes" rows="2" 
-                                      placeholder="Observaciones sobre el resultado..."></textarea>
-                          </mat-form-field>
-                        </mat-card-content>
+                          <div class="detail-section">
+                            <mat-form-field appearance="outline" class="full-width">
+                              <mat-label>Notas</mat-label>
+                              <textarea matInput [(ngModel)]="testNotes" rows="2" 
+                                        placeholder="Observaciones..."></textarea>
+                            </mat-form-field>
+                          </div>
 
-                        <mat-card-actions align="end">
-                          <button mat-button color="warn" (click)="markTestResult('fail')" [disabled]="savingTestResult()">
-                            <mat-icon>close</mat-icon>
-                            Marcar Fail
-                          </button>
-                          <button mat-raised-button color="primary" (click)="markTestResult('pass')" [disabled]="savingTestResult()">
-                            <mat-icon>check</mat-icon>
-                            Marcar Pass
-                          </button>
-                        </mat-card-actions>
-                      </mat-card>
-                    }
+                          <div class="detail-actions">
+                            <button mat-button color="warn" (click)="markTestResult('fail')" [disabled]="savingTestResult()">
+                              <mat-icon>close</mat-icon>
+                              Fail
+                            </button>
+                            <button mat-raised-button color="primary" (click)="markTestResult('pass')" [disabled]="savingTestResult()">
+                              <mat-icon>check</mat-icon>
+                              Pass
+                            </button>
+                          </div>
+                        } @else {
+                          <div class="no-selection">
+                            <mat-icon>touch_app</mat-icon>
+                            <p>Selecciona un test de la lista</p>
+                          </div>
+                        }
+                      </div>
+                    </div>
                   }
                 </div>
               </mat-tab>
@@ -1511,6 +1518,12 @@ interface TestRunResult {
     }
 
     /* Tests Tab Styles */
+    .tests-tab-content {
+      padding: 0 !important;
+      height: calc(100vh - 400px);
+      min-height: 500px;
+    }
+
     .empty-tests {
       text-align: center;
       padding: 48px;
@@ -1525,172 +1538,195 @@ interface TestRunResult {
       margin-bottom: 16px;
     }
 
+    .tests-layout {
+      display: flex;
+      height: 100%;
+      gap: 0;
+    }
+
+    .tests-list-panel {
+      width: 350px;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      background: #fafafa;
+    }
+
     .tests-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
-      padding: 16px;
-      background: #f8f9fa;
-      border-radius: 12px;
+      padding: 12px 16px;
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
     }
 
     .tests-summary {
       display: flex;
-      gap: 24px;
+      gap: 12px;
     }
 
     .summary-item {
       display: flex;
       align-items: center;
-      gap: 6px;
-      font-weight: 500;
-      font-size: 14px;
+      gap: 4px;
+      font-weight: 600;
+      font-size: 13px;
     }
 
     .summary-item.passed { color: #388e3c; }
     .summary-item.failed { color: #d32f2f; }
-    .summary-item.pending { color: #f57c00; }
+    .summary-item.pending { color: #9e9e9e; }
 
     .summary-item mat-icon {
-      font-size: 20px;
-      width: 20px;
-      height: 20px;
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
     }
 
     .tests-categories {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
     }
 
     .category-panel {
-      border-radius: 12px !important;
+      border-radius: 8px !important;
+      margin-bottom: 8px !important;
+      box-shadow: none !important;
     }
 
     .category-icon {
       color: #667eea;
-      margin-right: 12px;
+      margin-right: 8px;
+      font-size: 20px;
     }
 
     .tests-count {
-      margin-left: 8px;
+      margin-left: 4px;
       color: #888;
       font-weight: 400;
-    }
-
-    .category-stats {
       font-size: 12px;
-      color: #388e3c;
-      font-weight: 500;
     }
 
     .tests-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding: 8px 0;
+      gap: 4px;
     }
 
     .test-item {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 12px 16px;
-      background: #f8f9fa;
-      border-radius: 8px;
+      gap: 8px;
+      padding: 8px 12px;
+      background: white;
+      border-radius: 6px;
       border-left: 3px solid #e0e0e0;
-      transition: all 0.2s;
+      cursor: pointer;
+      transition: all 0.15s;
     }
 
     .test-item:hover {
-      background: #f0f0f0;
+      background: #f5f5f5;
     }
 
-    .test-item.pass {
-      border-left-color: #388e3c;
-      background: rgba(56, 142, 60, 0.05);
+    .test-item.selected {
+      background: #e3f2fd;
+      border-left-color: #667eea;
     }
 
-    .test-item.fail {
-      border-left-color: #d32f2f;
-      background: rgba(211, 47, 47, 0.05);
-    }
-
-    .test-item.pending {
-      border-left-color: #f57c00;
-    }
+    .test-item.pass { border-left-color: #388e3c; }
+    .test-item.fail { border-left-color: #d32f2f; }
 
     .test-status {
-      width: 24px;
+      width: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
+    .test-status mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
     .test-status mat-icon.pass { color: #388e3c; }
     .test-status mat-icon.fail { color: #d32f2f; }
     .test-status mat-icon.pending { color: #bdbdbd; }
 
     .test-info {
       flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
+      min-width: 0;
     }
 
     .test-id {
       font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 11px;
+      font-size: 10px;
       color: #667eea;
       font-weight: 600;
     }
 
     .test-name {
+      font-size: 13px;
       font-weight: 500;
       color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .test-desc {
-      font-size: 12px;
-      color: #888;
+    .run-btn {
+      opacity: 0;
+      transition: opacity 0.15s;
     }
 
-    .test-actions {
-      display: flex;
-      gap: 4px;
+    .test-item:hover .run-btn {
+      opacity: 1;
     }
 
-    /* Test Result Panel */
-    .test-result-panel {
-      margin-top: 20px;
-      border-radius: 12px;
-      border: 2px solid #667eea;
+    /* Panel derecho - Detalle */
+    .test-detail-panel {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: white;
     }
 
-    .test-result-panel mat-card-header {
-      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-      padding: 16px;
-      border-radius: 12px 12px 0 0;
+    .detail-header {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #e0e0e0;
     }
 
-    .test-result-panel mat-card-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 16px;
-    }
-
-    .test-result-panel mat-card-title mat-icon {
+    .detail-id {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
       color: #667eea;
+      font-weight: 600;
+      background: rgba(102, 126, 234, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
     }
 
-    .test-input {
+    .detail-header h3 {
+      margin: 8px 0 4px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .detail-header p {
+      margin: 0;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .detail-section {
       margin-bottom: 20px;
     }
 
-    .test-input h4, .test-criteria h4, .test-output h4 {
-      font-size: 13px;
+    .detail-section h4 {
+      font-size: 12px;
       font-weight: 600;
       color: #555;
       margin: 0 0 8px;
@@ -1703,6 +1739,7 @@ interface TestRunResult {
       background: #f5f5f5;
       border-radius: 8px;
       font-size: 14px;
+      line-height: 1.5;
     }
 
     .input-context {
@@ -1714,71 +1751,110 @@ interface TestRunResult {
       color: #e65100;
     }
 
-    .test-criteria {
-      margin-bottom: 20px;
-    }
-
     .criteria-list {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      padding: 12px;
-      background: #f8f9fa;
-      border-radius: 8px;
     }
 
-    .criterion-item {
+    .criteria-list mat-checkbox {
       font-size: 14px;
     }
 
-    .test-output {
-      margin-bottom: 20px;
+    .result-section {
+      padding: 16px;
+      background: #f0f7ff;
+      border-radius: 12px;
+      border: 1px solid #bbdefb;
     }
 
     .duration {
       font-weight: 400;
-      font-size: 12px;
+      font-size: 11px;
       color: #888;
+      margin-left: 8px;
     }
 
     .output-error {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
-      padding: 16px;
+      padding: 12px;
       background: #ffebee;
       border-radius: 8px;
       color: #d32f2f;
-    }
-
-    .output-content {
-      padding: 16px;
-      background: #f5f5f5;
-      border-radius: 8px;
+      margin-top: 12px;
     }
 
     .output-images {
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
-      margin-bottom: 12px;
+      margin: 12px 0;
     }
 
     .result-image {
-      max-width: 300px;
-      max-height: 200px;
+      max-width: 100%;
+      max-height: 300px;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
-    .output-html {
-      margin-bottom: 12px;
     }
 
     .output-response {
       white-space: pre-wrap;
       font-size: 14px;
       line-height: 1.6;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      margin-top: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .no-result {
+      text-align: center;
+      padding: 40px 20px;
+      background: #f5f5f5;
+      border-radius: 12px;
+      color: #666;
+    }
+
+    .no-result mat-icon {
+      font-size: 48px;
+      width: 48px;
+      height: 48px;
+      color: #bdbdbd;
+      margin-bottom: 12px;
+    }
+
+    .no-result p {
+      margin: 0 0 16px;
+    }
+
+    .no-selection {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #999;
+    }
+
+    .no-selection mat-icon {
+      font-size: 64px;
+      width: 64px;
+      height: 64px;
+      color: #ddd;
+      margin-bottom: 16px;
+    }
+
+    .detail-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
     }
   `]
 })
