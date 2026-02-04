@@ -52,6 +52,11 @@ interface SubagentTool {
 interface SubagentConfig {
   enabled: boolean;
   system_prompt?: string;
+  // LLM para razonamiento del agente
+  llm_provider?: string;
+  llm_model?: string;
+  llm_url?: string;
+  // Proveedor específico de herramientas (ej: DALL-E para imágenes)
   default_provider?: string;
   default_model?: string;
   settings: Record<string, any>;
@@ -641,6 +646,43 @@ interface TestRunResult {
                       <mat-slide-toggle [(ngModel)]="agentConfig.enabled" color="primary">
                         Subagente habilitado
                       </mat-slide-toggle>
+
+                      <!-- Configuración de LLM - común a todos los subagentes -->
+                      <div class="config-section">
+                        <div class="config-section-header">
+                          <mat-icon>smart_toy</mat-icon>
+                          <span>Modelo de Lenguaje (LLM)</span>
+                        </div>
+                        <div class="config-row">
+                          <mat-form-field appearance="outline" class="half-width">
+                            <mat-label>Proveedor LLM</mat-label>
+                            <mat-select [(ngModel)]="agentConfig.llm_provider">
+                              <mat-option value="ollama">Ollama (Local)</mat-option>
+                              <mat-option value="openai">OpenAI</mat-option>
+                              <mat-option value="anthropic">Anthropic</mat-option>
+                              <mat-option value="groq">Groq</mat-option>
+                              <mat-option value="gemini">Google Gemini</mat-option>
+                            </mat-select>
+                            <mat-hint>Proveedor para razonamiento del agente</mat-hint>
+                          </mat-form-field>
+
+                          <mat-form-field appearance="outline" class="half-width">
+                            <mat-label>Modelo</mat-label>
+                            <input matInput [(ngModel)]="agentConfig.llm_model" 
+                                   placeholder="ej: llama3.3, gpt-4o, claude-3-5-sonnet">
+                            <mat-hint>Modelo específico a usar</mat-hint>
+                          </mat-form-field>
+                        </div>
+                        
+                        <mat-form-field appearance="outline" class="full-width">
+                          <mat-label>URL del LLM</mat-label>
+                          <input matInput [(ngModel)]="agentConfig.llm_url" 
+                                 placeholder="http://localhost:11434 (Ollama) o https://api.openai.com/v1">
+                          <mat-hint>URL base del servicio (dejar vacío para usar valor por defecto)</mat-hint>
+                        </mat-form-field>
+                      </div>
+
+                      <mat-divider></mat-divider>
 
                       <!-- System Prompt - común a todos los subagentes -->
                       <div class="prompt-section">
@@ -1300,6 +1342,37 @@ interface TestRunResult {
       font-weight: 500;
       color: #555;
       margin: 16px 0 8px;
+    }
+
+    /* Config Section (LLM, etc.) */
+    .config-section {
+      padding: 16px;
+      background: #f0f4ff;
+      border-radius: 12px;
+      border: 1px solid #d0d8f0;
+      margin-bottom: 8px;
+    }
+
+    .config-section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-weight: 500;
+      color: #4a5568;
+    }
+
+    .config-section-header mat-icon {
+      color: #667eea;
+    }
+
+    .config-row {
+      display: flex;
+      gap: 16px;
+    }
+
+    .half-width {
+      flex: 1;
     }
 
     /* Test Result */

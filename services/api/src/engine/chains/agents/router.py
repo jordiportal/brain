@@ -30,6 +30,11 @@ class SubagentConfigUpdate(BaseModel):
     """Request para actualizar configuración de un subagente"""
     enabled: bool = True
     system_prompt: Optional[str] = None
+    # LLM para razonamiento del agente
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    llm_url: Optional[str] = None
+    # Proveedor específico de herramientas (ej: DALL-E para imágenes)
     default_provider: Optional[str] = None
     default_model: Optional[str] = None
     settings: Dict[str, Any] = {}
@@ -694,21 +699,46 @@ def _get_agent_icon(agent_id: str) -> str:
 def _get_agent_config(agent_id: str) -> Dict[str, Any]:
     """Obtiene configuración de un subagente (placeholder para Strapi)"""
     # TODO: Implementar lectura desde Strapi
-    default_configs = {
+    
+    # Configuración base común a todos los subagentes
+    base_config = {
+        "enabled": True,
+        "llm_provider": "ollama",
+        "llm_model": "llama3.3",
+        "llm_url": "http://localhost:11434",
+        "settings": {}
+    }
+    
+    # Configuraciones específicas por agente
+    agent_configs = {
         "designer_agent": {
-            "enabled": True,
+            **base_config,
+            "llm_model": "llama3.3",  # Modelo con buena capacidad para diseño
+            # Configuración de herramientas de media
             "default_provider": "openai",
             "default_model": "dall-e-3",
-            "default_size": "1024x1024",
-            "max_concurrent": 3,
             "settings": {
+                "default_size": "1024x1024",
                 "quality": "standard",
                 "style": "vivid"
+            }
+        },
+        "researcher_agent": {
+            **base_config,
+            "llm_model": "llama3.3",
+            "settings": {
+                "max_search_results": 10,
+                "search_depth": "comprehensive"
+            }
+        },
+        "communication_agent": {
+            **base_config,
+            "llm_model": "llama3.3",
+            "settings": {
+                "default_tone": "professional",
+                "max_length": 2000
             }
         }
     }
     
-    return default_configs.get(agent_id, {
-        "enabled": True,
-        "settings": {}
-    })
+    return agent_configs.get(agent_id, base_config)
