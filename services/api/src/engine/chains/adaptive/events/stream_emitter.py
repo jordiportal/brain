@@ -191,6 +191,42 @@ class StreamEmitter:
             data=data
         )
     
+    def video(
+        self,
+        node_id: str,
+        url: Optional[str] = None,
+        base64_data: Optional[str] = None,
+        mime_type: str = "video/mp4",
+        duration_seconds: Optional[int] = None,
+        resolution: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None
+    ) -> StreamEvent:
+        """Evento de vídeo."""
+        data: Dict[str, Any] = {}
+        
+        if url:
+            data["video_url"] = url
+        elif base64_data:
+            data["video_data"] = base64_data
+            data["mime_type"] = mime_type
+        
+        if duration_seconds:
+            data["duration_seconds"] = duration_seconds
+        if resolution:
+            data["resolution"] = resolution
+        if provider:
+            data["provider"] = provider
+        if model:
+            data["model"] = model
+        
+        return StreamEvent(
+            event_type="video",
+            execution_id=self.execution_id,
+            node_id=node_id,
+            data=data
+        )
+    
     # ========== Eventos de Error ==========
     
     def error(self, error_message: str, node_id: str = "") -> StreamEvent:

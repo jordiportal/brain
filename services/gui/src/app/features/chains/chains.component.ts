@@ -121,6 +121,7 @@ interface ChatMessage {
   tokens?: number;
   isStreaming?: boolean;
   images?: ImageData[];
+  videos?: VideoData[];
 }
 
 interface ImageData {
@@ -128,6 +129,14 @@ interface ImageData {
   base64?: string;     // Fallback
   mimeType?: string;
   altText: string;
+}
+
+interface VideoData {
+  url?: string;        // Data URL del vídeo
+  base64?: string;     // Fallback
+  mimeType?: string;
+  duration?: number;
+  resolution?: string;
 }
 
 @Component({
@@ -399,6 +408,34 @@ interface ImageData {
                                       class="generated-image"
                                       loading="lazy"
                                     />
+                                  }
+                                </div>
+                              }
+                              
+                              <!-- Vídeos generados -->
+                              @if (msg.videos && msg.videos.length > 0) {
+                                <div class="generated-videos">
+                                  @for (video of msg.videos; track $index) {
+                                    <video 
+                                      [src]="sanitizeVideoUrl(video.url, video.base64, video.mimeType)"
+                                      class="generated-video"
+                                      controls
+                                      autoplay
+                                      loop
+                                      muted
+                                    >
+                                      Tu navegador no soporta vídeos HTML5.
+                                    </video>
+                                    @if (video.duration || video.resolution) {
+                                      <div class="video-info">
+                                        @if (video.duration) {
+                                          <span>{{ video.duration }}s</span>
+                                        }
+                                        @if (video.resolution) {
+                                          <span>{{ video.resolution }}</span>
+                                        }
+                                      </div>
+                                    }
                                   }
                                 </div>
                               }
@@ -891,6 +928,28 @@ interface ImageData {
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 
+    .generated-videos {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .generated-video {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .video-info {
+      display: flex;
+      gap: 8px;
+      font-size: 12px;
+      color: #888;
+      margin-top: 4px;
+    }
+
     .markdown-content ::ng-deep {
       p { margin: 0 0 12px; }
       p:last-child { margin-bottom: 0; }
@@ -1303,7 +1362,7 @@ export class ChainsComponent implements OnInit {
               stepContentBuffer = '';
               
               this.currentStep.set(data);
-              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
+              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
               this.scrollToBottom();
               
             } else if (data.event_type === 'token' && data.content) {
@@ -1311,13 +1370,13 @@ export class ChainsComponent implements OnInit {
               const isFinalResponse = data.node_id === 'synthesizer' || data.node_id === 'adaptive_agent' || !data.node_id;
               if (isFinalResponse) {
                 finalContent += data.content;
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
               } else if (currentStepId && this.activeSteps.has(currentStepId)) {
                 // Token de paso intermedio (tool, subagente, conversación interna)
                 stepContentBuffer += data.content;
                 const step = this.activeSteps.get(currentStepId)!;
                 step.content = stepContentBuffer;
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
               }
               this.scrollToBottom();
               
@@ -1347,7 +1406,7 @@ export class ChainsComponent implements OnInit {
               }
               
               currentStepId = null;
-              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
+              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
               
             } else if (data.event_type === 'image') {
               // Imagen generada - añadir al array de imágenes
@@ -1360,7 +1419,22 @@ export class ChainsComponent implements OnInit {
                 };
                 assistantMessage.images = assistantMessage.images || [];
                 assistantMessage.images.push(imageData);
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
+              }
+              
+            } else if (data.event_type === 'video') {
+              // Vídeo generado - añadir al array de vídeos
+              if (data.data) {
+                const videoData: VideoData = {
+                  url: data.data.video_url,
+                  base64: data.data.video_data,
+                  mimeType: data.data.mime_type || 'video/mp4',
+                  duration: data.data.duration_seconds,
+                  resolution: data.data.resolution
+                };
+                assistantMessage.videos = assistantMessage.videos || [];
+                assistantMessage.videos.push(videoData);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
               }
               
             } else if (data.event_type === 'end') {
@@ -1383,8 +1457,8 @@ export class ChainsComponent implements OnInit {
     }
     }
 
-    // Finalizar mensaje - pasar explícitamente las imágenes acumuladas
-    this.updateAssistantMessage(finalContent, intermediateSteps, tokens, false, assistantMessage.images);
+    // Finalizar mensaje - pasar explícitamente las imágenes y vídeos acumulados
+    this.updateAssistantMessage(finalContent, intermediateSteps, tokens, false, assistantMessage.images, assistantMessage.videos);
     this.scrollToBottom();
   }
 
@@ -1437,7 +1511,8 @@ export class ChainsComponent implements OnInit {
     steps: IntermediateStep[], 
     tokens: number,
     isStreaming: boolean,
-    images?: ImageData[]
+    images?: ImageData[],
+    videos?: VideoData[]
   ): void {
     this.messages.update(msgs => {
       const newMsgs = [...msgs];
@@ -1450,7 +1525,8 @@ export class ChainsComponent implements OnInit {
           intermediateSteps: [...steps],
           tokens,
           isStreaming,
-          images: images || lastMsg.images || []
+          images: images || lastMsg.images || [],
+          videos: videos || lastMsg.videos || []
         };
       }
       
@@ -1589,6 +1665,23 @@ export class ChainsComponent implements OnInit {
     // Si hay base64, construir data URL
     if (base64) {
       const dataUrl = `data:${mimeType || 'image/png'};base64,${base64}`;
+      return this.sanitizer.bypassSecurityTrustUrl(dataUrl);
+    }
+    return '';
+  }
+
+  /** Sanitiza una URL de vídeo (HTTP o data URL) para uso seguro */
+  sanitizeVideoUrl(url: string | undefined, base64?: string, mimeType?: string): SafeUrl {
+    // Si hay URL directa (puede ser HTTP o data URL)
+    if (url) {
+      if (url.startsWith('data:')) {
+        return this.sanitizer.bypassSecurityTrustUrl(url);
+      }
+      return url;
+    }
+    // Si hay base64, construir data URL
+    if (base64) {
+      const dataUrl = `data:${mimeType || 'video/mp4'};base64,${base64}`;
       return this.sanitizer.bypassSecurityTrustUrl(dataUrl);
     }
     return '';

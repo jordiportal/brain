@@ -86,6 +86,40 @@ class DelegateHandler(ToolHandler):
             num_images = len(result["images"])
             final_answer = result.get("response", f"He generado {num_images} imagen(es).")
         
+        # Manejar vídeos generados
+        if result.get("videos"):
+            for vid in result["videos"]:
+                if vid.get("url"):
+                    events.append(StreamEvent(
+                        event_type="video",
+                        execution_id=self.execution_id,
+                        node_id=f"tool_{self.tool_name}_{self.iteration}",
+                        data={
+                            "video_url": vid["url"],
+                            "duration_seconds": vid.get("duration_seconds"),
+                            "resolution": vid.get("resolution"),
+                            "provider": vid.get("provider"),
+                            "model": vid.get("model")
+                        }
+                    ))
+                elif vid.get("base64"):
+                    events.append(StreamEvent(
+                        event_type="video",
+                        execution_id=self.execution_id,
+                        node_id=f"tool_{self.tool_name}_{self.iteration}",
+                        data={
+                            "video_data": vid["base64"],
+                            "mime_type": vid.get("mime_type", "video/mp4"),
+                            "duration_seconds": vid.get("duration_seconds"),
+                            "resolution": vid.get("resolution")
+                        }
+                    ))
+            
+            # Si hay vídeos, es terminal - la tarea está completa
+            is_terminal = True
+            num_videos = len(result["videos"])
+            final_answer = result.get("response", f"He generado {num_videos} vídeo(s).")
+        
         # Manejar Brain Events de slides_agent (legacy)
         response_text = result.get("response", "")
         if "<!--BRAIN_EVENT:" in response_text:

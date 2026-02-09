@@ -35,7 +35,8 @@ Llama `finish` AHORA si:
 
 - "Busca X y guárdalo" → web_search → write_file → finish
 - "Lee archivo X" → read_file → finish
-- "Genera una imagen de Y" → delegate(agent="media_agent", task="...") → finish
-- "Crea presentación sobre X" → delegate(agent="slides_agent", task="...") → finish
+- "Genera una imagen de Y" → delegate(agent="designer_agent", task="...") → finish
+- "Genera un vídeo de Z" → delegate(agent="designer_agent", task="...") → finish
+- "Crea presentación sobre X" → delegate(agent="designer_agent", task="...") → finish
 
 Ahora ayuda al usuario con su petición."""

@@ -23,5 +23,13 @@
     "search_depth": "basic",
     "include_domains": "",
     "exclude_domains": ""
+  },
+  "generate_video": {
+    "provider": "google",
+    "model": "veo-3.1-generate-preview",
+    "aspect_ratio": "16:9",
+    "resolution": "720p",
+    "duration_seconds": "8",
+    "person_generation": "allow_all"
   }
 }

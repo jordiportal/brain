@@ -295,6 +295,112 @@ class PersistentCodeExecutor:
             logger.error(f"Error escribiendo archivo: {e}")
             return False
     
+    def write_binary_file(self, file_path: str, data: bytes) -> bool:
+        """
+        Escribe un archivo binario en el workspace del contenedor.
+        
+        Args:
+            file_path: Ruta relativa al workspace (ej: "media/videos/video.mp4")
+            data: Bytes del archivo
+            
+        Returns:
+            True si se escribió correctamente
+        """
+        import tempfile
+        
+        try:
+            full_path = f"{self.WORKSPACE_PATH}/{file_path}"
+            
+            # Crear directorio en el contenedor si no existe
+            dir_path = str(Path(full_path).parent)
+            subprocess.run(
+                ["docker", "exec", self.CONTAINER_NAME, "mkdir", "-p", dir_path],
+                capture_output=True,
+                timeout=5
+            )
+            
+            # Escribir a archivo temporal local
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+            
+            try:
+                # Copiar al contenedor usando docker cp
+                result = subprocess.run(
+                    ["docker", "cp", tmp_path, f"{self.CONTAINER_NAME}:{full_path}"],
+                    capture_output=True,
+                    timeout=60  # Timeout más largo para archivos grandes
+                )
+                
+                if result.returncode == 0:
+                    logger.info(f"Archivo binario guardado: {file_path} ({len(data)} bytes)")
+                    return True
+                else:
+                    logger.error(f"Error copiando archivo: {result.stderr.decode()}")
+                    return False
+            finally:
+                # Limpiar archivo temporal
+                import os
+                os.unlink(tmp_path)
+        
+        except Exception as e:
+            logger.error(f"Error escribiendo archivo binario: {e}")
+            return False
+    
+    def read_binary_file(self, file_path: str) -> Optional[bytes]:
+        """
+        Lee un archivo binario del workspace del contenedor.
+        
+        Args:
+            file_path: Ruta relativa al workspace
+            
+        Returns:
+            Bytes del archivo o None si hay error
+        """
+        import tempfile
+        
+        try:
+            full_path = f"{self.WORKSPACE_PATH}/{file_path}"
+            
+            # Copiar desde el contenedor a archivo temporal
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            try:
+                result = subprocess.run(
+                    ["docker", "cp", f"{self.CONTAINER_NAME}:{full_path}", tmp_path],
+                    capture_output=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0:
+                    with open(tmp_path, 'rb') as f:
+                        return f.read()
+                else:
+                    logger.error(f"Error leyendo archivo binario: {result.stderr.decode()}")
+                    return None
+            finally:
+                import os
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        
+        except Exception as e:
+            logger.error(f"Error leyendo archivo binario: {e}")
+            return None
+    
+    def get_workspace_url(self, file_path: str) -> str:
+        """
+        Obtiene la URL para acceder a un archivo del workspace.
+        
+        Args:
+            file_path: Ruta relativa al workspace
+            
+        Returns:
+            URL para acceder al archivo vía API
+        """
+        # URL del endpoint de archivos del workspace
+        return f"/api/v1/workspace/files/{file_path}"
+    
     def delete_file(self, file_path: str) -> bool:
         """Elimina un archivo del workspace"""
         try:

@@ -60,19 +60,20 @@ class DesignerAgent(BaseSubAgent):
 
     id = "designer_agent"
     name = "Designer"
-    description = "Diseñador visual: imágenes, presentaciones, logos, con auto-crítica"
+    description = "Diseñador visual: imágenes, vídeos, presentaciones, logos, con auto-crítica"
     version = "2.1.0"  # Versión con analyze_image y auto-crítica
-    domain_tools = ["generate_image", "generate_slides", "analyze_image"]
+    domain_tools = ["generate_image", "generate_video", "generate_slides", "analyze_image"]
     system_prompt = ""  # Se carga desde fichero
     available_skills = DESIGNER_SKILLS  # Skills disponibles
 
     role = "Diseñador Visual"
-    expertise = """Soy diseñador visual. Creo imágenes (logos, ilustraciones, fotos) y presentaciones profesionales.
-Puedo combinar ambos: presentaciones con imágenes generadas.
+    expertise = """Soy diseñador visual. Creo imágenes (logos, ilustraciones, fotos), vídeos cinematográficos y presentaciones profesionales.
+Puedo combinar todos: presentaciones con imágenes y vídeos generados.
 Tengo capacidad de auto-crítica: analizo mis propias creaciones para verificar calidad.
-Tengo skills especializados en: slides modernas, branding, visualización de datos."""
+Tengo skills especializados en: slides modernas, branding, visualización de datos.
+Para vídeos uso Veo 3.1 de Google (hasta 8 segundos, 1080p, con audio generado)."""
 
-    task_requirements = "Describe la tarea: imagen, presentación, o ambos. Puedes enviar texto libre o JSON con outline."
+    task_requirements = "Describe la tarea: imagen, vídeo, presentación, o cualquier combinación. Puedes enviar texto libre o JSON."
 
     def __init__(self):
         super().__init__()
@@ -125,30 +126,21 @@ Tengo skills especializados en: slides modernas, branding, visualización de dat
         logger.info("🎨 DesignerAgent executing", task=task[:100])
 
         try:
-            # Si ya viene outline JSON válido, generar presentación directo
-            outline = self._parse_outline(task)
-            if outline:
-                return await self._generate_presentation(
-                    outline, task, context, api_key, start_time
-                )
-
-            # Si es descripción corta de imagen, generar imagen directo
-            if self._looks_like_image_request(task):
-                return await self._generate_image(task, start_time)
-
-            # Usar LLM para decidir
+            # Siempre usar LLM para decidir qué herramienta usar
             if llm_url and model:
                 return await self._execute_with_llm(
                     task, context, llm_url, model, provider_type, api_key, start_time
                 )
 
-            # Fallback: intentar presentación desde task como tema
-            outline = await self._create_outline_from_task(
-                task, context, llm_url, model, provider_type, api_key
-            )
-            return await self._generate_presentation(
-                outline, task, context, api_key, start_time
-            )
+            # Fallback sin LLM: Si viene outline JSON, generar presentación
+            outline = self._parse_outline(task)
+            if outline:
+                return await self._generate_presentation(
+                    outline, task, context, api_key, start_time
+                )
+            
+            # Fallback final: generar imagen con el task como prompt
+            return await self._generate_image(task, start_time)
 
         except Exception as e:
             logger.error(f"DesignerAgent error: {e}", exc_info=True)
@@ -160,14 +152,6 @@ Tengo skills especializados en: slides modernas, branding, visualización de dat
                 error=str(e),
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
-
-    def _looks_like_image_request(self, task: str) -> bool:
-        """Detecta si parece solicitud de imagen."""
-        t = task.lower().strip()
-        if len(t) > 300:
-            return False
-        keywords = ["imagen", "logo", "dibujo", "ilustración", "foto", "picture", "image", "generate", "crea"]
-        return any(k in t for k in keywords) and "presentación" not in t and "slides" not in t
 
     def _parse_outline(self, task: str) -> Optional[PresentationOutline]:
         """Parsea task como JSON outline."""
@@ -241,6 +225,54 @@ Tengo skills especializados en: slides modernas, branding, visualización de dat
         return SubAgentResult(
             success=False,
             response=f"Error: {result.get('error', 'Unknown')}",
+            agent_id=self.id,
+            agent_name=self.name,
+            error=result.get("error"),
+            execution_time_ms=int((time.time() - start_time) * 1000)
+        )
+
+    async def _generate_video(
+        self, 
+        prompt: str, 
+        aspect_ratio: str,
+        duration_seconds: int,
+        start_time: float
+    ) -> SubAgentResult:
+        """Genera vídeo con Veo 3.1."""
+        from src.tools.domains.media import generate_video
+
+        result = await generate_video(
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration_seconds
+        )
+        
+        if result.get("success"):
+            videos = [{
+                "url": result.get("video_url"),
+                "workspace_path": result.get("workspace_path"),
+                "duration_seconds": result.get("duration_seconds"),
+                "resolution": result.get("resolution"),
+                "prompt": prompt,
+                "provider": result.get("provider"),
+                "model": result.get("model")
+            }]
+            response = f"He generado el vídeo ({duration_seconds}s, {aspect_ratio}).\n\n"
+            if result.get("workspace_path"):
+                response += f"📁 Guardado en: `{result.get('workspace_path')}`"
+            return SubAgentResult(
+                success=True,
+                response=response,
+                agent_id=self.id,
+                agent_name=self.name,
+                tools_used=["generate_video"],
+                videos=videos,
+                data=result,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+        return SubAgentResult(
+            success=False,
+            response=f"Error generando vídeo: {result.get('error', 'Unknown')}",
             agent_id=self.id,
             agent_name=self.name,
             error=result.get("error"),
@@ -451,10 +483,37 @@ REGLAS:
                 "type": "function",
                 "function": {
                     "name": "generate_image",
-                    "description": "Genera una imagen con IA",
+                    "description": "Genera una imagen estática con IA (logos, ilustraciones, fotos, gráficos)",
                     "parameters": {
                         "type": "object",
-                        "properties": {"prompt": {"type": "string", "description": "Descripción de la imagen"}},
+                        "properties": {"prompt": {"type": "string", "description": "Descripción detallada de la imagen a generar"}},
+                        "required": ["prompt"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_video",
+                    "description": "Genera un vídeo cinematográfico con Veo 3.1 (hasta 8 segundos, con audio). Ideal para: clips promocionales, animaciones, escenas con movimiento, contenido dinámico.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {
+                                "type": "string", 
+                                "description": "Descripción del vídeo. Incluye: sujeto, acción, estilo, cámara. Puede incluir diálogos entre comillas y efectos de sonido."
+                            },
+                            "aspect_ratio": {
+                                "type": "string",
+                                "enum": ["16:9", "9:16"],
+                                "description": "16:9 para horizontal/paisaje, 9:16 para vertical/stories"
+                            },
+                            "duration_seconds": {
+                                "type": "integer",
+                                "enum": [4, 6, 8],
+                                "description": "Duración del vídeo en segundos"
+                            }
+                        },
                         "required": ["prompt"]
                     }
                 }
@@ -463,7 +522,7 @@ REGLAS:
                 "type": "function",
                 "function": {
                     "name": "generate_presentation",
-                    "description": "Genera presentación HTML. outline es JSON con title, slides y generate_images.",
+                    "description": "Genera presentación HTML con múltiples slides. Para contenido estructurado con varias secciones.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -498,11 +557,11 @@ REGLAS:
                 "type": "function",
                 "function": {
                     "name": "deliver_result",
-                    "description": "Entrega el resultado final al usuario. Usar cuando el trabajo está completo y verificado.",
+                    "description": "Entrega el resultado final al usuario. Usar cuando el trabajo está completo.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "result_type": {"type": "string", "enum": ["image", "presentation"], "description": "Tipo de resultado"},
+                            "result_type": {"type": "string", "enum": ["image", "video", "presentation"], "description": "Tipo de resultado generado"},
                             "message": {"type": "string", "description": "Mensaje explicativo del resultado"}
                         },
                         "required": ["result_type"]
@@ -529,6 +588,7 @@ REGLAS:
         
         # Estado para tracking de resultados generados
         last_image_result = None
+        last_video_result = None
         last_presentation_result = None
         
         # Helper para añadir tool result al historial (compatible con Ollama y OpenAI)
@@ -604,6 +664,30 @@ REGLAS:
                     logger.info(f"🖼️ Image generated, awaiting analysis decision")
                     continue
                 
+                # Tool: generate_video - genera vídeo
+                elif name == "generate_video":
+                    prompt = args.get("prompt", task)
+                    aspect_ratio = args.get("aspect_ratio", "16:9")
+                    duration = args.get("duration_seconds", 8)
+                    
+                    last_video_result = await self._generate_video(
+                        prompt, aspect_ratio, duration, start_time
+                    )
+                    
+                    video_info = "Vídeo generado exitosamente."
+                    if last_video_result.data and last_video_result.data.get("video_url"):
+                        video_url = last_video_result.data["video_url"]
+                        if video_url.startswith("/api/"):
+                            video_info += f"\nGuardado en workspace: {last_video_result.data.get('workspace_path', video_url)}"
+                        else:
+                            video_info += "\nVídeo disponible como data URL."
+                        video_info += f"\nDuración: {duration}s, Ratio: {aspect_ratio}"
+                    
+                    add_tool_result("generate_video", {"prompt": prompt[:100]}, video_info)
+                    logger.info(f"🎬 Video generated: {duration}s")
+                    # Vídeos son costosos, retornar directamente
+                    return last_video_result
+                
                 # Tool: analyze_image - analiza y continúa
                 elif name == "analyze_image":
                     image_source = args.get("image", "")
@@ -635,15 +719,19 @@ REGLAS:
                 # Tool: deliver_result - entrega final
                 elif name == "deliver_result":
                     result_type = args.get("result_type", "image")
-                    if result_type == "image" and last_image_result:
+                    if result_type == "video" and last_video_result:
+                        return last_video_result
+                    elif result_type == "image" and last_image_result:
                         return last_image_result
                     elif result_type == "presentation" and last_presentation_result:
                         return last_presentation_result
+                    # Fallbacks
+                    elif last_video_result:
+                        return last_video_result
                     elif last_image_result:
                         return last_image_result
                     elif last_presentation_result:
                         return last_presentation_result
-                    # Continuar si no hay resultado
                     continue
                 
                 # Tool: generate_presentation - genera y retorna (presentaciones son más complejas de revisar)

@@ -32,6 +32,7 @@ class SubAgentResult:
     agent_name: str
     tools_used: List[str] = field(default_factory=list)
     images: List[Dict[str, Any]] = field(default_factory=list)
+    videos: List[Dict[str, Any]] = field(default_factory=list)
     sources: List[str] = field(default_factory=list)
     data: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
@@ -46,11 +47,13 @@ class SubAgentResult:
             "agent_name": self.agent_name,
             "tools_used": self.tools_used,
             "images": self.images,
+            "videos": self.videos,
             "sources": self.sources,
             "data": self.data,
             "error": self.error,
             "execution_time_ms": self.execution_time_ms,
             "has_images": len(self.images) > 0,
+            "has_videos": len(self.videos) > 0,
             "has_sources": len(self.sources) > 0
         }
 

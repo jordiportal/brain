@@ -35,7 +35,8 @@ Llama `finish` inmediatamente cuando:
 ## Ejemplos
 
 - Buscar y guardar: web_search → write_file → finish
-- Generar imagen: delegate(agent="media_agent", task="...") → finish
+- Generar imagen: delegate(agent="designer_agent", task="...") → finish
+- Generar vídeo: delegate(agent="designer_agent", task="...") → finish
 - Analizar archivo: read_file → think → finish
 
 Ayuda al usuario con su petición."""

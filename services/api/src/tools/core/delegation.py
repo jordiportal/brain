@@ -311,7 +311,7 @@ def get_delegate_tool() -> dict:
         "name": "delegate",
         "description": """Delega una tarea a un subagente. Usa get_agent_info primero si no conoces el formato.
 
-- designer_agent: Imágenes y presentaciones
+- designer_agent: Imágenes, vídeos cinematográficos y presentaciones
 - researcher_agent: Búsqueda web (datos actuales)
 - communication_agent: Estrategia y narrativa""",
         "parameters": {

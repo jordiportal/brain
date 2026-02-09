@@ -10,6 +10,7 @@ import structlog
 
 from .base import ToolConfigurableSchema
 from .generate_image import GENERATE_IMAGE_SCHEMA
+from .generate_video import GENERATE_VIDEO_SCHEMA
 from .web_search import WEB_SEARCH_SCHEMA
 from .analyze_image import ANALYZE_IMAGE_SCHEMA
 from .execution import (
@@ -37,6 +38,7 @@ class ConfigurableToolsRegistry:
         """Registra los schemas por defecto"""
         # Media tools
         self.register(GENERATE_IMAGE_SCHEMA)
+        self.register(GENERATE_VIDEO_SCHEMA)
         self.register(ANALYZE_IMAGE_SCHEMA)
         
         # Web tools

@@ -41,6 +41,7 @@ Llama `finish` cuando:
 
 1. "Busca información sobre X" → web_search → finish (con la información)
 2. "Crea un archivo con Y" → write_file → finish (confirmando la creación)
-3. "Genera una imagen de Z" → delegate → finish (incluyendo la imagen generada)
+3. "Genera una imagen de Z" → delegate(agent="designer_agent") → finish
+4. "Genera un vídeo de W" → delegate(agent="designer_agent") → finish
 
 Ahora, ¿en qué puedo ayudarte?"""

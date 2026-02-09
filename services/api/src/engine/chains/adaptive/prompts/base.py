@@ -93,7 +93,7 @@ Evalúa la tarea y decide:
 1. **`finish` es OBLIGATORIO** - Toda tarea termina con `finish`
 2. **No repitas herramientas** sin progreso (máx 3 veces)
 3. **Si piden guardar** → usa `write_file`
-4. **Si piden imagen/presentación** → usa subagente
+4. **Si piden imagen/vídeo/presentación** → usa subagente (designer_agent)
 """
 
 # Aliases para compatibilidad
