@@ -18,5 +18,15 @@
     "status": "pass",
     "notes": "",
     "timestamp": "2026-02-04T15:16:20.026511"
+  },
+  "IMG-05": {
+    "status": "pass",
+    "notes": "",
+    "timestamp": "2026-02-05T10:49:59.720609"
+  },
+  "PRES-02": {
+    "status": "fail",
+    "notes": "",
+    "timestamp": "2026-02-05T11:01:42.158432"
   }
 }

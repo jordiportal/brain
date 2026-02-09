@@ -8,6 +8,7 @@ from .api_keys import ApiKeyRepository
 from .model_config import ModelConfigRepository
 from .openapi_connections import OpenAPIConnectionRepository
 from .mcp_connections import MCPConnectionRepository
+from .subagent_configs import SubagentConfigRepository
 
 __all__ = [
     "ChainRepository",
@@ -16,4 +17,5 @@ __all__ = [
     "ModelConfigRepository",
     "OpenAPIConnectionRepository",
     "MCPConnectionRepository",
+    "SubagentConfigRepository",
 ]

@@ -330,11 +330,10 @@ Tengo skills especializados en: slides modernas, branding, visualización de dat
             try:
                 result = await generate_image(
                     prompt=str(prompt),
-                    provider="openai",
-                    model="dall-e-3",
+                    provider="auto",
                     size="1024x1024"
                 )
-                url = result.get("image_url") or result.get("url")
+                url = result.get("image_url")
                 if result.get("success") and url:
                     urls.append(url)
             except Exception as e:
@@ -594,7 +593,12 @@ REGLAS:
                     # Añadir resultado a messages para que LLM pueda analizarlo
                     image_info = "Imagen generada exitosamente."
                     if last_image_result.data and last_image_result.data.get("image_url"):
-                        image_info += f"\nURL: {last_image_result.data['image_url']}"
+                        img_url = last_image_result.data["image_url"]
+                        # Para data URLs muy largos, solo indicar que está disponible
+                        if img_url.startswith("data:"):
+                            image_info += "\nImagen disponible como data URL (base64)."
+                        else:
+                            image_info += f"\nURL: {img_url}"
                     
                     add_tool_result("generate_image", {"prompt": prompt[:100]}, image_info)
                     logger.info(f"🖼️ Image generated, awaiting analysis decision")
@@ -608,7 +612,7 @@ REGLAS:
                     
                     # Si no hay imagen especificada, usar la última generada
                     if not image_source and last_image_result and last_image_result.data:
-                        image_source = last_image_result.data.get("image_url") or last_image_result.data.get("image_base64", "")
+                        image_source = last_image_result.data.get("image_url", "")
                     
                     if image_source:
                         analysis_result = await analyze_image(

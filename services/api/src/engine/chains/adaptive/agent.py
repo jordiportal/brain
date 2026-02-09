@@ -234,7 +234,8 @@ async def build_adaptive_agent(
                     "reasoning_mode": reasoning_config.mode.value,
                     "iterations": executor.iteration,
                     "tools_used": [tr["tool"] for tr in executor.tool_results],
-                    "iteration_limit_reached": True
+                    "iteration_limit_reached": True,
+                    "images": executor.images  # Imágenes generadas durante ejecución
                 }
             }
             return
@@ -259,7 +260,8 @@ async def build_adaptive_agent(
             "complexity": complexity.level.value,
             "reasoning_mode": reasoning_config.mode.value,
             "iterations": executor.iteration,
-            "tools_used": [tr["tool"] for tr in executor.tool_results]
+            "tools_used": [tr["tool"] for tr in executor.tool_results],
+            "images": executor.images  # Imágenes generadas durante ejecución
         }
     }
 

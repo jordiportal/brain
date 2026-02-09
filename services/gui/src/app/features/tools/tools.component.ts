@@ -18,6 +18,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatTableModule } from '@angular/material/table';
 import { MatBadgeModule } from '@angular/material/badge';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatChipListboxChange } from '@angular/material/chips';
 import { environment } from '../../../environments/environment';
 
 interface OpenAPIConnection {
@@ -41,6 +43,58 @@ interface Tool {
   path?: string;
 }
 
+// Interfaces para herramientas configurables (del backend)
+interface VisibilityCondition {
+  field: string;
+  value?: string;
+  values?: string[];
+  not_value?: string;
+  not_values?: string[];
+}
+
+interface ValidationRule {
+  min?: number;
+  max?: number;
+  min_length?: number;
+  max_length?: number;
+  pattern?: string;
+  pattern_message?: string;
+}
+
+interface ConfigField {
+  key: string;
+  label: string;
+  type: 'text' | 'select' | 'multiselect' | 'number' | 'boolean' | 'password' | 'text_array';
+  options?: { value: string; label: string }[];
+  options_depend_on?: string;
+  dynamic_options?: Record<string, { value: string; label: string }[]>;
+  default?: any;
+  hint?: string;
+  placeholder?: string;
+  required?: boolean;
+  visible_when?: VisibilityCondition;
+  validation?: ValidationRule;
+  group?: string;
+  admin_only?: boolean;
+  order?: number;
+}
+
+interface ConfigurableTool {
+  id: string;
+  display_name: string;
+  description: string;
+  icon: string;
+  category: string;
+  config_schema: ConfigField[];
+  default_config: Record<string, any>;
+  config: Record<string, any>;
+  requires_api_key?: boolean;
+  supported_providers?: string[];
+  admin_only?: boolean;
+  enabled_by_default?: boolean;
+}
+
+// Alias para compatibilidad
 interface CoreToolConfig {
   id: string;
   name: string;
@@ -49,15 +103,6 @@ interface CoreToolConfig {
   category: string;
   config: Record<string, any>;
   configSchema: ConfigField[];
-}
-
-interface ConfigField {
-  key: string;
-  label: string;
-  type: 'text' | 'select' | 'number' | 'boolean';
-  options?: { value: string; label: string }[];
-  placeholder?: string;
-  hint?: string;
 }
 
 @Component({
@@ -81,7 +126,8 @@ interface ConfigField {
     MatSnackBarModule,
     MatDialogModule,
     MatTableModule,
-    MatBadgeModule
+    MatBadgeModule,
+    MatSlideToggleModule
   ],
   template: `
     <div class="tools-page">
@@ -318,22 +364,45 @@ interface ConfigField {
           <ng-template mat-tab-label>
             <mat-icon>settings</mat-icon>
             <span class="tab-label">Configuración</span>
+            <span class="badge" *ngIf="coreToolConfigs().length">{{ coreToolConfigs().length }}</span>
           </ng-template>
 
           <div class="core-tools-config">
             <div class="config-header">
               <h2>Configuración de Herramientas</h2>
               <p>Configura los proveedores y parámetros por defecto de las herramientas del sistema</p>
+              
+              <!-- Filtro por categoría -->
+              @if (toolCategories().length > 1) {
+                <div class="category-filter">
+                  <mat-chip-listbox [(ngModel)]="selectedCategory" (change)="selectedCategory.set($event.value)">
+                    <mat-chip-option [value]="null">Todas</mat-chip-option>
+                    @for (cat of toolCategories(); track cat) {
+                      <mat-chip-option [value]="cat">{{ cat | titlecase }}</mat-chip-option>
+                    }
+                  </mat-chip-listbox>
+                </div>
+              }
             </div>
 
             @if (loadingCoreConfig()) {
               <div class="loading-container">
                 <mat-spinner diameter="48"></mat-spinner>
-                <p>Cargando configuración...</p>
+                <p>Cargando configuración desde el servidor...</p>
+              </div>
+            } @else if (coreToolConfigs().length === 0) {
+              <div class="empty-state">
+                <mat-icon>settings_suggest</mat-icon>
+                <h3>No hay herramientas configurables</h3>
+                <p>Las herramientas configurables se cargan desde el backend.</p>
+                <button mat-raised-button color="primary" (click)="loadCoreToolConfigs()">
+                  <mat-icon>refresh</mat-icon>
+                  Reintentar
+                </button>
               </div>
             } @else {
               <div class="core-tools-grid">
-                @for (tool of coreToolConfigs(); track tool.id) {
+                @for (tool of getFilteredTools(); track tool.id) {
                   <mat-card class="core-tool-card" [id]="'tool-config-' + tool.id">
                     <mat-card-header>
                       <div class="tool-icon" [ngClass]="tool.category">
@@ -346,36 +415,64 @@ interface ConfigField {
                     <mat-card-content>
                       <div class="config-fields">
                         @for (field of tool.configSchema; track field.key) {
-                          @if (field.type === 'select') {
-                            <mat-form-field appearance="outline" class="full-width">
-                              <mat-label>{{ field.label }}</mat-label>
-                              <mat-select [(ngModel)]="tool.config[field.key]">
-                                @for (opt of field.options; track opt.value) {
-                                  <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
-                                }
-                              </mat-select>
-                              @if (field.hint) {
-                                <mat-hint>{{ field.hint }}</mat-hint>
+                          @if (shouldShowField(field, tool.config)) {
+                            @switch (field.type) {
+                              @case ('select') {
+                                <mat-form-field appearance="outline" class="full-width">
+                                  <mat-label>{{ field.label }}</mat-label>
+                                  <mat-select [(ngModel)]="tool.config[field.key]">
+                                    @for (opt of getFieldOptions(field, tool.config); track opt.value) {
+                                      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+                                    }
+                                  </mat-select>
+                                  @if (field.hint) {
+                                    <mat-hint>{{ field.hint }}</mat-hint>
+                                  }
+                                </mat-form-field>
                               }
-                            </mat-form-field>
-                          } @else if (field.type === 'text') {
-                            <mat-form-field appearance="outline" class="full-width">
-                              <mat-label>{{ field.label }}</mat-label>
-                              <input matInput [(ngModel)]="tool.config[field.key]" 
-                                     [placeholder]="field.placeholder || ''">
-                              @if (field.hint) {
-                                <mat-hint>{{ field.hint }}</mat-hint>
+                              @case ('text') {
+                                <mat-form-field appearance="outline" class="full-width">
+                                  <mat-label>{{ field.label }}</mat-label>
+                                  <input matInput [(ngModel)]="tool.config[field.key]" 
+                                         [placeholder]="field.placeholder || ''">
+                                  @if (field.hint) {
+                                    <mat-hint>{{ field.hint }}</mat-hint>
+                                  }
+                                </mat-form-field>
                               }
-                            </mat-form-field>
-                          } @else if (field.type === 'number') {
-                            <mat-form-field appearance="outline" class="full-width">
-                              <mat-label>{{ field.label }}</mat-label>
-                              <input matInput type="number" [(ngModel)]="tool.config[field.key]" 
-                                     [placeholder]="field.placeholder || ''">
-                              @if (field.hint) {
-                                <mat-hint>{{ field.hint }}</mat-hint>
+                              @case ('password') {
+                                <mat-form-field appearance="outline" class="full-width">
+                                  <mat-label>{{ field.label }}</mat-label>
+                                  <input matInput type="password" [(ngModel)]="tool.config[field.key]" 
+                                         [placeholder]="field.placeholder || ''">
+                                  @if (field.hint) {
+                                    <mat-hint>{{ field.hint }}</mat-hint>
+                                  }
+                                </mat-form-field>
                               }
-                            </mat-form-field>
+                              @case ('number') {
+                                <mat-form-field appearance="outline" class="full-width">
+                                  <mat-label>{{ field.label }}</mat-label>
+                                  <input matInput type="number" [(ngModel)]="tool.config[field.key]" 
+                                         [placeholder]="field.placeholder || ''"
+                                         [attr.min]="field.validation?.min ?? null"
+                                         [attr.max]="field.validation?.max ?? null">
+                                  @if (field.hint) {
+                                    <mat-hint>{{ field.hint }}</mat-hint>
+                                  }
+                                </mat-form-field>
+                              }
+                              @case ('boolean') {
+                                <div class="boolean-field">
+                                  <mat-slide-toggle [(ngModel)]="tool.config[field.key]">
+                                    {{ field.label }}
+                                  </mat-slide-toggle>
+                                  @if (field.hint) {
+                                    <p class="field-hint">{{ field.hint }}</p>
+                                  }
+                                </div>
+                              }
+                            }
                           }
                         }
                       </div>
@@ -692,6 +789,38 @@ interface ConfigField {
       gap: 8px;
       margin-top: 16px;
     }
+
+    /* Category filter */
+    .category-filter {
+      margin-top: 16px;
+    }
+
+    .category-filter mat-chip-option {
+      text-transform: capitalize;
+    }
+
+    /* Boolean field styling */
+    .boolean-field {
+      display: flex;
+      flex-direction: column;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.08);
+    }
+
+    .boolean-field mat-slide-toggle {
+      font-size: 14px;
+    }
+
+    .field-hint {
+      margin: 4px 0 0 0;
+      font-size: 12px;
+      color: #666;
+    }
+
+    /* Execution category styling */
+    .tool-icon.execution { 
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); 
+    }
   `]
 })
 export class ToolsComponent implements OnInit {
@@ -707,10 +836,13 @@ export class ToolsComponent implements OnInit {
   refreshingConnections = signal(false);
   toolResult = signal<any>(null);
   
-  // Core tools config
+  // Core tools config (ahora dinámico desde backend)
   coreToolConfigs = signal<CoreToolConfig[]>([]);
+  configurableTools = signal<ConfigurableTool[]>([]);
   loadingCoreConfig = signal(false);
   savingToolConfig = signal<string | null>(null);
+  toolCategories = signal<string[]>([]);
+  selectedCategory = signal<string | null>(null);
 
   generatingConnectionId = '';
   searchTerm = '';
@@ -727,146 +859,121 @@ export class ToolsComponent implements OnInit {
   loadCoreToolConfigs(): void {
     this.loadingCoreConfig.set(true);
     
-    // Por ahora, definir configuración localmente (TODO: cargar desde backend)
-    const defaultConfigs: CoreToolConfig[] = [
-      {
-        id: 'generate_image',
-        name: 'Generación de Imágenes',
-        description: 'Configura el proveedor para generar imágenes con IA',
-        icon: 'image',
-        category: 'media',
-        config: {
-          provider: 'openai',
-          model: 'dall-e-3',
-          size: '1024x1024',
-          quality: 'standard',
-          style: 'vivid'
-        },
-        configSchema: [
-          {
-            key: 'provider',
-            label: 'Proveedor',
-            type: 'select',
-            options: [
-              { value: 'openai', label: 'OpenAI (DALL-E)' },
-              { value: 'replicate', label: 'Replicate (Flux/SD)' },
-              { value: 'stability', label: 'Stability AI' }
-            ],
-            hint: 'API para generar imágenes'
-          },
-          {
-            key: 'model',
-            label: 'Modelo',
-            type: 'select',
-            options: [
-              { value: 'dall-e-3', label: 'DALL-E 3 (mejor calidad)' },
-              { value: 'dall-e-2', label: 'DALL-E 2 (más rápido)' },
-              { value: 'flux-schnell', label: 'Flux Schnell' },
-              { value: 'sdxl', label: 'Stable Diffusion XL' }
-            ]
-          },
-          {
-            key: 'size',
-            label: 'Tamaño por defecto',
-            type: 'select',
-            options: [
-              { value: '1024x1024', label: '1024x1024 (Cuadrado)' },
-              { value: '1792x1024', label: '1792x1024 (Paisaje)' },
-              { value: '1024x1792', label: '1024x1792 (Retrato)' }
-            ]
-          },
-          {
-            key: 'quality',
-            label: 'Calidad',
-            type: 'select',
-            options: [
-              { value: 'standard', label: 'Estándar' },
-              { value: 'hd', label: 'HD (más detalle)' }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'analyze_image',
-        name: 'Análisis de Imágenes',
-        description: 'Configura el modelo visual para analizar imágenes',
-        icon: 'visibility',
-        category: 'ai',
-        config: {
-          provider: 'openai',
-          model: 'gpt-4o'
-        },
-        configSchema: [
-          {
-            key: 'provider',
-            label: 'Proveedor',
-            type: 'select',
-            options: [
-              { value: 'openai', label: 'OpenAI (GPT-4o)' },
-              { value: 'ollama', label: 'Ollama (LLaVA)' },
-              { value: 'anthropic', label: 'Anthropic (Claude)' }
-            ]
-          },
-          {
-            key: 'model',
-            label: 'Modelo',
-            type: 'text',
-            placeholder: 'gpt-4o, llava, claude-3-5-sonnet',
-            hint: 'Modelo con capacidad visual'
-          }
-        ]
-      },
-      {
-        id: 'web_search',
-        name: 'Búsqueda Web',
-        description: 'Configura el proveedor de búsqueda web',
-        icon: 'search',
-        category: 'web',
-        config: {
-          provider: 'tavily',
-          max_results: 10
-        },
-        configSchema: [
-          {
-            key: 'provider',
-            label: 'Proveedor',
-            type: 'select',
-            options: [
-              { value: 'tavily', label: 'Tavily (recomendado)' },
-              { value: 'serper', label: 'Serper (Google)' },
-              { value: 'duckduckgo', label: 'DuckDuckGo (gratis)' }
-            ]
-          },
-          {
-            key: 'max_results',
-            label: 'Resultados máximos',
-            type: 'number',
-            placeholder: '10'
-          }
-        ]
-      }
-    ];
-    
-    // Cargar config guardada desde el backend
-    this.http.get<any>(`${environment.apiUrl}/tools/config`)
+    // Cargar herramientas configurables dinámicamente desde el backend
+    this.http.get<any>(`${environment.apiUrl}/tools/configurable?include_admin=false`)
       .subscribe({
         next: (response) => {
-          // Mezclar configuración guardada con defaults
-          const savedConfigs = response.configs || {};
-          defaultConfigs.forEach(tool => {
-            if (savedConfigs[tool.id]) {
-              tool.config = { ...tool.config, ...savedConfigs[tool.id] };
-            }
-          });
-          this.coreToolConfigs.set(defaultConfigs);
+          const tools = response.tools || [];
+          this.configurableTools.set(tools);
+          this.toolCategories.set(response.categories || []);
+          
+          // Convertir al formato CoreToolConfig para compatibilidad con el template actual
+          const coreConfigs: CoreToolConfig[] = tools.map((tool: ConfigurableTool) => ({
+            id: tool.id,
+            name: tool.display_name,
+            description: tool.description,
+            icon: tool.icon,
+            category: tool.category,
+            config: tool.config,
+            configSchema: tool.config_schema
+          }));
+          
+          this.coreToolConfigs.set(coreConfigs);
           this.loadingCoreConfig.set(false);
         },
-        error: () => {
-          // Si falla, usar defaults
-          this.coreToolConfigs.set(defaultConfigs);
+        error: (err) => {
+          console.error('Error loading configurable tools:', err);
+          // Si falla, mostrar array vacío
+          this.coreToolConfigs.set([]);
           this.loadingCoreConfig.set(false);
         }
       });
+  }
+  
+  /**
+   * Determina si un campo debe mostrarse basándose en visible_when
+   */
+  shouldShowField(field: ConfigField, config: Record<string, any>): boolean {
+    if (!field.visible_when) {
+      return true;
+    }
+    
+    const condition = field.visible_when;
+    const currentValue = config[condition.field];
+    
+    // Condición: valor específico
+    if (condition.value !== undefined) {
+      return currentValue === condition.value;
+    }
+    
+    // Condición: lista de valores
+    if (condition.values !== undefined) {
+      return condition.values.includes(currentValue);
+    }
+    
+    // Condición: NOT valor específico
+    if (condition.not_value !== undefined) {
+      return currentValue !== condition.not_value;
+    }
+    
+    // Condición: NOT lista de valores
+    if (condition.not_values !== undefined) {
+      return !condition.not_values.includes(currentValue);
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Obtiene las opciones para un campo, considerando dynamic_options
+   */
+  getFieldOptions(field: ConfigField, config: Record<string, any>): { value: string; label: string }[] {
+    // Si tiene opciones dinámicas, usarlas basándose en el campo padre
+    if (field.options_depend_on && field.dynamic_options) {
+      const parentValue = config[field.options_depend_on] || '';
+      const dynamicOpts = field.dynamic_options[parentValue];
+      if (dynamicOpts) {
+        return dynamicOpts;
+      }
+      // Fallback a opciones estáticas si no hay match
+    }
+    
+    // Opciones estáticas
+    return field.options || [];
+  }
+  
+  /**
+   * Agrupa campos por su propiedad group
+   */
+  getFieldGroups(fields: ConfigField[]): Map<string, ConfigField[]> {
+    const groups = new Map<string, ConfigField[]>();
+    
+    // Ordenar por order primero
+    const sorted = [...fields].sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    for (const field of sorted) {
+      const groupName = field.group || 'General';
+      if (!groups.has(groupName)) {
+        groups.set(groupName, []);
+      }
+      groups.get(groupName)!.push(field);
+    }
+    
+    return groups;
+  }
+  
+  /**
+   * Filtra herramientas por categoría
+   */
+  getFilteredTools(): CoreToolConfig[] {
+    const tools = this.coreToolConfigs();
+    const category = this.selectedCategory();
+    
+    if (!category) {
+      return tools;
+    }
+    
+    return tools.filter(t => t.category === category);
   }
   
   saveCoreToolConfig(tool: CoreToolConfig): void {

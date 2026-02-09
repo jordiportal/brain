@@ -58,19 +58,38 @@ export class ConfigService {
   }
 
   createLlmProvider(data: Partial<LlmProvider>): Observable<LlmProvider> {
-    // Por ahora, los creates no están implementados en la API
-    console.warn('createLlmProvider not implemented - use database directly');
-    return of(data as LlmProvider);
+    return this.http.post<any>(`${this.API_URL}/config/llm-providers`, data)
+      .pipe(
+        map(p => this.mapProviderResponse(p)),
+        catchError(err => {
+          console.error('Error creating LLM provider:', err);
+          throw err;
+        })
+      );
   }
 
   updateLlmProvider(documentId: string, data: Partial<LlmProvider>): Observable<LlmProvider> {
-    console.warn('updateLlmProvider not implemented - use database directly');
-    return of(data as LlmProvider);
+    // documentId puede ser el ID numérico como string
+    const id = parseInt(documentId, 10) || documentId;
+    return this.http.put<any>(`${this.API_URL}/config/llm-providers/${id}`, data)
+      .pipe(
+        map(p => this.mapProviderResponse(p)),
+        catchError(err => {
+          console.error('Error updating LLM provider:', err);
+          throw err;
+        })
+      );
   }
 
   deleteLlmProvider(documentId: string): Observable<void> {
-    console.warn('deleteLlmProvider not implemented - use database directly');
-    return of(undefined);
+    const id = parseInt(documentId, 10) || documentId;
+    return this.http.delete<void>(`${this.API_URL}/config/llm-providers/${id}`)
+      .pipe(
+        catchError(err => {
+          console.error('Error deleting LLM provider:', err);
+          throw err;
+        })
+      );
   }
 
   private mapProviderResponse(p: any): LlmProvider {

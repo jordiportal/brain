@@ -54,7 +54,7 @@ class DelegateHandler(ToolHandler):
         
         agent_name = args.get("agent", "unknown")
         
-        # Manejar imágenes de media_agent
+        # Manejar imágenes de media_agent / designer_agent
         if result.get("images"):
             for img in result["images"]:
                 if img.get("url"):
@@ -80,6 +80,11 @@ class DelegateHandler(ToolHandler):
                             "alt_text": img.get("prompt", "Generated image")
                         }
                     ))
+            
+            # Si hay imágenes, es terminal - la tarea está completa
+            is_terminal = True
+            num_images = len(result["images"])
+            final_answer = result.get("response", f"He generado {num_images} imagen(es).")
         
         # Manejar Brain Events de slides_agent (legacy)
         response_text = result.get("response", "")

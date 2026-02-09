@@ -96,6 +96,7 @@ class AdaptiveExecutor:
         self.tool_results: list[dict] = []
         self.final_answer: Optional[str] = None
         self.execution_complete = False
+        self.images: list[dict] = []  # Imágenes generadas durante ejecución
         
         # Detectores y emitters
         self.loop_detector = LoopDetector(max_consecutive=3)
@@ -362,9 +363,18 @@ class AdaptiveExecutor:
         # Procesar resultado con handler
         result = await handler.process_result(raw_result, args)
         
-        # Emitir eventos del handler
+        # Emitir eventos del handler y capturar imágenes
         for event in result.events:
             yield event
+            # Capturar imágenes para incluir en resultado final
+            if hasattr(event, 'event_type') and event.event_type == "image":
+                img_data = event.data or {}
+                self.images.append({
+                    "url": img_data.get("image_url"),
+                    "base64": img_data.get("image_data"),
+                    "mime_type": img_data.get("mime_type", "image/png"),
+                    "alt_text": img_data.get("alt_text", "Generated image")
+                })
         
         # Brain Events post-tool
         results_count = self.brain_emitter.get_results_count(tool_name, raw_result)

@@ -1,0 +1,27 @@
+{
+  "generate_image": {
+    "provider": "gemini",
+    "model": "",
+    "aspect_ratio": "1:1",
+    "resolution": "1K",
+    "size": "1024x1024",
+    "quality": "standard",
+    "style": "vivid",
+    "negative_prompt": ""
+  },
+  "analyze_image": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "llm_url": "http://localhost:11434",
+    "default_analysis_type": "describe",
+    "detail_level": "high"
+  },
+  "web_search": {
+    "provider": "openai",
+    "api_key": "",
+    "max_results": 5,
+    "search_depth": "basic",
+    "include_domains": "",
+    "exclude_domains": ""
+  }
+}

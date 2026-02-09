@@ -25,8 +25,8 @@ export class AuthService {
     private http: HttpClient,
     private router: Router
   ) {
-    // Verificar token al iniciar
-    this.checkAuthStatus();
+    // Verificar token de forma diferida para evitar dependencia circular con interceptor
+    setTimeout(() => this.checkAuthStatus(), 0);
   }
 
   /**

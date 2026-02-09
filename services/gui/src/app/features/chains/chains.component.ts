@@ -18,7 +18,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatExpansionModule } from '@angular/material/expansion';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml, SafeUrl } from '@angular/platform-browser';
 import { ApiService } from '../../core/services/api.service';
 import { StrapiService } from '../../core/services/config.service';
 import { LlmProvider } from '../../core/models';
@@ -394,7 +394,7 @@ interface ImageData {
                                 <div class="generated-images">
                                   @for (img of msg.images; track $index) {
                                     <img 
-                                      [src]="img.url || ('data:' + img.mimeType + ';base64,' + img.base64)"
+                                      [src]="sanitizeImageUrl(img.url, img.base64, img.mimeType)"
                                       [alt]="img.altText"
                                       class="generated-image"
                                       loading="lazy"
@@ -1010,6 +1010,7 @@ export class ChainsComponent implements OnInit {
   private apiService = inject(ApiService);
   private strapiService = inject(StrapiService);
   private snackBar = inject(MatSnackBar);
+  private sanitizer = inject(DomSanitizer);
 
   @ViewChild(MatTabGroup) tabGroup!: MatTabGroup;
   @ViewChild('messagesContainer') messagesContainer!: ElementRef;
@@ -1254,17 +1255,26 @@ export class ChainsComponent implements OnInit {
     this.messages.update(msgs => [...msgs, assistantMessage]);
     this.currentAssistantMessage.set(assistantMessage);
 
+    let buffer = '';  // Buffer para acumular datos parciales
+    
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
+      buffer += chunk;
+      
+      // Procesar solo líneas completas (terminan en \n\n para SSE)
+      const parts = buffer.split('\n\n');
+      // Guardar la última parte incompleta en el buffer
+      buffer = parts.pop() || '';
+      
+      for (const part of parts) {
+        const lines = part.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
             
             if (data.event_type === 'node_start') {
               // Nuevo paso iniciado
@@ -1293,7 +1303,7 @@ export class ChainsComponent implements OnInit {
               stepContentBuffer = '';
               
               this.currentStep.set(data);
-              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
               this.scrollToBottom();
               
             } else if (data.event_type === 'token' && data.content) {
@@ -1301,13 +1311,13 @@ export class ChainsComponent implements OnInit {
               const isFinalResponse = data.node_id === 'synthesizer' || data.node_id === 'adaptive_agent' || !data.node_id;
               if (isFinalResponse) {
                 finalContent += data.content;
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
               } else if (currentStepId && this.activeSteps.has(currentStepId)) {
                 // Token de paso intermedio (tool, subagente, conversación interna)
                 stepContentBuffer += data.content;
                 const step = this.activeSteps.get(currentStepId)!;
                 step.content = stepContentBuffer;
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
               }
               this.scrollToBottom();
               
@@ -1337,7 +1347,7 @@ export class ChainsComponent implements OnInit {
               }
               
               currentStepId = null;
-              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
               
             } else if (data.event_type === 'image') {
               // Imagen generada - añadir al array de imágenes
@@ -1350,7 +1360,7 @@ export class ChainsComponent implements OnInit {
                 };
                 assistantMessage.images = assistantMessage.images || [];
                 assistantMessage.images.push(imageData);
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true);
+                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images);
               }
               
             } else if (data.event_type === 'end') {
@@ -1366,14 +1376,15 @@ export class ChainsComponent implements OnInit {
               }
             }
           } catch (e) {
-            // Ignore parse errors
+            // Ignorar errores de parseo (chunks parciales)
           }
         }
       }
     }
+    }
 
-    // Finalizar mensaje
-    this.updateAssistantMessage(finalContent, intermediateSteps, tokens, false);
+    // Finalizar mensaje - pasar explícitamente las imágenes acumuladas
+    this.updateAssistantMessage(finalContent, intermediateSteps, tokens, false, assistantMessage.images);
     this.scrollToBottom();
   }
 
@@ -1425,7 +1436,8 @@ export class ChainsComponent implements OnInit {
     content: string, 
     steps: IntermediateStep[], 
     tokens: number,
-    isStreaming: boolean
+    isStreaming: boolean,
+    images?: ImageData[]
   ): void {
     this.messages.update(msgs => {
       const newMsgs = [...msgs];
@@ -1437,7 +1449,8 @@ export class ChainsComponent implements OnInit {
           content,
           intermediateSteps: [...steps],
           tokens,
-          isStreaming
+          isStreaming,
+          images: images || lastMsg.images || []
         };
       }
       
@@ -1562,5 +1575,22 @@ export class ChainsComponent implements OnInit {
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener');
+  }
+
+  /** Sanitiza una URL de imagen (HTTP o data URL) para uso seguro */
+  sanitizeImageUrl(url: string | undefined, base64?: string, mimeType?: string): SafeUrl {
+    // Si hay URL directa (puede ser HTTP o data URL)
+    if (url) {
+      if (url.startsWith('data:')) {
+        return this.sanitizer.bypassSecurityTrustUrl(url);
+      }
+      return url;
+    }
+    // Si hay base64, construir data URL
+    if (base64) {
+      const dataUrl = `data:${mimeType || 'image/png'};base64,${base64}`;
+      return this.sanitizer.bypassSecurityTrustUrl(dataUrl);
+    }
+    return '';
   }
 }

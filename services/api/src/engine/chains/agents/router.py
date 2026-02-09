@@ -2,6 +2,8 @@
 Router para gestión de Subagentes Especializados
 
 Endpoints para listar, configurar y probar subagentes.
+La configuración de cada subagente (incluyendo LLM provider/modelo) se persiste
+en la tabla subagent_configs de PostgreSQL.
 """
 
 from typing import Optional, Dict, Any, List
@@ -30,13 +32,9 @@ class SubagentConfigUpdate(BaseModel):
     """Request para actualizar configuración de un subagente"""
     enabled: bool = True
     system_prompt: Optional[str] = None
-    # LLM para razonamiento del agente
-    llm_provider: Optional[str] = None
-    llm_model: Optional[str] = None
-    llm_url: Optional[str] = None
-    # Proveedor específico de herramientas (ej: DALL-E para imágenes)
-    default_provider: Optional[str] = None
-    default_model: Optional[str] = None
+    # LLM para razonamiento del agente - referencia al ID del provider en BD
+    llm_provider: Optional[int] = None  # ID del provider en llm_providers
+    llm_model: Optional[str] = None  # Override del modelo (vacío = usar default del provider)
     settings: Dict[str, Any] = {}
 
 
@@ -150,7 +148,10 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
     """
     Ejecuta una tarea en un subagente específico.
     
-    Útil para probar subagentes directamente sin pasar por el Adaptive Agent.
+    Prioridad de configuración LLM:
+    1. Valores explícitos en la request
+    2. Configuración guardada del subagente
+    3. Provider por defecto del sistema
     """
     if not subagent_registry.is_initialized():
         register_all_subagents()
@@ -162,20 +163,45 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
             detail=f"Subagente no encontrado: {agent_id}"
         )
     
+    # Obtener configuración guardada del subagente desde BD
+    config = await _get_agent_config(agent_id)
+    
+    # Resolver LLM: prioridad request > config guardada > default
+    llm_url = request.llm_url
+    model = request.model
+    provider_type = request.provider_type
+    api_key = request.api_key
+    
+    # Si no hay valores en request, usar configuración guardada
+    if not llm_url and config.get("llm_provider"):
+        provider_info = await _resolve_llm_provider(config["llm_provider"])
+        if provider_info:
+            llm_url = provider_info.get("base_url")
+            model = config.get("llm_model") or provider_info.get("default_model")
+            provider_type = provider_info.get("type", "ollama")
+            api_key = provider_info.get("api_key")
+            logger.info(
+                f"🔧 Using saved config for {agent_id}",
+                provider_id=config["llm_provider"],
+                model=model
+            )
+    
     logger.info(
         f"🎯 Direct execution of subagent",
         agent_id=agent_id,
-        task=request.task[:100]
+        task=request.task[:100],
+        llm_url=llm_url,
+        model=model
     )
     
     try:
         result = await agent.execute(
             task=request.task,
             context=request.context,
-            llm_url=request.llm_url,
-            model=request.model,
-            provider_type=request.provider_type,
-            api_key=request.api_key
+            llm_url=llm_url,
+            model=model,
+            provider_type=provider_type,
+            api_key=api_key
         )
         
         return {
@@ -242,7 +268,7 @@ async def test_subagent(agent_id: str):
 
 @router.get("/{agent_id}/config")
 async def get_subagent_config(agent_id: str):
-    """Obtiene la configuración actual de un subagente"""
+    """Obtiene la configuración actual de un subagente desde PostgreSQL"""
     if not subagent_registry.is_initialized():
         register_all_subagents()
     
@@ -253,11 +279,12 @@ async def get_subagent_config(agent_id: str):
             detail=f"Subagente no encontrado: {agent_id}"
         )
     
-    # TODO: Cargar configuración desde Strapi
-    config = _get_agent_config(agent_id)
+    # Cargar configuración desde BD
+    config = await _get_agent_config(agent_id)
     
-    # Añadir system_prompt del agente
-    config["system_prompt"] = agent.system_prompt
+    # Añadir system_prompt del agente (si no hay override en BD)
+    if not config.get("system_prompt"):
+        config["system_prompt"] = agent.system_prompt
     
     return {
         "agent_id": agent_id,
@@ -267,7 +294,9 @@ async def get_subagent_config(agent_id: str):
 
 @router.put("/{agent_id}/config")
 async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
-    """Actualiza la configuración de un subagente"""
+    """Actualiza la configuración de un subagente en PostgreSQL (incluyendo LLM provider/modelo)"""
+    from src.db.repositories import SubagentConfigRepository
+    
     if not subagent_registry.is_initialized():
         register_all_subagents()
     
@@ -278,7 +307,7 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
             detail=f"Subagente no encontrado: {agent_id}"
         )
     
-    # Actualizar system_prompt si se proporciona
+    # Actualizar system_prompt en memoria del agente si se proporciona
     if config.system_prompt is not None:
         agent.system_prompt = config.system_prompt
         logger.info(
@@ -286,22 +315,44 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
             prompt_length=len(config.system_prompt)
         )
     
-    # TODO: Guardar configuración completa en Strapi
-    logger.info(
-        f"📝 Updating subagent config",
-        agent_id=agent_id,
-        enabled=config.enabled
-    )
-    
-    return {
-        "status": "ok",
-        "message": f"Configuración de {agent_id} actualizada",
-        "agent_id": agent_id,
-        "updated": {
-            "system_prompt": config.system_prompt is not None,
-            "enabled": config.enabled
+    try:
+        # Guardar configuración completa en PostgreSQL con UPSERT
+        saved_config = await SubagentConfigRepository.upsert(
+            agent_id=agent_id,
+            is_enabled=config.enabled,
+            llm_provider_id=config.llm_provider,
+            llm_model=config.llm_model,
+            system_prompt=config.system_prompt,
+            settings=config.settings
+        )
+        
+        logger.info(
+            f"📝 Subagent config saved to PostgreSQL",
+            agent_id=agent_id,
+            enabled=config.enabled,
+            llm_provider=config.llm_provider,
+            llm_model=config.llm_model,
+            config_id=saved_config.id
+        )
+        
+        return {
+            "status": "ok",
+            "message": f"Configuración de {agent_id} guardada en BD",
+            "agent_id": agent_id,
+            "config_id": saved_config.id,
+            "updated": {
+                "system_prompt": config.system_prompt is not None,
+                "enabled": config.enabled,
+                "llm_provider": config.llm_provider,
+                "llm_model": config.llm_model
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"Error saving subagent config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error guardando configuración: {str(e)}"
+        )
 
 
 # ============================================
@@ -696,41 +747,85 @@ def _get_agent_icon(agent_id: str) -> str:
     return icons.get(agent_id, "smart_toy")
 
 
-def _get_agent_config(agent_id: str) -> Dict[str, Any]:
-    """Obtiene configuración de un subagente (placeholder para Strapi)"""
-    # TODO: Implementar lectura desde Strapi
+async def _get_agent_config(agent_id: str) -> Dict[str, Any]:
+    """Obtiene configuración de un subagente desde PostgreSQL o retorna defaults"""
+    from src.db.repositories import SubagentConfigRepository
     
-    # Configuración base común a todos los subagentes
-    # NOTA: La configuración de herramientas (DALL-E, etc.) está en /tools/config
+    try:
+        # Buscar configuración guardada en BD
+        db_config = await SubagentConfigRepository.get_by_agent_id(agent_id)
+        
+        if db_config:
+            return {
+                "enabled": db_config.is_enabled,
+                "llm_provider": db_config.llm_provider_id,
+                "llm_model": db_config.llm_model,
+                "system_prompt": db_config.system_prompt,
+                "settings": db_config.settings or {}
+            }
+    except Exception as e:
+        logger.warning(f"Error loading config from DB for {agent_id}: {e}")
+    
+    # Defaults si no hay configuración en BD
     base_config = {
         "enabled": True,
-        "llm_provider": "ollama",
-        "llm_model": "llama3.3",
-        "llm_url": "http://localhost:11434",
+        "llm_provider": None,  # Null = usar provider por defecto
+        "llm_model": None,  # Null = usar modelo por defecto del provider
+        "system_prompt": None,
         "settings": {}
     }
     
-    # Configuraciones específicas por agente (solo LLM y settings del agente)
-    agent_configs = {
+    # Configuraciones específicas por agente (defaults)
+    default_configs = {
         "designer_agent": {
             **base_config,
-            "llm_model": "llama3.3",  # Modelo con buena capacidad para diseño
             "settings": {}
         },
         "researcher_agent": {
             **base_config,
-            "llm_model": "llama3.3",
             "settings": {
                 "search_depth": "comprehensive"
             }
         },
         "communication_agent": {
             **base_config,
-            "llm_model": "llama3.3",
             "settings": {
                 "default_tone": "professional"
             }
         }
     }
     
-    return agent_configs.get(agent_id, base_config)
+    return default_configs.get(agent_id, base_config)
+
+
+async def _resolve_llm_provider(provider_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Resuelve un provider ID a su configuración completa desde la BD.
+    
+    Args:
+        provider_id: ID del provider en llm_providers
+        
+    Returns:
+        Dict con base_url, default_model, type, api_key o None si no existe
+    """
+    try:
+        from src.db.repositories import LLMProviderRepository
+        
+        provider = await LLMProviderRepository.get_by_id(provider_id)
+        
+        if not provider:
+            logger.warning(f"Provider {provider_id} not found in database")
+            return None
+        
+        return {
+            "id": provider.id,
+            "base_url": provider.base_url,
+            "default_model": provider.default_model,
+            "type": provider.type or "ollama",
+            "api_key": provider.api_key,
+            "name": provider.name
+        }
+            
+    except Exception as e:
+        logger.error(f"Error resolving provider {provider_id}: {e}")
+        return None

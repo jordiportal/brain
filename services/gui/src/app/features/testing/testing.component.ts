@@ -456,6 +456,32 @@ export class MarkdownPipe implements PipeTransform {
     /* Estilos para Markdown */
     .markdown-content {
       ::ng-deep {
+        /* Bloque de pensamiento (reasoning) */
+        .thinking-block {
+          background: linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%);
+          border-left: 4px solid #7c4dff;
+          border-radius: 0 12px 12px 0;
+          padding: 16px;
+          margin-bottom: 16px;
+          font-size: 0.9em;
+          
+          .thinking-header {
+            font-weight: 600;
+            color: #7c4dff;
+            margin-bottom: 12px;
+            font-size: 0.95em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+          
+          .thinking-content {
+            color: #555;
+            line-height: 1.6;
+            white-space: pre-wrap;
+          }
+        }
+        
         p {
           margin: 0 0 12px;
           &:last-child { margin-bottom: 0; }
@@ -679,9 +705,18 @@ export class TestingComponent implements OnInit {
   loadModels(): void {
     if (!this.selectedProvider) return;
 
+    // Pasar provider_type y api_key para providers que lo requieren (OpenAI-compatible, etc.)
+    const params: any = { 
+      provider_url: this.selectedProvider.baseUrl,
+      provider_type: this.selectedProvider.type || 'ollama'
+    };
+    if (this.selectedProvider.apiKey) {
+      params.api_key = this.selectedProvider.apiKey;
+    }
+
     this.http.get<{ models: { name: string }[] }>(
       `${this.API_URL}/llm/models`,
-      { params: { provider_url: this.selectedProvider.baseUrl } }
+      { params }
     ).subscribe({
       next: (response) => {
         const models = response.models.map(m => m.name);

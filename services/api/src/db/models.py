@@ -165,3 +165,19 @@ class MCPConnection(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class SubagentConfig(BaseModel):
+    """Subagent configuration (LLM provider, model, settings)."""
+    id: int
+    agent_id: str  # designer_agent, researcher_agent, etc.
+    is_enabled: bool = True
+    llm_provider_id: Optional[int] = None  # FK to llm_providers
+    llm_model: Optional[str] = None  # Override del modelo (vacío = default del provider)
+    system_prompt: Optional[str] = None  # Override del prompt
+    settings: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True

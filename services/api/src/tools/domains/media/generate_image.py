@@ -2,7 +2,8 @@
 Generate Image Tool - Generación de imágenes con múltiples proveedores
 
 Proveedores soportados:
-- openai: DALL-E 3
+- gemini: Nano Banana (gemini-2.5-flash-image, gemini-3-pro-image-preview) - Google
+- openai: DALL-E 3, DALL-E 2
 - replicate: Stable Diffusion, Flux
 - local: Modelos locales vía ComfyUI/Automatic1111
 """
@@ -17,6 +18,15 @@ logger = structlog.get_logger()
 
 # Configuración de proveedores
 IMAGE_PROVIDERS = {
+    "gemini": {
+        "api_url": "https://generativelanguage.googleapis.com/v1beta/models",
+        "models": ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"],
+        "default_model": "gemini-2.5-flash-image",
+        "aspect_ratios": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+        "default_aspect_ratio": "1:1",
+        "resolutions": ["1K", "2K", "4K"],  # Solo para gemini-3-pro-image-preview
+        "default_resolution": "1K"
+    },
     "openai": {
         "api_url": "https://api.openai.com/v1/images/generations",
         "models": ["dall-e-3", "dall-e-2"],
@@ -32,19 +42,42 @@ IMAGE_PROVIDERS = {
 }
 
 
-async def _get_openai_api_key() -> Optional[str]:
-    """Obtiene la API key de OpenAI desde Strapi o variables de entorno"""
+async def _get_gemini_api_key() -> Optional[str]:
+    """Obtiene la API key de Gemini desde la BD o variables de entorno"""
     
-    # Primero intentar desde Strapi
+    # Primero intentar desde la BD (providers)
+    try:
+        from src.providers.llm_provider import get_provider_by_type
+        
+        gemini_provider = await get_provider_by_type("gemini")
+        if gemini_provider and gemini_provider.api_key:
+            logger.debug("Gemini API key loaded from database for image generation")
+            return gemini_provider.api_key
+    except Exception as e:
+        logger.warning(f"Could not load Gemini provider from database: {e}")
+    
+    # Fallback a variable de entorno
+    env_key = os.getenv("GEMINI_API_KEY")
+    if env_key:
+        logger.debug("Gemini API key loaded from environment")
+        return env_key
+    
+    return None
+
+
+async def _get_openai_api_key() -> Optional[str]:
+    """Obtiene la API key de OpenAI desde la BD o variables de entorno"""
+    
+    # Primero intentar desde la BD (providers)
     try:
         from src.providers.llm_provider import get_provider_by_type
         
         openai_provider = await get_provider_by_type("openai")
         if openai_provider and openai_provider.api_key:
-            logger.debug("OpenAI API key loaded from Strapi for image generation")
+            logger.debug("OpenAI API key loaded from database for image generation")
             return openai_provider.api_key
     except Exception as e:
-        logger.warning(f"Could not load OpenAI provider from Strapi: {e}")
+        logger.warning(f"Could not load OpenAI provider from database: {e}")
     
     # Fallback a variable de entorno
     env_key = os.getenv("OPENAI_API_KEY")
@@ -80,9 +113,11 @@ async def _get_replicate_api_key() -> Optional[str]:
 
 async def generate_image(
     prompt: str,
-    provider: Literal["openai", "replicate", "auto"] = "auto",
+    provider: Literal["gemini", "openai", "replicate", "auto"] = "auto",
     model: Optional[str] = None,
+    aspect_ratio: str = "1:1",
     size: str = "1024x1024",
+    resolution: str = "1K",
     quality: str = "standard",
     style: Optional[str] = None,
     negative_prompt: Optional[str] = None
@@ -92,12 +127,20 @@ async def generate_image(
     
     Args:
         prompt: Descripción detallada de la imagen a generar
-        provider: Proveedor a usar (openai, replicate, auto)
-        model: Modelo específico (dall-e-3, flux-schnell, etc.)
-        size: Tamaño de la imagen (1024x1024, 1792x1024, etc.)
+        provider: Proveedor a usar (gemini, openai, replicate, auto)
+                  - gemini: Nano Banana (Google) - mejor calidad y más rápido
+                  - openai: DALL-E 3/2
+                  - replicate: Flux/Stable Diffusion
+        model: Modelo específico:
+               - Gemini: gemini-2.5-flash-image (Nano Banana), gemini-3-pro-image-preview (Nano Banana Pro)
+               - OpenAI: dall-e-3, dall-e-2
+               - Replicate: flux-schnell, sdxl
+        aspect_ratio: Relación de aspecto (1:1, 16:9, 9:16, etc.) - para Gemini
+        size: Tamaño de la imagen (1024x1024, 1792x1024, etc.) - para OpenAI
+        resolution: Resolución (1K, 2K, 4K) - solo para gemini-3-pro-image-preview
         quality: Calidad (standard, hd) - solo para DALL-E 3
         style: Estilo (vivid, natural) - solo para DALL-E 3
-        negative_prompt: Lo que NO debe aparecer en la imagen
+        negative_prompt: Lo que NO debe aparecer en la imagen (solo Replicate)
     
     Returns:
         Dict con:
@@ -107,34 +150,45 @@ async def generate_image(
         - prompt: Prompt usado
         - provider: Proveedor usado
         - model: Modelo usado
-        - revised_prompt: Prompt revisado por el modelo (si aplica)
     """
     logger.info(
         "🎨 Generating image",
         prompt=prompt[:100],
         provider=provider,
-        model=model,
-        size=size
+        model=model
     )
     
     # Auto-selección de proveedor
     if provider == "auto":
-        # Preferir OpenAI si hay API key disponible (desde Strapi o env)
-        openai_key = await _get_openai_api_key()
-        if openai_key:
-            provider = "openai"
+        # Preferir Gemini (Nano Banana) si hay API key disponible
+        gemini_key = await _get_gemini_api_key()
+        if gemini_key:
+            provider = "gemini"
         else:
-            replicate_key = await _get_replicate_api_key()
-            if replicate_key:
-                provider = "replicate"
+            # Segundo: OpenAI
+            openai_key = await _get_openai_api_key()
+            if openai_key:
+                provider = "openai"
             else:
-                return {
-                    "success": False,
-                    "error": "No hay API key configurada para generación de imágenes. Configure OPENAI_API_KEY en Strapi (Providers) o REPLICATE_API_TOKEN."
-                }
+                # Tercero: Replicate
+                replicate_key = await _get_replicate_api_key()
+                if replicate_key:
+                    provider = "replicate"
+                else:
+                    return {
+                        "success": False,
+                        "error": "No hay API key configurada para generación de imágenes. Configure GEMINI_API_KEY, OPENAI_API_KEY o REPLICATE_API_TOKEN en Providers."
+                    }
     
     try:
-        if provider == "openai":
+        if provider == "gemini":
+            return await _generate_with_gemini(
+                prompt=prompt,
+                model=model or "gemini-2.5-flash-image",
+                aspect_ratio=aspect_ratio,
+                resolution=resolution
+            )
+        elif provider == "openai":
             return await _generate_with_openai(
                 prompt=prompt,
                 model=model or "dall-e-3",
@@ -235,6 +289,116 @@ async def _generate_with_openai(
         return result
 
 
+async def _generate_with_gemini(
+    prompt: str,
+    model: str = "gemini-2.5-flash-image",
+    aspect_ratio: str = "1:1",
+    resolution: str = "1K"
+) -> Dict[str, Any]:
+    """Genera imagen con Gemini (Nano Banana) de Google.
+    
+    Modelos disponibles:
+    - gemini-2.5-flash-image: Nano Banana - rápido y eficiente
+    - gemini-3-pro-image-preview: Nano Banana Pro - mejor calidad, hasta 4K
+    
+    Documentación: https://ai.google.dev/gemini-api/docs/image-generation
+    """
+    
+    api_key = await _get_gemini_api_key()
+    if not api_key:
+        return {
+            "success": False,
+            "error": "GEMINI_API_KEY no configurada. Configure en Providers (tipo: gemini) o en variable de entorno."
+        }
+    
+    # Construir el payload según la API de Gemini
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt}
+            ]
+        }],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"]
+        }
+    }
+    
+    # Añadir configuración de imagen
+    image_config = {"aspectRatio": aspect_ratio}
+    
+    # Solo gemini-3-pro-image-preview soporta resoluciones mayores
+    if model == "gemini-3-pro-image-preview" and resolution in ["2K", "4K"]:
+        image_config["imageSize"] = resolution
+    
+    payload["generationConfig"]["imageConfig"] = image_config
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        response = await client.post(
+            url,
+            headers={
+                "x-goog-api-key": api_key,
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            error_data = response.json()
+            error_msg = error_data.get("error", {}).get("message", response.text)
+            return {
+                "success": False,
+                "error": error_msg,
+                "status_code": response.status_code
+            }
+        
+        data = response.json()
+        
+        # Extraer la imagen de la respuesta
+        result = {
+            "success": True,
+            "prompt": prompt,
+            "provider": "gemini",
+            "model": model,
+            "aspect_ratio": aspect_ratio
+        }
+        
+        # Procesar las partes de la respuesta
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for part in parts:
+                if "text" in part:
+                    result["text_response"] = part["text"]
+                elif "inlineData" in part:
+                    inline_data = part["inlineData"]
+                    mime_type = inline_data.get("mimeType", "image/png")
+                    image_b64 = inline_data.get("data", "")
+                    data_url = f"data:{mime_type};base64,{image_b64}"
+                    # Normalizar: image_url siempre presente (igual que OpenAI/Replicate)
+                    result["image_url"] = data_url
+                    # Campos adicionales específicos de Gemini (por si se necesitan)
+                    result["image_base64"] = image_b64
+                    result["mime_type"] = mime_type
+        
+        if not result.get("image_url"):
+            return {
+                "success": False,
+                "error": "No se generó imagen en la respuesta",
+                "raw_response": data
+            }
+        
+        logger.info(
+            "✅ Image generated with Gemini (Nano Banana)",
+            model=model,
+            aspect_ratio=aspect_ratio,
+            has_url=bool(result.get("image_url"))
+        )
+        
+        return result
+
+
 async def _generate_with_replicate(
     prompt: str,
     model: Optional[str] = None,
@@ -329,7 +493,16 @@ import asyncio
 GENERATE_IMAGE_TOOL = {
     "id": "generate_image",
     "name": "generate_image",
-    "description": "Genera una imagen a partir de una descripción en texto. Soporta DALL-E 3 (OpenAI) y Stable Diffusion/Flux (Replicate).",
+    "description": """Genera una imagen a partir de una descripción en texto.
+
+Proveedores disponibles:
+- gemini (Nano Banana): Google Gemini - mejor calidad, rápido, soporta múltiples aspect ratios
+  - gemini-2.5-flash-image: Nano Banana - rápido y eficiente
+  - gemini-3-pro-image-preview: Nano Banana Pro - mejor calidad, hasta 4K
+- openai: DALL-E 3/2 - clásico y fiable
+- replicate: Flux/Stable Diffusion - open source
+
+En modo 'auto' (por defecto), prioriza Gemini > OpenAI > Replicate según disponibilidad.""",
     "parameters": {
         "type": "object",
         "properties": {
@@ -339,30 +512,42 @@ GENERATE_IMAGE_TOOL = {
             },
             "provider": {
                 "type": "string",
-                "enum": ["openai", "replicate", "auto"],
+                "enum": ["gemini", "openai", "replicate", "auto"],
                 "default": "auto",
-                "description": "Proveedor de generación. 'auto' selecciona automáticamente según disponibilidad."
+                "description": "Proveedor: 'gemini' (Nano Banana), 'openai' (DALL-E), 'replicate' (Flux/SD), 'auto' (mejor disponible)."
             },
             "model": {
                 "type": "string",
-                "description": "Modelo específico (dall-e-3, dall-e-2, flux-schnell, sdxl). Si no se especifica, usa el mejor disponible."
+                "description": "Modelo específico. Gemini: gemini-2.5-flash-image (Nano Banana), gemini-3-pro-image-preview (Nano Banana Pro). DALL-E: dall-e-3, dall-e-2. Replicate: flux-schnell, sdxl."
+            },
+            "aspect_ratio": {
+                "type": "string",
+                "enum": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+                "default": "1:1",
+                "description": "Relación de aspecto (solo Gemini). 16:9 para paisajes, 9:16 para retratos/stories, 1:1 para cuadrado."
+            },
+            "resolution": {
+                "type": "string",
+                "enum": ["1K", "2K", "4K"],
+                "default": "1K",
+                "description": "Resolución de salida (solo gemini-3-pro-image-preview). 4K para máxima calidad."
             },
             "size": {
                 "type": "string",
                 "enum": ["1024x1024", "1792x1024", "1024x1792"],
                 "default": "1024x1024",
-                "description": "Tamaño de la imagen. 1792x1024 para paisajes, 1024x1792 para retratos."
+                "description": "Tamaño de la imagen (solo DALL-E). 1792x1024 para paisajes, 1024x1792 para retratos."
             },
             "quality": {
                 "type": "string",
                 "enum": ["standard", "hd"],
                 "default": "standard",
-                "description": "Calidad de la imagen. 'hd' para mayor detalle (solo DALL-E 3)."
+                "description": "Calidad (solo DALL-E 3). 'hd' para mayor detalle."
             },
             "style": {
                 "type": "string",
                 "enum": ["vivid", "natural"],
-                "description": "Estilo: 'vivid' para colores vibrantes, 'natural' para realismo (solo DALL-E 3)."
+                "description": "Estilo (solo DALL-E 3): 'vivid' para colores vibrantes, 'natural' para realismo."
             },
             "negative_prompt": {
                 "type": "string",

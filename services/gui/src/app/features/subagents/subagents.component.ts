@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -53,94 +54,25 @@ interface SubagentTool {
 interface SubagentConfig {
   enabled: boolean;
   system_prompt?: string;
-  // LLM para razonamiento del agente
-  llm_provider?: string;
-  llm_model?: string;
-  llm_url?: string;
-  // Proveedor específico de herramientas (ej: DALL-E para imágenes)
-  default_provider?: string;
-  default_model?: string;
+  // LLM para razonamiento del agente - referencia al ID del provider en BD
+  llm_provider?: number | string;  // ID del provider en llm_providers
+  llm_model?: string;  // Override del modelo (vacío = usar default del provider)
   settings: Record<string, any>;
 }
 
-interface LLMProvider {
-  id: string;
+// Proveedor LLM desde la base de datos
+interface DBLLMProvider {
+  id: number;
+  documentId: string;
   name: string;
-  defaultUrl: string;
-  models: { id: string; name: string }[];
+  type: string;
+  baseUrl: string;
+  apiKey?: string;
+  defaultModel?: string;
+  embeddingModel?: string;
+  isActive: boolean;
+  isDefault: boolean;
 }
-
-// Proveedores LLM soportados (sincronizado con llm_utils.py)
-const LLM_PROVIDERS: LLMProvider[] = [
-  {
-    id: 'ollama',
-    name: 'Ollama (Local)',
-    defaultUrl: 'http://localhost:11434',
-    models: [
-      { id: 'llama3.3', name: 'Llama 3.3 (70B)' },
-      { id: 'llama3.2', name: 'Llama 3.2 (3B)' },
-      { id: 'llama3.1', name: 'Llama 3.1 (8B)' },
-      { id: 'mistral', name: 'Mistral 7B' },
-      { id: 'mixtral', name: 'Mixtral 8x7B' },
-      { id: 'codellama', name: 'Code Llama' },
-      { id: 'qwen2.5', name: 'Qwen 2.5' },
-      { id: 'deepseek-r1', name: 'DeepSeek R1' },
-    ]
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    defaultUrl: 'https://api.openai.com/v1',
-    models: [
-      { id: 'gpt-4o', name: 'GPT-4o (recomendado)' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini (rápido)' },
-      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-      { id: 'o1', name: 'o1 (razonamiento)' },
-      { id: 'o1-mini', name: 'o1 Mini' },
-    ]
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    defaultUrl: 'https://api.anthropic.com',
-    models: [
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (recomendado)' },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (rápido)' },
-      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-    ]
-  },
-  {
-    id: 'groq',
-    name: 'Groq (Ultra rápido)',
-    defaultUrl: 'https://api.groq.com/openai/v1',
-    models: [
-      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
-      { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (instant)' },
-      { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
-      { id: 'gemma2-9b-it', name: 'Gemma 2 9B' },
-    ]
-  },
-  {
-    id: 'gemini',
-    name: 'Google Gemini',
-    defaultUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    models: [
-      { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash' },
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-    ]
-  },
-  {
-    id: 'azure',
-    name: 'Azure OpenAI',
-    defaultUrl: 'https://{resource}.openai.azure.com/openai/deployments/{deployment}',
-    models: [
-      { id: 'gpt-4o', name: 'GPT-4o (deployment name)' },
-      { id: 'gpt-4', name: 'GPT-4 (deployment name)' },
-    ]
-  }
-];
 
 interface TestResult {
   agent_id: string;
@@ -157,7 +89,7 @@ interface ExecuteResult {
     success: boolean;
     response: string;
     tools_used: string[];
-    images: Array<{url?: string; base64?: string}>;
+    images: Array<{url?: string; base64?: string; mime_type?: string}>;
     error?: string;
     execution_time_ms: number;
   };
@@ -652,8 +584,10 @@ interface TestRunResult {
                                 @if (currentTestResult()!.result?.images?.length) {
                                   <div class="output-images">
                                     @for (img of currentTestResult()!.result.images; track $index) {
-                                      <img [src]="img.url || ('data:image/png;base64,' + img.base64)" 
-                                           class="result-image" alt="Generated image">
+                                      @if (img.url) {
+                                        <img [src]="sanitizeImageUrl(img.url)" 
+                                             class="result-image" alt="Generated image">
+                                      }
                                     }
                                   </div>
                                 }
@@ -733,47 +667,78 @@ interface TestRunResult {
                         <div class="config-section-header">
                           <mat-icon>smart_toy</mat-icon>
                           <span>Modelo de Lenguaje (LLM)</span>
+                          @if (loadingProviders()) {
+                            <mat-spinner diameter="16"></mat-spinner>
+                          }
                         </div>
-                        <div class="config-row">
-                          <mat-form-field appearance="outline" class="half-width">
+                        
+                        @if (dbProviders().length === 0 && !loadingProviders()) {
+                          <div class="no-providers-warning">
+                            <mat-icon>warning</mat-icon>
+                            <span>No hay proveedores LLM configurados. <a routerLink="/settings">Configura uno en Ajustes</a></span>
+                          </div>
+                        } @else {
+                          <mat-form-field appearance="outline" class="full-width">
                             <mat-label>Proveedor LLM</mat-label>
                             <mat-select [(ngModel)]="agentConfig.llm_provider" 
                                         (ngModelChange)="onProviderChange($event)">
-                              @for (provider of llmProviders; track provider.id) {
-                                <mat-option [value]="provider.id">{{ provider.name }}</mat-option>
+                              @for (provider of dbProviders(); track provider.id) {
+                                <mat-option [value]="provider.id">
+                                  <div class="provider-option">
+                                    <span class="provider-name">{{ provider.name }}</span>
+                                    <span class="provider-type">{{ provider.type }}</span>
+                                    @if (provider.isDefault) {
+                                      <mat-chip class="default-chip">Por defecto</mat-chip>
+                                    }
+                                  </div>
+                                </mat-option>
                               }
                             </mat-select>
-                            <mat-hint>Proveedor para razonamiento del agente</mat-hint>
+                            <mat-hint>
+                              @if (getSelectedProvider()) {
+                                {{ getSelectedProvider()?.baseUrl }} · Modelo: {{ getSelectedProvider()?.defaultModel }}
+                              }
+                            </mat-hint>
                           </mat-form-field>
 
-                          <mat-form-field appearance="outline" class="half-width">
+                          @if (getSelectedProvider()) {
+                            <div class="provider-info">
+                              <div class="info-row">
+                                <mat-icon>link</mat-icon>
+                                <span>{{ getSelectedProvider()?.baseUrl }}</span>
+                              </div>
+                              <div class="info-row">
+                                <mat-icon>memory</mat-icon>
+                                <span>Modelo por defecto: <strong>{{ getSelectedProvider()?.defaultModel }}</strong></span>
+                              </div>
+                              @if (getSelectedProvider()?.apiKey) {
+                                <div class="info-row">
+                                  <mat-icon>key</mat-icon>
+                                  <span>API Key configurada</span>
+                                </div>
+                              }
+                            </div>
+                          }
+
+                          <mat-form-field appearance="outline" class="full-width">
                             <mat-label>Modelo</mat-label>
                             <mat-select [(ngModel)]="agentConfig.llm_model">
-                              @for (model of getModelsForProvider(agentConfig.llm_provider); track model.id) {
-                                <mat-option [value]="model.id">{{ model.name }}</mat-option>
+                              <mat-option [value]="''">
+                                <em>Usar default: {{ getSelectedProvider()?.defaultModel || '(ninguno)' }}</em>
+                              </mat-option>
+                              @if (loadingModels()) {
+                                <mat-option disabled>
+                                  <mat-spinner diameter="16"></mat-spinner>
+                                  Cargando modelos...
+                                </mat-option>
                               }
-                              <mat-option value="_custom">-- Modelo personalizado --</mat-option>
+                              @for (model of availableModels(); track model) {
+                                <mat-option [value]="model">{{ model }}</mat-option>
+                              }
                             </mat-select>
-                            <mat-hint>{{ getSelectedProviderUrl() }}</mat-hint>
-                          </mat-form-field>
-                        </div>
-                        
-                        @if (agentConfig.llm_model === '_custom') {
-                          <mat-form-field appearance="outline" class="full-width">
-                            <mat-label>Nombre del modelo personalizado</mat-label>
-                            <input matInput [(ngModel)]="customModelName" 
-                                   placeholder="nombre-del-modelo"
-                                   (blur)="agentConfig.llm_model = customModelName">
-                            <mat-hint>Escribe el nombre exacto del modelo</mat-hint>
+                            <mat-hint>Selecciona un modelo o deja vacío para usar el default</mat-hint>
                           </mat-form-field>
                         }
-                        
-                        <mat-form-field appearance="outline" class="full-width">
-                          <mat-label>URL del LLM</mat-label>
-                          <input matInput [(ngModel)]="agentConfig.llm_url" 
-                                 [placeholder]="getSelectedProviderUrl()">
-                          <mat-hint>Dejar vacío para usar: {{ getSelectedProviderUrl() }}</mat-hint>
-                        </mat-form-field>
                       </div>
 
                       <mat-divider></mat-divider>
@@ -957,13 +922,13 @@ interface TestRunResult {
                   <div class="generated-images">
                     <div class="images-label">
                       <mat-icon>image</mat-icon>
-                      Imágenes Generadas
+                      Imágenes Generadas ({{ executeResult()!.result.images.length }})
                     </div>
                     <div class="images-grid">
                       @for (img of executeResult()!.result.images; track $index) {
                         <div class="image-item">
                           @if (img.url) {
-                            <img [src]="img.url" alt="Generated image" class="generated-image">
+                            <img [src]="sanitizeImageUrl(img.url)" alt="Generated image" class="generated-image">
                           }
                         </div>
                       }
@@ -1438,6 +1403,75 @@ interface TestRunResult {
 
     .half-width {
       flex: 1;
+    }
+
+    /* Provider Info */
+    .no-providers-warning {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: #fff3e0;
+      border-radius: 8px;
+      color: #e65100;
+    }
+
+    .no-providers-warning a {
+      color: #667eea;
+      text-decoration: underline;
+    }
+
+    .provider-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .provider-name {
+      font-weight: 500;
+    }
+
+    .provider-type {
+      color: #888;
+      font-size: 12px;
+      background: #f0f0f0;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .default-chip {
+      font-size: 10px !important;
+      min-height: 18px !important;
+      padding: 0 6px !important;
+      background: #e8f5e9 !important;
+      color: #388e3c !important;
+    }
+
+    .provider-info {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 8px 0;
+    }
+
+    .info-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 6px;
+    }
+
+    .info-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .info-row mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #888;
     }
 
     /* Tools Config Link */
@@ -2268,6 +2302,7 @@ interface TestRunResult {
 export class SubagentsComponent implements OnInit {
   private http = inject(HttpClient);
   private snackBar = inject(MatSnackBar);
+  private sanitizer = inject(DomSanitizer);
 
   subagents = signal<Subagent[]>([]);
   agentTools = signal<SubagentTool[]>([]);
@@ -2293,8 +2328,11 @@ export class SubagentsComponent implements OnInit {
     settings: {}
   };
 
-  // LLM Providers
-  llmProviders = LLM_PROVIDERS;
+  // LLM Providers from database
+  dbProviders = signal<DBLLMProvider[]>([]);
+  loadingProviders = signal(false);
+  availableModels = signal<string[]>([]);
+  loadingModels = signal(false);
   customModelName = '';
 
   // Skills editor
@@ -2321,6 +2359,7 @@ export class SubagentsComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadSubagents();
+    this.loadProviders();
   }
 
   loadSubagents(): void {
@@ -2373,12 +2412,12 @@ export class SubagentsComponent implements OnInit {
       .subscribe({
         next: (response) => {
           this.agentConfig = response.config || { enabled: true, settings: {} };
-          // Si el modelo no está en la lista predefinida, es personalizado
-          if (this.agentConfig.llm_model && 
-              !this.getModelsForProvider(this.agentConfig.llm_provider).find(m => m.id === this.agentConfig.llm_model)) {
-            this.customModelName = this.agentConfig.llm_model;
-          }
           this.loadingConfig.set(false);
+          
+          // Cargar modelos del provider seleccionado
+          if (this.agentConfig.llm_provider) {
+            this.loadModelsForProvider(this.agentConfig.llm_provider);
+          }
         },
         error: (err) => {
           console.error('Error loading config:', err);
@@ -2388,34 +2427,79 @@ export class SubagentsComponent implements OnInit {
   }
 
   // LLM Provider helpers
-  getModelsForProvider(providerId?: string): { id: string; name: string }[] {
-    if (!providerId) return [];
-    const provider = this.llmProviders.find(p => p.id === providerId);
-    return provider?.models || [];
+  loadProviders(): void {
+    this.loadingProviders.set(true);
+    this.http.get<DBLLMProvider[]>(`${environment.apiUrl}/config/llm-providers?active_only=true`)
+      .subscribe({
+        next: (providers) => {
+          this.dbProviders.set(providers);
+          this.loadingProviders.set(false);
+          
+          // Si no hay proveedor seleccionado, usar el por defecto
+          if (!this.agentConfig.llm_provider && providers.length > 0) {
+            const defaultProvider = providers.find(p => p.isDefault) || providers[0];
+            this.agentConfig.llm_provider = defaultProvider.id.toString();
+          }
+        },
+        error: (err) => {
+          console.error('Error loading providers:', err);
+          this.loadingProviders.set(false);
+        }
+      });
   }
 
-  getSelectedProviderUrl(): string {
-    if (!this.agentConfig.llm_provider) return 'http://localhost:11434';
-    const provider = this.llmProviders.find(p => p.id === this.agentConfig.llm_provider);
-    return provider?.defaultUrl || 'http://localhost:11434';
+  getSelectedProvider(): DBLLMProvider | undefined {
+    if (!this.agentConfig.llm_provider) return undefined;
+    return this.dbProviders().find(p => p.id.toString() === this.agentConfig.llm_provider?.toString());
   }
 
-  onProviderChange(newProvider: string): void {
-    // Al cambiar proveedor, seleccionar primer modelo de la lista
-    const models = this.getModelsForProvider(newProvider);
-    if (models.length > 0) {
-      this.agentConfig.llm_model = models[0].id;
-    }
-    // Actualizar URL por defecto si está vacía o era la anterior por defecto
-    const newUrl = this.getSelectedProviderUrl();
-    if (!this.agentConfig.llm_url || this.isDefaultUrl(this.agentConfig.llm_url)) {
-      this.agentConfig.llm_url = '';  // Vacío = usar default
-    }
+  onProviderChange(newProviderId: any): void {
+    // Limpiar modelo override al cambiar proveedor
+    this.agentConfig.llm_model = '';
     this.customModelName = '';
+    // Cargar modelos del nuevo provider
+    this.loadModelsForProvider(newProviderId);
   }
 
-  isDefaultUrl(url: string): boolean {
-    return this.llmProviders.some(p => p.defaultUrl === url);
+  loadModelsForProvider(providerId: any): void {
+    const provider = this.dbProviders().find(p => p.id.toString() === providerId?.toString());
+    if (!provider) {
+      this.availableModels.set([]);
+      return;
+    }
+
+    this.loadingModels.set(true);
+    
+    // Pasar provider_type y api_key para providers que lo requieren (OpenAI-compatible, etc.)
+    const params: any = { 
+      provider_url: provider.baseUrl,
+      provider_type: provider.type || 'ollama'
+    };
+    if (provider.apiKey) {
+      params.api_key = provider.apiKey;
+    }
+
+    this.http.get<{ models: { name: string }[] }>(
+      `${environment.apiUrl}/llm/models`,
+      { params }
+    ).subscribe({
+      next: (response) => {
+        const models = response.models.map(m => m.name);
+        this.availableModels.set(models);
+        this.loadingModels.set(false);
+        
+        // Si el modelo actual no está en la lista, ponerlo como custom
+        if (this.agentConfig.llm_model && !models.includes(this.agentConfig.llm_model)) {
+          this.customModelName = this.agentConfig.llm_model;
+        }
+      },
+      error: () => {
+        // En caso de error, al menos mostrar el modelo por defecto del provider
+        const defaultModels = provider.defaultModel ? [provider.defaultModel] : [];
+        this.availableModels.set(defaultModels);
+        this.loadingModels.set(false);
+      }
+    });
   }
 
   saveConfig(): void {
@@ -2821,5 +2905,18 @@ export class SubagentsComponent implements OnInit {
       win.document.write(html);
       win.document.close();
     }
+  }
+
+  /**
+   * Sanitiza una URL de imagen (HTTP o data URL) para uso seguro en el template.
+   */
+  sanitizeImageUrl(url: string): SafeUrl {
+    if (!url) return '';
+    // Data URLs necesitan bypass de seguridad
+    if (url.startsWith('data:')) {
+      return this.sanitizer.bypassSecurityTrustUrl(url);
+    }
+    // URLs HTTP normales no necesitan sanitización
+    return url;
   }
 }

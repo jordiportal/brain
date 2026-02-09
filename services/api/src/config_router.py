@@ -146,6 +146,196 @@ async def get_llm_provider(provider_id: int):
 
 
 # ===========================================
+# LLM Provider Create/Update/Delete
+# ===========================================
+
+class LLMProviderCreateRequest(BaseModel):
+    name: str
+    type: str = "ollama"
+    baseUrl: str
+    apiKey: Optional[str] = None
+    defaultModel: Optional[str] = None
+    embeddingModel: Optional[str] = None
+    isActive: bool = True
+    isDefault: bool = False
+    description: Optional[str] = None
+
+
+class LLMProviderUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    baseUrl: Optional[str] = None
+    apiKey: Optional[str] = None
+    defaultModel: Optional[str] = None
+    embeddingModel: Optional[str] = None
+    isActive: Optional[bool] = None
+    isDefault: Optional[bool] = None
+    description: Optional[str] = None
+
+
+@router.post("/llm-providers", response_model=LLMProviderResponse)
+async def create_llm_provider(request: LLMProviderCreateRequest):
+    """Crear nuevo proveedor LLM"""
+    try:
+        db = get_db()
+        
+        query = """
+            INSERT INTO llm_providers (name, type, base_url, api_key, default_model, embedding_model, is_active, is_default, description, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+            RETURNING id
+        """
+        
+        result = await db.fetch_one(
+            query,
+            request.name,
+            request.type,
+            request.baseUrl,
+            request.apiKey,
+            request.defaultModel,
+            request.embeddingModel,
+            request.isActive,
+            request.isDefault,
+            request.description
+        )
+        
+        return LLMProviderResponse(
+            id=result["id"],
+            documentId=str(result["id"]),
+            name=request.name,
+            type=request.type,
+            baseUrl=request.baseUrl,
+            apiKey=request.apiKey,
+            defaultModel=request.defaultModel,
+            embeddingModel=request.embeddingModel,
+            isActive=request.isActive,
+            isDefault=request.isDefault,
+            description=request.description
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/llm-providers/{provider_id}", response_model=LLMProviderResponse)
+async def update_llm_provider(provider_id: int, request: LLMProviderUpdateRequest):
+    """Actualizar proveedor LLM"""
+    try:
+        db = get_db()
+        
+        # Construir query dinámico solo con campos proporcionados
+        updates = []
+        values = []
+        param_idx = 1
+        
+        if request.name is not None:
+            updates.append(f"name = ${param_idx}")
+            values.append(request.name)
+            param_idx += 1
+        
+        if request.type is not None:
+            updates.append(f"type = ${param_idx}")
+            values.append(request.type)
+            param_idx += 1
+        
+        if request.baseUrl is not None:
+            updates.append(f"base_url = ${param_idx}")
+            values.append(request.baseUrl)
+            param_idx += 1
+        
+        if request.apiKey is not None:
+            updates.append(f"api_key = ${param_idx}")
+            values.append(request.apiKey)
+            param_idx += 1
+        
+        if request.defaultModel is not None:
+            updates.append(f"default_model = ${param_idx}")
+            values.append(request.defaultModel)
+            param_idx += 1
+        
+        if request.embeddingModel is not None:
+            updates.append(f"embedding_model = ${param_idx}")
+            values.append(request.embeddingModel)
+            param_idx += 1
+        
+        if request.isActive is not None:
+            updates.append(f"is_active = ${param_idx}")
+            values.append(request.isActive)
+            param_idx += 1
+        
+        if request.isDefault is not None:
+            updates.append(f"is_default = ${param_idx}")
+            values.append(request.isDefault)
+            param_idx += 1
+        
+        if request.description is not None:
+            updates.append(f"description = ${param_idx}")
+            values.append(request.description)
+            param_idx += 1
+        
+        if not updates:
+            # No hay cambios, devolver el provider actual
+            provider = await LLMProviderRepository.get_by_id(provider_id)
+            if not provider:
+                raise HTTPException(status_code=404, detail="Provider not found")
+            return LLMProviderResponse(
+                id=provider.id,
+                documentId=provider.document_id,
+                name=provider.name or "",
+                type=provider.type or "ollama",
+                baseUrl=provider.base_url or "",
+                apiKey=provider.api_key,
+                defaultModel=provider.default_model,
+                embeddingModel=provider.embedding_model,
+                isActive=provider.is_active,
+                isDefault=provider.is_default,
+                description=provider.description
+            )
+        
+        updates.append("updated_at = NOW()")
+        values.append(provider_id)
+        
+        query = f"""
+            UPDATE llm_providers 
+            SET {', '.join(updates)}
+            WHERE id = ${param_idx}
+            RETURNING *
+        """
+        
+        result = await db.fetch_one(query, *values)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        
+        return LLMProviderResponse(
+            id=result["id"],
+            documentId=result.get("document_id"),
+            name=result["name"] or "",
+            type=result["type"] or "ollama",
+            baseUrl=result["base_url"] or "",
+            apiKey=result.get("api_key"),
+            defaultModel=result.get("default_model"),
+            embeddingModel=result.get("embedding_model"),
+            isActive=result.get("is_active", True),
+            isDefault=result.get("is_default", False),
+            description=result.get("description")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/llm-providers/{provider_id}")
+async def delete_llm_provider(provider_id: int):
+    """Eliminar proveedor LLM"""
+    try:
+        db = get_db()
+        await db.execute("DELETE FROM llm_providers WHERE id = $1", provider_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================
 # MCP Connections
 # ===========================================
 

@@ -72,8 +72,7 @@ async def get_ollama_models(base_url: str) -> List[str]:
 
 
 async def get_openai_models(base_url: str, api_key: str) -> List[str]:
-    """Obtener modelos de OpenAI"""
-    # OpenAI API URL base es https://api.openai.com/v1
+    """Obtener modelos de OpenAI o proveedores compatibles (Venice.ai, etc.)"""
     url = f"{base_url}/models"
     
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -83,11 +82,17 @@ async def get_openai_models(base_url: str, api_key: str) -> List[str]:
         )
         if response.status_code == 200:
             data = response.json()
-            # Filtrar solo modelos de chat (GPT y serie o)
             models = [m["id"] for m in data.get("data", [])]
-            # Incluir modelos GPT (3.5, 4, 4o, 5, etc.) y serie o (o1, o3, o4, etc.)
-            chat_models = [m for m in models if any(x in m for x in ["gpt-5", "gpt-4", "gpt-3.5", "o1-", "o3-", "o4-"])]
-            return sorted(chat_models, reverse=True)
+            
+            # Solo filtrar si es OpenAI oficial (api.openai.com)
+            # Para otros providers compatibles (Venice.ai, etc.), devolver todos los modelos
+            if "api.openai.com" in base_url:
+                # Filtrar solo modelos de chat de OpenAI
+                chat_models = [m for m in models if any(x in m for x in ["gpt-5", "gpt-4", "gpt-3.5", "o1-", "o3-", "o4-"])]
+                return sorted(chat_models, reverse=True)
+            else:
+                # Providers compatibles con OpenAI: devolver todos los modelos
+                return sorted(models)
     return []
 
 
@@ -182,7 +187,7 @@ async def chat_openai(
     api_key: str,
     stream: bool = False
 ) -> dict:
-    """Chat con OpenAI API (compatible con OpenAI, Azure, Groq, etc.)"""
+    """Chat con OpenAI API y compatibles (Venice.ai, Azure, Groq, etc.)"""
     url = f"{base_url}/chat/completions"
     
     payload = {
@@ -208,9 +213,43 @@ async def chat_openai(
         if response.status_code == 200:
             data = response.json()
             choice = data.get("choices", [{}])[0]
+            message = choice.get("message", {})
             usage = data.get("usage", {})
+            
+            # Soportar modelos "thinking" que usan reasoning_content (kimi, etc.)
+            content = message.get("content", "")
+            reasoning = message.get("reasoning_content", "")
+            
+            # Formatear pensamiento de forma distinguible
+            if not content and reasoning:
+                # Solo hay pensamiento, mostrarlo con formato especial
+                content = f"""<div class="thinking-block">
+<div class="thinking-header">💭 Pensamiento del modelo</div>
+<div class="thinking-content">
+
+{reasoning}
+
+</div>
+</div>"""
+            elif content and reasoning:
+                # Hay ambos: pensamiento + respuesta final
+                content = f"""<div class="thinking-block">
+<div class="thinking-header">💭 Pensamiento del modelo</div>
+<div class="thinking-content">
+
+{reasoning}
+
+</div>
+</div>
+
+---
+
+**Respuesta:**
+
+{content}"""
+            
             return {
-                "content": choice.get("message", {}).get("content", ""),
+                "content": content,
                 "tokens": usage.get("total_tokens")
             }
         else:
@@ -388,7 +427,7 @@ async def stream_openai_response(
     temperature: float,
     api_key: str
 ) -> AsyncGenerator[str, None]:
-    """Generador asíncrono para streaming de OpenAI API"""
+    """Generador asíncrono para streaming de OpenAI API y compatibles (Venice.ai, etc.)"""
     url = f"{base_url}/chat/completions"
     
     async with httpx.AsyncClient(timeout=300.0) as client:
@@ -414,10 +453,31 @@ async def stream_openai_response(
                         break
                     try:
                         data = json.loads(data_str)
-                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        choices = data.get("choices", [])
+                        
+                        # Manejar chunk final con choices vacío (Venice.ai)
+                        if not choices:
+                            usage = data.get("usage", {})
+                            if usage:
+                                yield f"data: {json.dumps({'done': True, 'total_tokens': usage.get('total_tokens', 0)})}\n\n"
+                            continue
+                        
+                        delta = choices[0].get("delta", {})
+                        
+                        # Soportar modelos "thinking" que usan reasoning_content (kimi, etc.)
                         content = delta.get("content", "")
-                        if content:
-                            yield f"data: {json.dumps({'content': content})}\n\n"
+                        reasoning = delta.get("reasoning_content", "")
+                        
+                        # Priorizar content, si está vacío usar reasoning_content
+                        text = content if content else reasoning
+                        
+                        if text:
+                            yield f"data: {json.dumps({'content': text})}\n\n"
+                        
+                        # Check finish_reason
+                        if choices[0].get("finish_reason"):
+                            pass  # El [DONE] vendrá después
+                            
                     except json.JSONDecodeError:
                         continue
 
