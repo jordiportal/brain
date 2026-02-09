@@ -1026,6 +1026,10 @@ interface TestRunResult {
       background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
     }
 
+    .agent-icon.sap_analyst {
+      background: linear-gradient(135deg, #1e88e5 0%, #0d47a1 100%);
+    }
+
     .agent-icon.mail_agent {
       background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
     }

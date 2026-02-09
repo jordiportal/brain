@@ -3,10 +3,10 @@ Delegation Tool - Permite al Adaptive Agent delegar a subagentes especializados
 
 Esta tool permite al agente principal (Adaptive Agent) delegar tareas
 a subagentes especializados por dominio:
-- media_agent: Generación y manipulación de imágenes
-- sap_agent: Consultas SAP S/4HANA y BIW (futuro)
-- mail_agent: Gestión de correo (futuro)
-- office_agent: Documentos Office (futuro)
+- designer_agent: Generación y manipulación de imágenes, vídeos y presentaciones
+- researcher_agent: Búsqueda e investigación web
+- communication_agent: Estrategia y comunicación
+- sap_analyst: Análisis de datos SAP S/4HANA, ECC y BI
 """
 
 import time
@@ -100,7 +100,7 @@ async def delegate(
             context=context,
             llm_url=_llm_url,
             model=_model,
-            provider_type=_provider_type,
+            provider_type=_provider_type or "ollama",
             api_key=_api_key
         )
         
@@ -313,7 +313,8 @@ def get_delegate_tool() -> dict:
 
 - designer_agent: Imágenes, vídeos cinematográficos y presentaciones
 - researcher_agent: Búsqueda web (datos actuales)
-- communication_agent: Estrategia y narrativa""",
+- communication_agent: Estrategia y narrativa
+- sap_analyst: Análisis de datos SAP (FI/CO, SD, MM, PP, HR)""",
         "parameters": {
             "type": "object",
             "properties": {

@@ -10,6 +10,7 @@ from .base import BaseSubAgent, SubAgentResult, SubAgentRegistry, subagent_regis
 from .designer import DesignerAgent
 from .researcher import ResearcherAgent
 from .communication import CommunicationAgent
+from .sap_analyst import SAPAnalystAgent
 
 
 def register_all_subagents():
@@ -18,6 +19,7 @@ def register_all_subagents():
         subagent_registry.register(DesignerAgent())
         subagent_registry.register(ResearcherAgent())
         subagent_registry.register(CommunicationAgent())
+        subagent_registry.register(SAPAnalystAgent())
 
 
 __all__ = [
@@ -28,5 +30,6 @@ __all__ = [
     "DesignerAgent",
     "ResearcherAgent",
     "CommunicationAgent",
+    "SAPAnalystAgent",
     "register_all_subagents"
 ]
