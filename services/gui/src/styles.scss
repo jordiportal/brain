@@ -1,16 +1,24 @@
 // ===========================================
-// Brain GUI - Global Styles
+// Brain GUI - Global Styles - Modern Design
 // ===========================================
 
 @use '@angular/material' as mat;
 
+// Modern Color Palette
+$dark-navy: #0f172a;
+$accent-blue: #3b82f6;
+$success-green: #22c55e;
+$bg-light: #f1f5f9;
+$text-primary: #1e293b;
+$text-secondary: #64748b;
+
 // Include the common styles for Angular Material
 @include mat.core();
 
-// Define the theme using Angular Material 17 syntax
-$brain-primary: mat.define-palette(mat.$indigo-palette, 700);
-$brain-accent: mat.define-palette(mat.$pink-palette, A200, A100, A400);
-$brain-warn: mat.define-palette(mat.$red-palette);
+// Define the theme using Angular Material 17 syntax - Modern Blue Theme
+$brain-primary: mat.define-palette(mat.$blue-palette, 600);
+$brain-accent: mat.define-palette(mat.$indigo-palette, 500);
+$brain-warn: mat.define-palette(mat.$red-palette, 500);
 
 $brain-theme: mat.define-light-theme((
   color: (
@@ -26,7 +34,7 @@ $brain-theme: mat.define-light-theme((
 @include mat.all-component-themes($brain-theme);
 
 // ===========================================
-// Reset & Base
+// Reset & Base - Modern Typography
 // ===========================================
 
 *, *::before, *::after {
@@ -40,35 +48,131 @@ html, body {
 }
 
 body {
-  font-family: 'Inter', 'Roboto', 'Helvetica Neue', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   font-size: 14px;
-  line-height: 1.5;
-  color: #333;
-  background-color: #f5f5f5;
+  line-height: 1.6;
+  color: $text-primary;
+  background-color: $bg-light;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 // ===========================================
-// Typography
+// Modern Typography
 // ===========================================
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
-  color: #1a1a2e;
+  color: $text-primary;
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+  margin: 0 0 16px 0;
 }
 
+h1 { font-size: 28px; }
+h2 { font-size: 24px; }
+h3 { font-size: 20px; }
+h4 { font-size: 18px; }
+h5 { font-size: 16px; }
+h6 { font-size: 14px; }
+
 a {
-  color: #3f51b5;
+  color: $accent-blue;
   text-decoration: none;
+  transition: color 0.2s ease;
   
   &:hover {
     text-decoration: underline;
+    color: darken($accent-blue, 10%);
+  }
+}
+
+p {
+  color: $text-secondary;
+  margin: 0 0 12px 0;
+}
+
+// ===========================================
+// Modern Cards
+// ===========================================
+
+.mat-mdc-card {
+  --mdc-elevated-card-container-color: white;
+  border-radius: 16px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04) !important;
+    transform: translateY(-1px);
+  }
+}
+
+.mat-mdc-card-header {
+  padding: 20px 24px 12px !important;
+}
+
+.mat-mdc-card-content {
+  padding: 12px 24px 24px !important;
+}
+
+.mat-mdc-card-actions {
+  padding: 12px 24px 20px !important;
+  gap: 8px;
+}
+
+// ===========================================
+// Modern Buttons
+// ===========================================
+
+.mat-mdc-raised-button {
+  border-radius: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px;
+  text-transform: none;
+  padding: 0 20px !important;
+  height: 40px !important;
+  transition: all 0.2s ease !important;
+
+  &:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  }
+}
+
+.mat-mdc-button {
+  border-radius: 10px !important;
+  font-weight: 500 !important;
+  text-transform: none;
+}
+
+.mat-mdc-icon-button {
+  border-radius: 10px !important;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.04);
   }
 }
 
 // ===========================================
-// Scrollbars
+// Modern Form Fields
+// ===========================================
+
+.mat-mdc-form-field {
+  --mdc-filled-text-field-container-color: white;
+  --mdc-filled-text-field-focus-active-indicator-color: #{$accent-blue};
+  --mdc-outlined-text-field-outline-color: rgba(0, 0, 0, 0.1);
+  --mdc-outlined-text-field-focus-outline-color: #{$accent-blue};
+  
+  .mat-mdc-text-field-wrapper {
+    border-radius: 12px !important;
+  }
+}
+
+// ===========================================
+// Modern Scrollbars
 // ===========================================
 
 ::-webkit-scrollbar {
@@ -77,35 +181,122 @@ a {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: #cbd5e1;
   border-radius: 4px;
   
   &:hover {
-    background: #a1a1a1;
+    background: #94a3b8;
   }
 }
 
 // ===========================================
-// Material Overrides
+// Material Overrides - Clean Design
 // ===========================================
 
-.mat-mdc-card {
-  --mdc-elevated-card-container-color: white;
-}
-
 .mat-mdc-snack-bar-container {
+  border-radius: 12px !important;
+  
   &.error-snackbar {
-    --mdc-snackbar-container-color: #f44336;
+    --mdc-snackbar-container-color: #ef4444;
+    --mdc-snackbar-supporting-text-color: white;
+  }
+
+  &.success-snackbar {
+    --mdc-snackbar-container-color: #22c55e;
     --mdc-snackbar-supporting-text-color: white;
   }
 }
 
-span.mat-mdc-list-item-title {
-  color: var(--mat-autocomplete-background-color);
+// Chips
+.mat-mdc-chip {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+}
+
+// Lists
+.mat-mdc-list-item {
+  border-radius: 10px !important;
+  margin: 4px 8px !important;
+}
+
+// ===========================================
+// Status Indicators
+// ===========================================
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+
+  &.online {
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
+  }
+
+  &.offline {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+  }
+
+  &.pending {
+    background: rgba(245, 158, 11, 0.1);
+    color: #d97706;
+  }
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+
+  &.online { background: #22c55e; }
+  &.offline { background: #ef4444; }
+  &.pending { background: #f59e0b; }
+}
+
+// ===========================================
+// Page Layout Utilities
+// ===========================================
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+
+  h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  .subtitle {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: $text-secondary;
+  }
+}
+
+// ===========================================
+// Grid Layouts
+// ===========================================
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
 }
 
 // ===========================================
@@ -114,6 +305,7 @@ span.mat-mdc-list-item-title {
 
 .text-center { text-align: center; }
 .text-right { text-align: right; }
+.text-secondary { color: $text-secondary; }
 
 .mt-1 { margin-top: 8px; }
 .mt-2 { margin-top: 16px; }
@@ -140,3 +332,49 @@ span.mat-mdc-list-item-title {
 .gap-1 { gap: 8px; }
 .gap-2 { gap: 16px; }
 .gap-3 { gap: 24px; }
+
+// ===========================================
+// Empty States
+// ===========================================
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  text-align: center;
+
+  mat-icon {
+    font-size: 64px;
+    width: 64px;
+    height: 64px;
+    color: #cbd5e1;
+    margin-bottom: 16px;
+  }
+
+  h3 {
+    font-size: 18px;
+    color: $text-primary;
+    margin: 0 0 8px;
+  }
+
+  p {
+    color: $text-secondary;
+    margin: 0;
+  }
+}
+
+// ===========================================
+// Loading States
+// ===========================================
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px;
+  color: $text-secondary;
+  gap: 16px;
+}
