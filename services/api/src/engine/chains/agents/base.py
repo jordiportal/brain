@@ -294,14 +294,27 @@ Sé conciso pero útil. Responde en español."""
             )
     
     def get_tools(self) -> List[Any]:
-        """Obtiene las definiciones de tools de este dominio."""
+        """Obtiene las definiciones de tools de este dominio + core tools universales."""
         from src.tools import tool_registry
+        from src.tools.core import CORE_TOOLS
         
+        # Comenzar con las domain_tools específicas del subagente
+        all_tool_ids = set(self.domain_tools)
+        
+        # Agregar todas las core tools excepto delegation (para evitar recursión infinita)
+        delegation_tools = {"delegate", "get_agent_info"}
+        for tool_id in CORE_TOOLS.keys():
+            if tool_id not in delegation_tools:
+                all_tool_ids.add(tool_id)
+        
+        # Obtener las definiciones de todas las herramientas
         tools = []
-        for tool_id in self.domain_tools:
+        for tool_id in all_tool_ids:
             tool = tool_registry.get(tool_id)
             if tool:
                 tools.append(tool)
+        
+        logger.debug(f"🔧 SubAgent {self.id} has {len(tools)} tools: {[t.id for t in tools]}")
         return tools
     
     @abstractmethod
