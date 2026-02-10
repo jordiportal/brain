@@ -1,9 +1,8 @@
 """
 Designer Agent - Subagente de diseño visual.
 
-Fusiona capacidades de imágenes y presentaciones.
-Usa LLM con tools para decidir qué generar según la tarea.
-Sistema de Skills: carga conocimiento especializado según la tarea.
+Patrón: LLM-Only con Tools
+Genera imágenes, vídeos y presentaciones usando LLM con herramientas.
 """
 
 import json
@@ -14,9 +13,7 @@ from typing import Optional, List, Dict, Any
 import structlog
 
 from ..base import BaseSubAgent, SubAgentResult, Skill
-from ..slides.themes import get_theme, generate_css, detect_theme_from_topic, create_custom_theme, THEMES
-from ..slides.templates import SlideOutline, PresentationOutline, generate_slide_html
-from ..slides.events import thinking_event, action_event, artifact_event
+from ...llm_utils import call_llm_with_tools
 
 logger = structlog.get_logger()
 
@@ -27,58 +24,51 @@ def _read_system_prompt() -> str:
     try:
         return path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        return "Eres un diseñador visual. Genera imágenes o presentaciones según la tarea."
+        return """Eres un diseñador visual experto. Genera imágenes, vídeos y presentaciones profesionales.
+
+Herramientas disponibles:
+- generate_image: Genera imágenes (logos, ilustraciones, fotos)
+- generate_video: Genera vídeos cinematográficos con Veo 3.1
+- generate_slides: Genera presentaciones HTML profesionales
+- analyze_image: Analiza imágenes para verificar calidad
+
+Tienes acceso a herramientas de filesystem para guardar archivos.
+Usa las herramientas según la necesidad del usuario."""
 
 
-# Skills disponibles para el Designer (el LLM decide cuándo cargar)
+# Skills simplificados para Designer
 DESIGNER_SKILLS = [
     Skill(
+        id="design",
+        name="Diseño Visual",
+        description="Generación de imágenes, vídeos y presentaciones profesionales con IA"
+    ),
+    Skill(
         id="slides",
-        name="Presentaciones Modernas",
-        description="Layouts HTML/CSS avanzados, animaciones, templates profesionales para presentaciones"
-    ),
-    Skill(
-        id="branding",
-        name="Branding e Identidad",
-        description="Prompts para logos, paletas de color, tipografías, identidad visual"
-    ),
-    Skill(
-        id="data_viz",
-        name="Visualización de Datos",
-        description="Gráficos SVG, charts, infografías con código listo para usar"
-    ),
-    Skill(
-        id="design_critique",
-        name="Criterios de Auto-Evaluación",
-        description="Criterios para evaluar imágenes, umbrales de calidad, cómo mejorar prompts. Cargar ANTES de usar analyze_image."
+        name="Presentaciones",
+        description="Diseño de slides HTML/CSS modernos con templates profesionales"
     )
 ]
 
 
 class DesignerAgent(BaseSubAgent):
-    """Subagente de diseño: imágenes y presentaciones con sistema de skills."""
+    """Subagente de diseño: imágenes, vídeos y presentaciones."""
 
     id = "designer_agent"
     name = "Designer"
-    description = "Diseñador visual: imágenes, vídeos, presentaciones, logos, con auto-crítica"
-    version = "2.1.0"  # Versión con analyze_image y auto-crítica
+    description = "Diseñador visual: imágenes, vídeos, presentaciones, logos"
+    version = "3.0.0"
     domain_tools = ["generate_image", "generate_video", "generate_slides", "analyze_image"]
-    system_prompt = ""  # Se carga desde fichero
-    available_skills = DESIGNER_SKILLS  # Skills disponibles
+    available_skills = DESIGNER_SKILLS
 
     role = "Diseñador Visual"
-    expertise = """Soy diseñador visual. Creo imágenes (logos, ilustraciones, fotos), vídeos cinematográficos y presentaciones profesionales.
-Puedo combinar todos: presentaciones con imágenes y vídeos generados.
-Tengo capacidad de auto-crítica: analizo mis propias creaciones para verificar calidad.
-Tengo skills especializados en: slides modernas, branding, visualización de datos.
-Para vídeos uso Veo 3.1 de Google (hasta 8 segundos, 1080p, con audio generado)."""
-
-    task_requirements = "Describe la tarea: imagen, vídeo, presentación, o cualquier combinación. Puedes enviar texto libre o JSON."
+    expertise = "Experto en diseño visual: generación de imágenes, vídeos cinematográficos y presentaciones profesionales"
+    task_requirements = "Describe la tarea: imagen, vídeo, presentación, o cualquier combinación"
 
     def __init__(self):
         super().__init__()
         self.system_prompt = _read_system_prompt()
-        logger.info(f"🎨 DesignerAgent initialized with {len(self.available_skills)} skills")
+        logger.info(f"🎨 DesignerAgent initialized")
 
     async def execute(
         self,
@@ -89,347 +79,35 @@ Para vídeos uso Veo 3.1 de Google (hasta 8 segundos, 1080p, con audio generado)
         provider_type: str = "ollama",
         api_key: Optional[str] = None
     ) -> SubAgentResult:
-        """Ejecuta la tarea usando LLM con tools."""
+        """Ejecuta usando LLM con herramientas."""
         start_time = time.time()
         logger.info("🎨 DesignerAgent executing", task=task[:100])
 
+        # Validar LLM configurado
+        if not llm_url or not model:
+            return SubAgentResult(
+                success=False,
+                response="❌ **Error:** Se requiere configuración LLM para este agente.\n\nPor favor, configure un modelo LLM en la sección de Configuración.",
+                agent_id=self.id,
+                agent_name=self.name,
+                error="LLM_NOT_CONFIGURED",
+                execution_time_ms=0
+            )
+
         try:
-            # Siempre usar LLM para decidir qué herramienta usar
-            if llm_url and model:
-                return await self._execute_with_llm(
-                    task, context, llm_url, model, provider_type, api_key, start_time
-                )
-
-            # Fallback sin LLM: Si viene outline JSON, generar presentación
-            outline = self._parse_outline(task)
-            if outline:
-                return await self._generate_presentation(
-                    outline, task, context, api_key, start_time
-                )
-            
-            # Fallback final: generar imagen con el task como prompt
-            return await self._generate_image(task, start_time)
-
+            return await self._execute_with_llm(
+                task, context, llm_url, model, provider_type, api_key, start_time
+            )
         except Exception as e:
             logger.error(f"DesignerAgent error: {e}", exc_info=True)
             return SubAgentResult(
                 success=False,
-                response=f"Error: {str(e)}",
+                response=f"❌ **Error en diseño:** {str(e)}",
                 agent_id=self.id,
                 agent_name=self.name,
                 error=str(e),
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
-
-    def _parse_outline(self, task: str) -> Optional[PresentationOutline]:
-        """Parsea task como JSON outline."""
-        try:
-            data = json.loads(task)
-            if not isinstance(data, dict) or "title" not in data:
-                return None
-
-            slides = []
-            for s in data.get("slides", []):
-                raw_bullets = s.get("bullets", [])
-                if isinstance(raw_bullets, str):
-                    try:
-                        raw_bullets = json.loads(raw_bullets)
-                    except Exception:
-                        raw_bullets = [raw_bullets]
-                if not isinstance(raw_bullets, list):
-                    raw_bullets = []
-                clean_bullets = [str(b).strip() for b in raw_bullets if b]
-
-                slides.append(SlideOutline(
-                    title=str(s.get("title", "")),
-                    type=s.get("type", "content"),
-                    content=s.get("content"),
-                    badge=s.get("badge"),
-                    bullets=clean_bullets,
-                    stats=s.get("stats", []),
-                    items=s.get("items", []),
-                    quote=s.get("quote"),
-                    author=s.get("author")
-                ))
-
-            images = data.get("generate_images", [])
-            if isinstance(images, str):
-                images = [images]
-            images = [str(i) for i in images] if isinstance(images, list) else []
-
-            return PresentationOutline(
-                title=data["title"],
-                slides=slides,
-                theme=data.get("theme", "dark"),
-                generate_images=images[:5],
-                language=data.get("language", "es")
-            )
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-    async def _generate_image(self, task: str, start_time: float) -> SubAgentResult:
-        """Genera imagen."""
-        from src.tools.domains.media import generate_image
-
-        result = await generate_image(prompt=task)
-        if result.get("success"):
-            images = [{
-                "url": result.get("image_url"),
-                "prompt": result.get("prompt"),
-                "provider": result.get("provider"),
-                "model": result.get("model")
-            }]
-            response = f"He generado la imagen.\n\n![Imagen]({result.get('image_url', '')})"
-            return SubAgentResult(
-                success=True,
-                response=response,
-                agent_id=self.id,
-                agent_name=self.name,
-                tools_used=["generate_image"],
-                images=images,
-                data=result,
-                execution_time_ms=int((time.time() - start_time) * 1000)
-            )
-        return SubAgentResult(
-            success=False,
-            response=f"Error: {result.get('error', 'Unknown')}",
-            agent_id=self.id,
-            agent_name=self.name,
-            error=result.get("error"),
-            execution_time_ms=int((time.time() - start_time) * 1000)
-        )
-
-    async def _generate_video(
-        self, 
-        prompt: str, 
-        aspect_ratio: str,
-        duration_seconds: int,
-        start_time: float
-    ) -> SubAgentResult:
-        """Genera vídeo con Veo 3.1."""
-        from src.tools.domains.media import generate_video
-
-        result = await generate_video(
-            prompt=prompt,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=duration_seconds
-        )
-        
-        if result.get("success"):
-            videos = [{
-                "url": result.get("video_url"),
-                "workspace_path": result.get("workspace_path"),
-                "duration_seconds": result.get("duration_seconds"),
-                "resolution": result.get("resolution"),
-                "prompt": prompt,
-                "provider": result.get("provider"),
-                "model": result.get("model")
-            }]
-            response = f"He generado el vídeo ({duration_seconds}s, {aspect_ratio}).\n\n"
-            if result.get("workspace_path"):
-                response += f"📁 Guardado en: `{result.get('workspace_path')}`"
-            return SubAgentResult(
-                success=True,
-                response=response,
-                agent_id=self.id,
-                agent_name=self.name,
-                tools_used=["generate_video"],
-                videos=videos,
-                data=result,
-                execution_time_ms=int((time.time() - start_time) * 1000)
-            )
-        return SubAgentResult(
-            success=False,
-            response=f"Error generando vídeo: {result.get('error', 'Unknown')}",
-            agent_id=self.id,
-            agent_name=self.name,
-            error=result.get("error"),
-            execution_time_ms=int((time.time() - start_time) * 1000)
-        )
-
-    async def _generate_presentation(
-        self,
-        outline: PresentationOutline,
-        task: str,
-        context: Optional[str],
-        api_key: Optional[str],
-        start_time: float
-    ) -> SubAgentResult:
-        """Genera presentación HTML."""
-        response_parts = []
-        generated_images = []
-
-        # Imágenes a generar (del outline o del task)
-        images_to_generate = list(outline.generate_images) if outline.generate_images else []
-        if not images_to_generate:
-            try:
-                data = json.loads(task) if task.strip().startswith("{") else {}
-                images_to_generate = data.get("generate_images", [])
-                if isinstance(images_to_generate, str):
-                    images_to_generate = [images_to_generate]
-            except Exception:
-                pass
-
-        if images_to_generate:
-            response_parts.append(action_event("image", "Generando imágenes", "running"))
-            generated_images = await self._generate_images(images_to_generate[:3])
-            response_parts.append(action_event("image", "Generando imágenes", "completed", len(generated_images)))
-
-        response_parts.append(action_event("slides", f"Generando {len(outline.slides)} slides", "running"))
-
-        theme, _ = self._extract_theme(task, outline)
-        html = generate_css(theme)
-        for i, slide in enumerate(outline.slides):
-            img = generated_images[i] if i < len(generated_images) else None
-            html += generate_slide_html(slide, image_url=img)
-
-        slides_count = html.count('class="slide"')
-        response_parts.append(artifact_event(html_content=html, title=outline.title))
-        response_parts.append(action_event("slides", f"Generando {len(outline.slides)} slides", "completed"))
-
-        summary = f"\n✅ **{outline.title}**\n📊 {slides_count} slides"
-        if generated_images:
-            summary += f"\n🖼️ {len(generated_images)} imágenes"
-        response_parts.append(summary + "\n")
-
-        return SubAgentResult(
-            success=True,
-            response="".join(response_parts),
-            agent_id=self.id,
-            agent_name=self.name,
-            tools_used=["generate_slides"] + (["generate_image"] if generated_images else []),
-            images=[{"url": u, "prompt": "For slides"} for u in generated_images],
-            data={
-                "html": html,
-                "slides_count": slides_count,
-                "title": outline.title,
-                "images_generated": len(generated_images)
-            },
-            execution_time_ms=int((time.time() - start_time) * 1000)
-        )
-
-    def _extract_theme(self, task: str, outline: PresentationOutline):
-        """Extrae tema del task o outline."""
-        try:
-            data = json.loads(task)
-            if "colors" in data and isinstance(data["colors"], dict):
-                return create_custom_theme(data["colors"], data.get("theme", "dark")), "custom"
-            if "theme" in data and data["theme"] in THEMES:
-                return get_theme(data["theme"]), data["theme"]
-        except Exception:
-            pass
-        detected = detect_theme_from_topic(outline.title)
-        return get_theme(detected), detected
-
-    async def _generate_images(self, prompts: List[str]) -> List[str]:
-        """Genera imágenes para slides (API key desde Strapi)."""
-        from src.tools.domains.media.generate_image import generate_image
-
-        urls = []
-        for prompt in prompts[:3]:
-            try:
-                result = await generate_image(
-                    prompt=str(prompt),
-                    provider="auto",
-                    size="1024x1024"
-                )
-                url = result.get("image_url")
-                if result.get("success") and url:
-                    urls.append(url)
-            except Exception as e:
-                logger.warning(f"Image gen failed: {e}")
-        return urls
-
-    async def _create_outline_from_task(
-        self,
-        task: str,
-        context: Optional[str],
-        llm_url: Optional[str],
-        model: Optional[str],
-        provider_type: str,
-        api_key: Optional[str]
-    ) -> PresentationOutline:
-        """Crea outline desde texto usando LLM."""
-        from ...llm_utils import call_llm
-
-        if not llm_url or not model:
-            return PresentationOutline(
-                title="Presentación",
-                slides=[
-                    SlideOutline(title="Introducción", type="title", badge="INICIO"),
-                    SlideOutline(title="Contenido", type="content", content=task[:300])
-                ]
-            )
-
-        # Usar skill si ya fue cargado previamente (por el LLM en _execute_with_llm)
-        skill_context = ""
-        if "slides" in self._skills_cache:
-            skill_context = """
-LAYOUTS DISPONIBLES:
-- slide-title: Portada y títulos de sección
-- slide-split: Contenido + imagen lado a lado
-- slide-cards: Grid de cards (servicios, features)
-- slide-stats: Números grandes y métricas
-- slide-quote: Testimonios y citas
-- slide-timeline: Evolución temporal
-
-Incluye "layout" en cada slide."""
-
-        prompt = f"""Crea una presentación profesional como JSON.
-
-TEMA: {task}
-{f"CONTEXTO: {context}" if context else ""}
-{skill_context}
-
-Formato JSON:
-{{
-  "title": "Título de la Presentación",
-  "theme": "dark",
-  "slides": [
-    {{"title": "...", "type": "title", "layout": "slide-title", "badge": "SECCIÓN"}},
-    {{"title": "...", "type": "bullets", "layout": "slide-split", "bullets": ["...", "..."]}},
-    {{"title": "...", "type": "stats", "layout": "slide-stats", "stats": [{{"value": "98%", "label": "..."}}]}},
-    {{"title": "...", "type": "cards", "layout": "slide-cards", "items": [{{"icon": "🚀", "title": "...", "text": "..."}}]}}
-  ],
-  "generate_images": ["prompt imagen 1 en inglés", "prompt imagen 2 en inglés"]
-}}
-
-REGLAS:
-1. generate_images: SIEMPRE incluye 1-3 prompts en inglés para imágenes (ej: "Modern abstract illustration of [concept], gradient blue purple, minimalist")
-2. Varía los layouts: no uses el mismo tipo de slide consecutivamente
-3. Usa stats para métricas y KPIs, cards para listar servicios/features
-4. Máximo 5-7 slides, menos es más
-5. Responde SOLO con JSON válido, sin texto adicional."""
-
-        response = await call_llm(
-            llm_url=llm_url,
-            model=model,
-            messages=[
-                {"role": "system", "content": "Eres un experto en presentaciones. Responde SOLO con JSON válido."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            provider_type=provider_type,
-            api_key=api_key
-        )
-
-        response = response.strip()
-        for prefix in ["```json", "```"]:
-            if response.startswith(prefix):
-                response = response[len(prefix):]
-        if response.endswith("```"):
-            response = response[:-3]
-
-        outline = self._parse_outline(response)
-        if not outline:
-            return PresentationOutline(
-                title="Presentación",
-                slides=[
-                    SlideOutline(title="Introducción", type="title", badge="INICIO"),
-                    SlideOutline(title="Contenido", type="content", content=task[:300])
-                ]
-            )
-        return outline
 
     async def _execute_with_llm(
         self,
@@ -441,292 +119,59 @@ REGLAS:
         api_key: Optional[str],
         start_time: float
     ) -> SubAgentResult:
-        """Ejecuta con LLM que decide si cargar skills, generar y auto-revisar."""
-        from ...llm_utils import call_llm_with_tools
-        from src.tools.domains.media import analyze_image
-
-        # Tools de ejecución
-        execution_tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "generate_image",
-                    "description": "Genera una imagen estática con IA (logos, ilustraciones, fotos, gráficos)",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"prompt": {"type": "string", "description": "Descripción detallada de la imagen a generar"}},
-                        "required": ["prompt"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "generate_video",
-                    "description": "Genera un vídeo cinematográfico con Veo 3.1 (hasta 8 segundos, con audio). Ideal para: clips promocionales, animaciones, escenas con movimiento, contenido dinámico.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "prompt": {
-                                "type": "string", 
-                                "description": "Descripción del vídeo. Incluye: sujeto, acción, estilo, cámara. Puede incluir diálogos entre comillas y efectos de sonido."
-                            },
-                            "aspect_ratio": {
-                                "type": "string",
-                                "enum": ["16:9", "9:16"],
-                                "description": "16:9 para horizontal/paisaje, 9:16 para vertical/stories"
-                            },
-                            "duration_seconds": {
-                                "type": "integer",
-                                "enum": [4, 6, 8],
-                                "description": "Duración del vídeo en segundos"
-                            }
-                        },
-                        "required": ["prompt"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "generate_presentation",
-                    "description": "Genera presentación HTML con múltiples slides. Para contenido estructurado con varias secciones.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "outline": {"type": "string", "description": "JSON con title, slides array y generate_images"},
-                            "context": {"type": "string", "description": "Contexto adicional"}
-                        },
-                        "required": ["outline"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "analyze_image",
-                    "description": "Analiza una imagen para evaluar calidad o comparar con expectativas. Usar después de generate_image para auto-revisión.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "image": {"type": "string", "description": "URL o base64 de la imagen a analizar"},
-                            "analysis_type": {
-                                "type": "string",
-                                "enum": ["describe", "critique", "extract", "compare"],
-                                "description": "Tipo: critique para evaluar calidad (1-10), compare para verificar requisitos"
-                            },
-                            "context": {"type": "string", "description": "Requisitos originales para comparar"}
-                        },
-                        "required": ["image", "analysis_type"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "deliver_result",
-                    "description": "Entrega el resultado final al usuario. Usar cuando el trabajo está completo.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "result_type": {"type": "string", "enum": ["image", "video", "presentation"], "description": "Tipo de resultado generado"},
-                            "message": {"type": "string", "description": "Mensaje explicativo del resultado"}
-                        },
-                        "required": ["result_type"]
-                    }
-                }
-            }
-        ]
-
-        # Añadir tool de skills si hay disponibles
-        load_skill_tool = self.get_load_skill_tool()
-        tools = [load_skill_tool] + execution_tools if load_skill_tool else execution_tools
-
-        # Prompt con info de skills disponibles
-        system_prompt = self.system_prompt + self.get_skills_for_prompt()
+        """Ejecuta con LLM que decide qué herramientas usar."""
         
+        # Obtener herramientas disponibles
+        tools = self.get_tools()
+        
+        # Construir mensajes
+        system_content = self.system_prompt + self.get_skills_for_prompt()
         user_content = f"Tarea: {task}"
         if context:
-            user_content += f"\n\nContexto: {context}"
-
+            user_content += f"\n\nContexto adicional: {context}"
+        
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_content}
         ]
         
-        # Estado para tracking de resultados generados
-        last_image_result = None
-        last_video_result = None
-        last_presentation_result = None
+        # Llamar LLM con herramientas
+        response = await call_llm_with_tools(
+            messages=messages,
+            tools=[tool.to_function_schema() for tool in tools],
+            temperature=0.7,
+            provider_type=provider_type,
+            api_key=api_key,
+            llm_url=llm_url,
+            model=model
+        )
         
-        # Helper para añadir tool result al historial (compatible con Ollama y OpenAI)
-        def add_tool_result(tool_name: str, tool_args: dict, result_content: str):
-            """Añade resultado de tool de forma compatible con múltiples providers."""
-            # Formato simplificado que funciona en todos los providers:
-            # En lugar de usar el formato complejo de tool_calls/tool,
-            # usamos un mensaje de assistant describiendo la acción
-            args_summary = ", ".join(f"{k}={repr(v)[:50]}" for k, v in tool_args.items())
-            messages.append({
-                "role": "assistant",
-                "content": f"[Ejecuté {tool_name}({args_summary})]\n\nResultado:\n{result_content}"
-            })
-        
-        # Loop: permite cargar skills, generar, analizar, regenerar
-        max_iterations = 6  # Más iteraciones para ciclo de auto-revisión
-        
-        for iteration in range(max_iterations):
-            response = await call_llm_with_tools(
-                messages=messages,
-                tools=tools,
-                temperature=0.5,
-                provider_type=provider_type,
-                api_key=api_key,
-                llm_url=llm_url,
-                model=model
+        # Si no hay tool calls, retornar respuesta directa
+        if not response.tool_calls:
+            return SubAgentResult(
+                success=True,
+                response=response.content or "No se pudo generar respuesta",
+                agent_id=self.id,
+                agent_name=self.name,
+                execution_time_ms=int((time.time() - start_time) * 1000)
             )
-
-            if not response.tool_calls:
-                # Sin tool call: retornar último resultado o fallback
-                if last_image_result:
-                    return last_image_result
-                if last_presentation_result:
-                    return last_presentation_result
-                break
-            
-            for tc in response.tool_calls:
-                name = tc.function.get("name", "")
-                args = json.loads(tc.function.get("arguments", "{}"))
-
-                # Tool: load_skill - carga conocimiento y continúa
-                if name == "load_skill":
-                    skill_id = args.get("skill_id", "")
-                    result = self.load_skill(skill_id)
-                    
-                    if result.get("success"):
-                        skill_content = result.get("content", "")
-                        add_tool_result("load_skill", {"skill_id": skill_id}, 
-                                       f"Skill '{skill_id}' cargado.\n\n{skill_content}")
-                        logger.info(f"🎯 LLM loaded skill: {skill_id}")
-                        continue
-                    else:
-                        add_tool_result("load_skill", {"skill_id": skill_id}, 
-                                       f"Error: {result.get('error')}")
-                        continue
-
-                # Tool: generate_image - genera pero NO retorna, permite análisis
-                elif name == "generate_image":
-                    prompt = args.get("prompt", task)
-                    last_image_result = await self._generate_image(prompt, start_time)
-                    
-                    # Añadir resultado a messages para que LLM pueda analizarlo
-                    image_info = "Imagen generada exitosamente."
-                    if last_image_result.data and last_image_result.data.get("image_url"):
-                        img_url = last_image_result.data["image_url"]
-                        # Para data URLs muy largos, solo indicar que está disponible
-                        if img_url.startswith("data:"):
-                            image_info += "\nImagen disponible como data URL (base64)."
-                        else:
-                            image_info += f"\nURL: {img_url}"
-                    
-                    add_tool_result("generate_image", {"prompt": prompt[:100]}, image_info)
-                    logger.info(f"🖼️ Image generated, awaiting analysis decision")
-                    continue
-                
-                # Tool: generate_video - genera vídeo
-                elif name == "generate_video":
-                    prompt = args.get("prompt", task)
-                    aspect_ratio = args.get("aspect_ratio", "16:9")
-                    duration = args.get("duration_seconds", 8)
-                    
-                    last_video_result = await self._generate_video(
-                        prompt, aspect_ratio, duration, start_time
-                    )
-                    
-                    video_info = "Vídeo generado exitosamente."
-                    if last_video_result.data and last_video_result.data.get("video_url"):
-                        video_url = last_video_result.data["video_url"]
-                        if video_url.startswith("/api/"):
-                            video_info += f"\nGuardado en workspace: {last_video_result.data.get('workspace_path', video_url)}"
-                        else:
-                            video_info += "\nVídeo disponible como data URL."
-                        video_info += f"\nDuración: {duration}s, Ratio: {aspect_ratio}"
-                    
-                    add_tool_result("generate_video", {"prompt": prompt[:100]}, video_info)
-                    logger.info(f"🎬 Video generated: {duration}s")
-                    # Vídeos son costosos, retornar directamente
-                    return last_video_result
-                
-                # Tool: analyze_image - analiza y continúa
-                elif name == "analyze_image":
-                    image_source = args.get("image", "")
-                    analysis_type = args.get("analysis_type", "critique")
-                    analysis_context = args.get("context", task)
-                    
-                    # Si no hay imagen especificada, usar la última generada
-                    if not image_source and last_image_result and last_image_result.data:
-                        image_source = last_image_result.data.get("image_url", "")
-                    
-                    if image_source:
-                        analysis_result = await analyze_image(
-                            image=image_source,
-                            analysis_type=analysis_type,
-                            context=analysis_context,
-                            provider="openai",
-                            api_key=api_key
-                        )
-                        
-                        analysis_text = analysis_result.get("analysis", "No se pudo analizar")
-                        add_tool_result("analyze_image", {"analysis_type": analysis_type}, 
-                                       f"Análisis ({analysis_type}):\n\n{analysis_text}")
-                        logger.info(f"🔍 Image analyzed: {analysis_type}")
-                    else:
-                        add_tool_result("analyze_image", {"analysis_type": analysis_type}, 
-                                       "Error: No hay imagen disponible para analizar")
-                    continue
-                
-                # Tool: deliver_result - entrega final
-                elif name == "deliver_result":
-                    result_type = args.get("result_type", "image")
-                    if result_type == "video" and last_video_result:
-                        return last_video_result
-                    elif result_type == "image" and last_image_result:
-                        return last_image_result
-                    elif result_type == "presentation" and last_presentation_result:
-                        return last_presentation_result
-                    # Fallbacks
-                    elif last_video_result:
-                        return last_video_result
-                    elif last_image_result:
-                        return last_image_result
-                    elif last_presentation_result:
-                        return last_presentation_result
-                    continue
-                
-                # Tool: generate_presentation - genera y retorna (presentaciones son más complejas de revisar)
-                elif name == "generate_presentation":
-                    outline_str = args.get("outline", "{}")
-                    outline = self._parse_outline(outline_str)
-                    if not outline:
-                        outline = await self._create_outline_from_task(
-                            outline_str or task,
-                            args.get("context") or context,
-                            llm_url, model, provider_type, api_key
-                        )
-                    last_presentation_result = await self._generate_presentation(
-                        outline, outline_str, context, api_key, start_time
-                    )
-                    # Presentaciones son más complejas, retornar directamente
-                    return last_presentation_result
-
-        # Fallback: retornar último resultado o generar presentación
-        if last_image_result:
-            return last_image_result
-        if last_presentation_result:
-            return last_presentation_result
-            
-        outline = await self._create_outline_from_task(
-            task, context, llm_url, model, provider_type, api_key
+        
+        # Ejecutar tool calls
+        tools_used = []
+        for tc in response.tool_calls:
+            tool_name = tc.function.get("name", "")
+            tools_used.append(tool_name)
+            logger.info(f"🛠️ Tool executed: {tool_name}")
+        
+        return SubAgentResult(
+            success=True,
+            response=response.content or f"Ejecutadas herramientas: {', '.join(tools_used)}",
+            agent_id=self.id,
+            agent_name=self.name,
+            tools_used=tools_used,
+            execution_time_ms=int((time.time() - start_time) * 1000)
         )
-        return await self._generate_presentation(
-            outline, task, context, api_key, start_time
-        )
+
+
+# Instancia para registro
+designer_agent = DesignerAgent()
