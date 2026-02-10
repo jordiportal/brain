@@ -848,14 +848,14 @@ interface TestRunResult {
       </mat-tab>
 
         <!-- Panel de Ejecución -->
-        @if (executeAgent) {
+        @if (executeAgent()) {
           <mat-card class="execute-panel">
             <mat-card-header>
               <mat-card-title>
                 <mat-icon>play_circle</mat-icon>
-                Ejecutar {{ executeAgent.name }}
+                Ejecutar {{ executeAgent()?.name }}
               </mat-card-title>
-              <button mat-icon-button (click)="executeAgent = null" class="close-btn">
+              <button mat-icon-button (click)="executeAgent.set(null)" class="close-btn">
                 <mat-icon>close</mat-icon>
               </button>
             </mat-card-header>
@@ -2347,7 +2347,7 @@ export class SubagentsComponent implements OnInit {
   executing = signal(false);
 
   selectedAgent: Subagent | null = null;
-  executeAgent: Subagent | null = null;
+  executeAgent = signal<Subagent | null>(null);
   activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración
 
   agentConfig: SubagentConfig = {
@@ -2571,14 +2571,15 @@ export class SubagentsComponent implements OnInit {
   }
 
   openExecutePanel(agent: Subagent): void {
-    this.executeAgent = agent;
+    this.executeAgent.set(agent);
     this.executeResult.set(null);
     this.executeTask = '';
     this.executeContext = '';
   }
 
   executeSubagent(): void {
-    if (!this.executeAgent || !this.executeTask.trim()) {
+    const agent = this.executeAgent();
+    if (!agent || !this.executeTask.trim()) {
       this.snackBar.open('Ingresa una tarea', 'Cerrar', { duration: 3000 });
       return;
     }
@@ -2586,7 +2587,7 @@ export class SubagentsComponent implements OnInit {
     this.executing.set(true);
     this.executeResult.set(null);
 
-    this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${this.executeAgent.id}/execute`, {
+    this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${agent.id}/execute`, {
       task: this.executeTask,
       context: this.executeContext || null,
       llm_url: this.executeLlmUrl,
