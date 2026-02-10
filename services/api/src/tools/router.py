@@ -166,6 +166,57 @@ async def create_openapi_connection(request: OpenAPIConnectionCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/openapi/connections/{connection_id}")
+async def update_openapi_connection(connection_id: int, request: OpenAPIConnectionCreate):
+    """Actualiza una conexión OpenAPI existente"""
+    try:
+        # Verificar si existe
+        existing = await OpenAPIConnectionRepository.get_by_id(connection_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Conexión no encontrada")
+        
+        # Verificar que el nuevo slug no esté en uso por otra conexión
+        if request.slug != existing.slug:
+            slug_check = await OpenAPIConnectionRepository.get_by_slug(request.slug)
+            if slug_check and slug_check.id != connection_id:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"El slug '{request.slug}' ya está en uso por otra conexión"
+                )
+        
+        # Actualizar la conexión
+        connection_data = request.dict()
+        updated_connection = await OpenAPIConnectionRepository.update(connection_id, connection_data)
+        
+        if not updated_connection:
+            raise HTTPException(status_code=500, detail="Error al actualizar la conexión")
+        
+        # Recargar conexiones en el toolkit
+        await openapi_toolkit.load_connections_from_db()
+        
+        return {
+            "status": "ok",
+            "message": "Conexión actualizada exitosamente",
+            "connection": {
+                "id": updated_connection.id,
+                "name": updated_connection.name,
+                "slug": updated_connection.slug,
+                "description": updated_connection.description or "",
+                "specUrl": updated_connection.spec_url,
+                "baseUrl": updated_connection.base_url,
+                "authType": updated_connection.auth_type,
+                "hasAuth": bool(updated_connection.auth_token),
+                "timeout": updated_connection.timeout
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating OpenAPI connection {connection_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/openapi/connections/refresh")
 async def refresh_openapi_connections():
     """Recarga las conexiones OpenAPI desde Strapi"""

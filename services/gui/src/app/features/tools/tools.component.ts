@@ -204,6 +204,10 @@ interface CoreToolConfig {
                   </mat-card-content>
 
                   <mat-card-actions align="end">
+                    <button mat-button (click)="openEditConnectionDialog(conn)">
+                      <mat-icon>edit</mat-icon>
+                      Editar
+                    </button>
                     <button mat-button color="primary" (click)="generateTools(conn.id)" [disabled]="generatingTools()">
                       @if (generatingTools() && generatingConnectionId === conn.id) {
                         <mat-spinner diameter="20"></mat-spinner>
@@ -505,14 +509,19 @@ interface CoreToolConfig {
         </mat-tab>
       </mat-tab-group>
 
-      <!-- Diálogo para nueva conexión OpenAPI -->
+      <!-- Diálogo para nueva/editar conexión OpenAPI -->
       @if (showNewConnectionDialog()) {
         <div class="dialog-overlay" (click)="closeNewConnectionDialog()">
           <div class="dialog-content" (click)="$event.stopPropagation()">
             <div class="dialog-header">
               <h2>
-                <mat-icon>add_circle</mat-icon>
-                Nueva Conexión OpenAPI
+                @if (isEditing()) {
+                  <mat-icon>edit</mat-icon>
+                  Editar Conexión OpenAPI
+                } @else {
+                  <mat-icon>add_circle</mat-icon>
+                  Nueva Conexión OpenAPI
+                }
               </h2>
               <button mat-icon-button (click)="closeNewConnectionDialog()" class="close-btn">
                 <mat-icon>close</mat-icon>
@@ -528,8 +537,12 @@ interface CoreToolConfig {
 
               <mat-form-field appearance="outline" class="full-width">
                 <mat-label>Slug</mat-label>
-                <input matInput [(ngModel)]="newConnection.slug" placeholder="mi-api">
-                <mat-hint>Identificador único (se genera automáticamente del nombre)</mat-hint>
+                <input matInput [(ngModel)]="newConnection.slug" [disabled]="isEditing()" placeholder="mi-api">
+                @if (isEditing()) {
+                  <mat-hint>El slug no se puede editar</mat-hint>
+                } @else {
+                  <mat-hint>Identificador único (se genera automáticamente del nombre)</mat-hint>
+                }
               </mat-form-field>
 
               <mat-form-field appearance="outline" class="full-width">
@@ -601,14 +614,25 @@ interface CoreToolConfig {
               <button mat-button (click)="closeNewConnectionDialog()">
                 Cancelar
               </button>
-              <button mat-raised-button color="primary" (click)="createConnection()" [disabled]="creatingConnection()">
-                @if (creatingConnection()) {
-                  <mat-spinner diameter="20"></mat-spinner>
-                } @else {
-                  <mat-icon>save</mat-icon>
-                }
-                Crear Conexión
-              </button>
+              @if (isEditing()) {
+                <button mat-raised-button color="primary" (click)="updateConnection()" [disabled]="savingConnection()">
+                  @if (savingConnection()) {
+                    <mat-spinner diameter="20"></mat-spinner>
+                  } @else {
+                    <mat-icon>save</mat-icon>
+                  }
+                  Guardar Cambios
+                </button>
+              } @else {
+                <button mat-raised-button color="primary" (click)="createConnection()" [disabled]="creatingConnection()">
+                  @if (creatingConnection()) {
+                    <mat-spinner diameter="20"></mat-spinner>
+                  } @else {
+                    <mat-icon>save</mat-icon>
+                  }
+                  Crear Conexión
+                </button>
+              }
             </div>
           </div>
         </div>
@@ -1094,6 +1118,8 @@ export class ToolsComponent implements OnInit {
   // Nueva conexión OpenAPI
   showNewConnectionDialog = signal(false);
   creatingConnection = signal(false);
+  editingConnection = signal<OpenAPIConnection | null>(null);
+  savingConnection = signal(false);
   newConnection = {
     name: '',
     slug: '',
@@ -1345,6 +1371,7 @@ export class ToolsComponent implements OnInit {
 
   closeNewConnectionDialog(): void {
     this.showNewConnectionDialog.set(false);
+    this.editingConnection.set(null);
   }
 
   generateSlugFromName(name: string): string {
@@ -1381,6 +1408,57 @@ export class ToolsComponent implements OnInit {
           this.creatingConnection.set(false);
         }
       });
+  }
+
+  openEditConnectionDialog(connection: OpenAPIConnection): void {
+    this.editingConnection.set(connection);
+    this.showNewConnectionDialog.set(true);
+    // Populate form with connection data
+    this.newConnection = {
+      name: connection.name,
+      slug: connection.slug,
+      description: connection.description || '',
+      spec_url: connection.specUrl,
+      base_url: connection.baseUrl,
+      auth_type: connection.authType as 'none' | 'bearer' | 'api_key' | 'basic',
+      auth_token: '', // Don't populate token for security
+      auth_header: 'Authorization',
+      auth_prefix: 'Bearer',
+      timeout: connection.timeout,
+      is_active: true
+    };
+  }
+
+  updateConnection(): void {
+    const connection = this.editingConnection();
+    if (!connection) return;
+
+    if (!this.newConnection.name || !this.newConnection.spec_url || !this.newConnection.base_url) {
+      this.snackBar.open('Nombre, Spec URL y Base URL son obligatorios', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    this.savingConnection.set(true);
+
+    this.http.put<any>(`${environment.apiUrl}/tools/openapi/connections/${connection.id}`, this.newConnection)
+      .subscribe({
+        next: (response) => {
+          this.snackBar.open('Conexión actualizada exitosamente', 'Cerrar', { duration: 3000 });
+          this.savingConnection.set(false);
+          this.editingConnection.set(null);
+          this.closeNewConnectionDialog();
+          this.loadConnections();
+        },
+        error: (err) => {
+          const errorMsg = err.error?.detail || 'Error actualizando conexión';
+          this.snackBar.open(errorMsg, 'Cerrar', { duration: 5000 });
+          this.savingConnection.set(false);
+        }
+      });
+  }
+
+  isEditing(): boolean {
+    return this.editingConnection() !== null;
   }
 
   generateTools(connectionId: string): void {

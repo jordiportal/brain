@@ -86,6 +86,66 @@ class OpenAPIConnectionRepository:
             return False
     
     @staticmethod
+    async def update(connection_id: int, connection_data: dict) -> Optional[OpenAPIConnection]:
+        """Update an existing OpenAPI connection."""
+        db = get_db()
+        
+        try:
+            import json
+            
+            # Check if connection exists
+            existing = await OpenAPIConnectionRepository.get_by_id(connection_id)
+            if not existing:
+                return None
+            
+            query = """
+                UPDATE openapi_connections 
+                SET 
+                    name = $1,
+                    slug = $2,
+                    description = $3,
+                    spec_url = $4,
+                    base_url = $5,
+                    auth_type = $6,
+                    auth_token = $7,
+                    auth_header = $8,
+                    auth_prefix = $9,
+                    is_active = $10,
+                    timeout = $11,
+                    enabled_endpoints = $12::jsonb,
+                    custom_headers = $13::jsonb,
+                    updated_at = NOW()
+                WHERE id = $14
+                RETURNING *
+            """
+            
+            row = await db.fetch_one(
+                query,
+                connection_data.get('name', existing.name),
+                connection_data.get('slug', existing.slug),
+                connection_data.get('description', existing.description),
+                connection_data.get('spec_url', existing.spec_url),
+                connection_data.get('base_url', existing.base_url),
+                connection_data.get('auth_type', existing.auth_type),
+                connection_data.get('auth_token', existing.auth_token),
+                connection_data.get('auth_header', existing.auth_header),
+                connection_data.get('auth_prefix', existing.auth_prefix),
+                connection_data.get('is_active', existing.is_active),
+                connection_data.get('timeout', existing.timeout),
+                json.dumps(connection_data.get('enabled_endpoints', existing.enabled_endpoints or [])),
+                json.dumps(connection_data.get('custom_headers', existing.custom_headers or {})),
+                connection_id
+            )
+            
+            if row:
+                return OpenAPIConnectionRepository._row_to_connection(row)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error updating OpenAPI connection {connection_id}: {e}")
+            return None
+    
+    @staticmethod
     async def create(connection_data: dict) -> Optional[OpenAPIConnection]:
         """Create a new OpenAPI connection."""
         db = get_db()
