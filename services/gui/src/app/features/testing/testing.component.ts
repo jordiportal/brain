@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, signal, ViewChild, ElementRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -19,6 +19,7 @@ import { environment } from '../../../environments/environment';
 
 // Chat unificado
 import { ChatComponent, ChatMessage } from '../../shared/components/chat';
+import { LlmSelectorComponent, LlmSelectionService } from '../../shared/components/llm-selector';
 
 @Component({
   selector: 'app-testing',
@@ -37,7 +38,8 @@ import { ChatComponent, ChatMessage } from '../../shared/components/chat';
     MatSnackBarModule,
     MatDividerModule,
     MatSlideToggleModule,
-    ChatComponent
+    ChatComponent,
+    LlmSelectorComponent
   ],
   template: `
     <div class="testing-page">
@@ -55,17 +57,13 @@ import { ChatComponent, ChatMessage } from '../../shared/components/chat';
             <mat-card-title>Configuración</mat-card-title>
           </mat-card-header>
           <mat-card-content>
-            <!-- Selector de Proveedor -->
-            <mat-form-field appearance="outline" class="full-width">
-              <mat-label>Proveedor LLM</mat-label>
-              <mat-select [(value)]="selectedProvider" (selectionChange)="onProviderChange()">
-                @for (provider of providers(); track provider.id) {
-                  <mat-option [value]="provider">
-                    {{ provider.name }} ({{ provider.type }})
-                  </mat-option>
-                }
-              </mat-select>
-            </mat-form-field>
+            <!-- Selector LLM Unificado -->
+            <app-llm-selector
+              [(providerId)]="selectedProviderId"
+              [(model)]="selectedModel"
+              (selectionChange)="onLlmSelectionChange($event)"
+              mode="standard">
+            </app-llm-selector>
 
             @if (selectedProvider) {
               <div class="provider-info">
@@ -95,16 +93,6 @@ import { ChatComponent, ChatMessage } from '../../shared/components/chat';
               }
 
               <mat-divider></mat-divider>
-
-              <!-- Selector de Modelo -->
-              <mat-form-field appearance="outline" class="full-width">
-                <mat-label>Modelo</mat-label>
-                <mat-select [(value)]="selectedModel">
-                  @for (model of availableModels(); track model) {
-                    <mat-option [value]="model">{{ model }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
 
               <!-- Streaming Toggle -->
               <mat-slide-toggle [(ngModel)]="useStreaming" color="primary">
@@ -401,10 +389,14 @@ import { ChatComponent, ChatMessage } from '../../shared/components/chat';
 export class TestingComponent implements OnInit {
   @ViewChild('chatContainer') chatContainer!: ElementRef;
   
-  providers = signal<LlmProvider[]>([]);
-  selectedProvider: LlmProvider | null = null;
-  selectedModel: string = '';
+  private llmSelectionService = inject(LlmSelectionService);
+  
+  // Usamos el servicio para providers y modelos
+  providers = this.llmSelectionService.providers;
   availableModels = signal<string[]>([]);
+  
+  selectedProviderId: string | number | null = null;
+  selectedModel: string = '';
   systemPrompt: string = '';
   useStreaming: boolean = true;
   
@@ -438,61 +430,28 @@ export class TestingComponent implements OnInit {
     private snackBar: MatSnackBar
   ) {}
 
+  // Getter para obtener el proveedor seleccionado
+  get selectedProvider(): LlmProvider | null | undefined {
+    return this.llmSelectionService.getProviderById(this.selectedProviderId);
+  }
+
   ngOnInit(): void {
-    this.loadProviders();
+    // Cargar proveedores desde el servicio
+    this.llmSelectionService.loadProviders().subscribe();
   }
 
-  loadProviders(): void {
-    this.strapiService.getLlmProviders().subscribe({
-      next: (providers) => {
-        this.providers.set(providers.filter(p => p.isActive));
-        if (providers.length > 0) {
-          this.selectedProvider = providers[0];
-          this.onProviderChange();
-        }
-      },
-      error: () => this.snackBar.open('Error cargando proveedores', 'Cerrar', { duration: 3000 })
-    });
-  }
-
-  onProviderChange(): void {
-    if (this.selectedProvider) {
-      this.selectedModel = this.selectedProvider.defaultModel || '';
+  // Handler para el selector LLM unificado
+  onLlmSelectionChange(event: any): void {
+    this.selectedProviderId = event.providerId;
+    this.selectedModel = event.model;
+    
+    if (event.provider) {
       this.connectionStatus.set(null);
-      this.loadModels();
-    }
-  }
-
-  loadModels(): void {
-    if (!this.selectedProvider) return;
-
-    // Pasar provider_type y api_key para providers que lo requieren (OpenAI-compatible, etc.)
-    const params: any = { 
-      provider_url: this.selectedProvider.baseUrl,
-      provider_type: this.selectedProvider.type || 'ollama'
-    };
-    if (this.selectedProvider.apiKey) {
-      params.api_key = this.selectedProvider.apiKey;
-    }
-
-    this.http.get<{ models: { name: string }[] }>(
-      `${this.API_URL}/llm/models`,
-      { params }
-    ).subscribe({
-      next: (response) => {
-        const models = response.models.map(m => m.name);
+      // Cargar modelos para este proveedor
+      this.llmSelectionService.loadModels(event.provider).subscribe((models: string[]) => {
         this.availableModels.set(models);
-        if (models.length > 0 && !this.selectedModel) {
-          this.selectedModel = models[0];
-        }
-      },
-      error: () => {
-        this.availableModels.set([]);
-        if (this.selectedProvider?.defaultModel) {
-          this.availableModels.set([this.selectedProvider.defaultModel]);
-        }
-      }
-    });
+      });
+    }
   }
 
   testConnection(): void {

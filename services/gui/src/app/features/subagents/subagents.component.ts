@@ -26,6 +26,7 @@ import { environment } from '../../../environments/environment';
 
 // Chat unificado
 import { ChatComponent, ChatMessage } from '../../shared/components/chat';
+import { LlmSelectorComponent, LlmSelectionService } from '../../shared/components/llm-selector';
 
 interface Skill {
   id: string;
@@ -165,7 +166,8 @@ interface TestRunResult {
     MatBadgeModule,
     MatListModule,
     MatCheckboxModule,
-    ChatComponent
+    ChatComponent,
+    LlmSelectorComponent
   ],
   template: `
     <div class="subagents-page">
@@ -288,16 +290,14 @@ interface TestRunResult {
                 </div>
               </mat-card-header>
               <mat-card-content class="chat-content">
-                <!-- Configuración rápida -->
+                <!-- Selector LLM unificado -->
                 <div class="chat-config-bar">
-                  <mat-form-field appearance="outline" class="config-field">
-                    <mat-label>LLM URL</mat-label>
-                    <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://localhost:11434">
-                  </mat-form-field>
-                  <mat-form-field appearance="outline" class="config-field">
-                    <mat-label>Modelo</mat-label>
-                    <input matInput [(ngModel)]="executeModel" placeholder="llama3.2">
-                  </mat-form-field>
+                  <app-llm-selector
+                    [(providerId)]="executeProviderId"
+                    [(model)]="executeModel"
+                    mode="compact"
+                    (selectionChange)="onExecuteSelectionChange($event)">
+                  </app-llm-selector>
                 </div>
                 
                 <!-- Chat -->
@@ -915,16 +915,14 @@ interface TestRunResult {
               </div>
             </mat-card-header>
             <mat-card-content class="chat-content">
-              <!-- Configuración rápida -->
+              <!-- Selector LLM unificado -->
               <div class="chat-config-bar">
-                <mat-form-field appearance="outline" class="config-field">
-                  <mat-label>LLM URL</mat-label>
-                  <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://localhost:11434">
-                </mat-form-field>
-                <mat-form-field appearance="outline" class="config-field">
-                  <mat-label>Modelo</mat-label>
-                  <input matInput [(ngModel)]="executeModel" placeholder="llama3.2">
-                </mat-form-field>
+                <app-llm-selector
+                  [(providerId)]="executeProviderId"
+                  [(model)]="executeModel"
+                  mode="compact"
+                  (selectionChange)="onExecuteSelectionChange($event)">
+                </app-llm-selector>
               </div>
               
               <!-- Chat -->
@@ -2384,6 +2382,7 @@ export class SubagentsComponent implements OnInit {
   private http = inject(HttpClient);
   private snackBar = inject(MatSnackBar);
   private sanitizer = inject(DomSanitizer);
+  private llmSelectionService = inject(LlmSelectionService);
 
   subagents = signal<Subagent[]>([]);
   agentTools = signal<SubagentTool[]>([]);
@@ -2447,11 +2446,11 @@ export class SubagentsComponent implements OnInit {
   criteriaChecks: boolean[] = [];
   testNotes = '';
 
-  // Execute form
+  // Execute form - sincronizado con configuración del agente
   executeTask = '';
   executeContext = '';
-  executeLlmUrl = 'http://192.168.7.101:11434';
-  executeModel = 'gpt-oss:120b';
+  executeProviderId: string | number | null = null;
+  executeModel = '';
 
   ngOnInit(): void {
     this.loadSubagents();
@@ -2644,6 +2643,36 @@ export class SubagentsComponent implements OnInit {
     this.executeResult.set(null);
     this.executeTask = '';
     this.executeContext = '';
+    this.messages.set([]);
+    
+    // SINCRONIZAR con la configuración del agente
+    if (this.agentConfig.llm_provider) {
+      this.executeProviderId = this.agentConfig.llm_provider;
+      
+      // Buscar el proveedor para obtener la URL base
+      const provider = this.dbProviders().find(p => 
+        p.id.toString() === this.agentConfig.llm_provider?.toString()
+      );
+      
+      if (provider) {
+        // Usar el modelo de la config, o el default del proveedor
+        this.executeModel = this.agentConfig.llm_model || provider.defaultModel || '';
+      } else {
+        // Si no encontramos el proveedor, usar el ID y dejar el modelo vacío
+        this.executeModel = this.agentConfig.llm_model || '';
+      }
+    } else {
+      // Si no hay config, seleccionar el primer proveedor por defecto
+      const defaultProvider = this.dbProviders().find(p => p.isDefault);
+      if (defaultProvider) {
+        this.executeProviderId = defaultProvider.id;
+        this.executeModel = defaultProvider.defaultModel || '';
+      } else if (this.dbProviders().length > 0) {
+        this.executeProviderId = this.dbProviders()[0].id;
+        this.executeModel = this.dbProviders()[0].defaultModel || '';
+      }
+    }
+    
     this.activeTabIndex = 2; // Switch to execution tab
   }
 
@@ -2652,6 +2681,25 @@ export class SubagentsComponent implements OnInit {
     this.executeAgent.set(null);
     this.messages.set([]);
     this.executeResult.set(null);
+  }
+
+  /**
+   * Helper para obtener la configuración LLM actual (para tests y ejecución)
+   */
+  private getExecutionLlmConfig(): { llm_url: string; model: string; provider_type: string; api_key?: string } | null {
+    const config = this.llmSelectionService.buildExecutionConfig(
+      this.executeProviderId,
+      this.executeModel
+    );
+    
+    if (!config) return null;
+    
+    return {
+      llm_url: config.provider_url,
+      model: config.model,
+      provider_type: config.provider_type,
+      api_key: config.api_key
+    };
   }
 
   executeSubagent(): void {
@@ -2671,12 +2719,25 @@ export class SubagentsComponent implements OnInit {
     };
     this.messages.update(msgs => [...msgs, userMessage]);
 
+    // Obtener configuración del LLM desde el servicio de selección
+    const llmConfig = this.llmSelectionService.buildExecutionConfig(
+      this.executeProviderId,
+      this.executeModel
+    );
+    
+    if (!llmConfig) {
+      this.executing.set(false);
+      this.snackBar.open('Selecciona un proveedor LLM válido', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
     this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${agent.id}/execute`, {
       task: this.executeTask,
       context: this.executeContext || null,
-      llm_url: this.executeLlmUrl,
-      model: this.executeModel,
-      provider_type: 'ollama'
+      llm_url: llmConfig.provider_url,
+      model: llmConfig.model,
+      provider_type: llmConfig.provider_type,
+      api_key: llmConfig.api_key
     }).subscribe({
       next: (result) => {
         this.executing.set(false);
@@ -2724,6 +2785,12 @@ export class SubagentsComponent implements OnInit {
   onChatMessageSent(message: string): void {
     this.executeTask = message;
     this.executeSubagent();
+  }
+
+  // Handler para cambios en el selector LLM de ejecución
+  onExecuteSelectionChange(event: any): void {
+    this.executeProviderId = event.providerId;
+    this.executeModel = event.model;
   }
 
   clearChat(): void {
@@ -2943,14 +3010,23 @@ export class SubagentsComponent implements OnInit {
     this.selectedTest = test;
     this.criteriaChecks = test.expected.criteria.map(() => false);
     
+    // Obtener configuración LLM para tests
+    const llmConfig = this.getExecutionLlmConfig();
+    if (!llmConfig) {
+      this.snackBar.open('Configura un proveedor LLM válido', 'Cerrar', { duration: 3000 });
+      this.runningTest.set(null);
+      return;
+    }
+    
     this.http.post<TestRunResult>(
       `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/${test.id}/run`,
       null,
       {
         params: {
-          llm_url: this.executeLlmUrl,
-          model: this.executeModel,
-          provider_type: 'ollama'
+          llm_url: llmConfig.llm_url,
+          model: llmConfig.model,
+          provider_type: llmConfig.provider_type,
+          ...(llmConfig.api_key && { api_key: llmConfig.api_key })
         }
       }
     ).subscribe({
@@ -2994,14 +3070,23 @@ export class SubagentsComponent implements OnInit {
       
       this.runningTest.set(test.id);
       
+      // Obtener configuración LLM para tests
+      const llmConfig = this.getExecutionLlmConfig();
+      if (!llmConfig) {
+        this.runningTest.set(null);
+        resolve();
+        return;
+      }
+      
       this.http.post<TestRunResult>(
         `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/${test.id}/run`,
         null,
         {
           params: {
-            llm_url: this.executeLlmUrl,
-            model: this.executeModel,
-            provider_type: 'ollama'
+            llm_url: llmConfig.llm_url,
+            model: llmConfig.model,
+            provider_type: llmConfig.provider_type,
+            ...(llmConfig.api_key && { api_key: llmConfig.api_key })
           }
         }
       ).subscribe({
