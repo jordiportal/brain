@@ -26,6 +26,7 @@ interface OpenAPIConnection {
   id: string;
   name: string;
   slug: string;
+  description?: string;
   specUrl: string;
   baseUrl: string;
   authType: string;
@@ -172,7 +173,7 @@ interface CoreToolConfig {
               @for (conn of connections(); track conn.id) {
                 <mat-card class="connection-card">
                   <mat-card-header>
-                    <div class="connection-icon">
+                    <div class="connection-icon" mat-card-avatar>
                       <mat-icon>api</mat-icon>
                     </div>
                     <mat-card-title>{{ conn.name }}</mat-card-title>
@@ -181,13 +182,14 @@ interface CoreToolConfig {
                   
                   <mat-card-content>
                     <div class="connection-details">
+                      <p class="description">{{ conn.description || 'Conexión OpenAPI configurada' }}</p>
                       <div class="detail-row">
-                        <span class="label">Spec URL:</span>
+                        <span class="label">Spec:</span>
                         <span class="value truncate">{{ conn.specUrl }}</span>
                       </div>
                       <div class="detail-row">
                         <span class="label">Auth:</span>
-                        <mat-chip [class]="conn.authType">
+                        <mat-chip [class]="conn.authType" class="auth-chip">
                           {{ conn.authType | uppercase }}
                           @if (conn.hasAuth) {
                             <mat-icon>check</mat-icon>
@@ -674,16 +676,35 @@ interface CoreToolConfig {
       grid-column: 1 / -1;
     }
 
-    /* Connections Grid */
+    /* Connections Grid - Same as chains/subagents */
     .connections-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
       gap: 20px;
-      padding: 24px 0;
+      margin-bottom: 24px;
     }
 
     .connection-card {
       border-radius: 12px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .connection-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    .connection-card mat-card-content {
+      flex: 1 1 auto;
+    }
+
+    .connection-card mat-card-actions {
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid #f0f0f0;
     }
 
     .connection-icon {
@@ -694,7 +715,6 @@ interface CoreToolConfig {
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-right: 16px;
     }
 
     .connection-icon mat-icon {
@@ -703,24 +723,32 @@ interface CoreToolConfig {
     }
 
     .connection-details {
-      margin-top: 16px;
+      margin-top: 12px;
+    }
+
+    .connection-details .description {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 12px;
     }
 
     .detail-row {
       display: flex;
       align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
+      font-size: 13px;
     }
 
     .detail-row .label {
-      width: 80px;
+      width: 60px;
       color: #888;
-      font-size: 13px;
+      font-size: 12px;
+      font-weight: 500;
     }
 
     .detail-row .value {
       flex: 1;
-      font-size: 13px;
+      color: #333;
     }
 
     .truncate {
@@ -728,6 +756,11 @@ interface CoreToolConfig {
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 250px;
+    }
+
+    .auth-chip {
+      font-size: 11px !important;
+      min-height: 22px !important;
     }
 
     /* Tools Header */

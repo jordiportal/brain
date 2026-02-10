@@ -106,6 +106,7 @@ async def list_openapi_connections():
                 "id": conn["id"],
                 "name": conn["name"],
                 "slug": conn["slug"],
+                "description": conn.get("description", ""),
                 "specUrl": conn["specUrl"],
                 "baseUrl": conn["baseUrl"],
                 "authType": conn["authType"],
