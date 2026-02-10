@@ -29,57 +29,66 @@ def _read_system_prompt() -> str:
     try:
         return path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        return """Eres un Analista de Datos SAP experto. Tu misión es extraer, analizar y reportar 
-datos desde sistemas SAP (S/4HANA, ECC, BI/BW) según las necesidades del usuario.
+        return """Eres un Analista de Datos SAP BIW (Business Intelligence Warehouse) experto. Tu misión es extraer, analizar y reportar 
+datos desde sistemas SAP BW/BI según las necesidades del usuario.
 
 Capacidades:
-- Conectar a SAP vía RFC, OData APIs, o conexiones directas
-- Ejecutar BAPIs, transactions, queries SQ01/SQVI
+- Extraer datos desde InfoCubes (cubos OLAP) multidimensionales
+- Consultar DSOs (DataStore Objects) para datos maestros y transaccionales
+- Ejecutar queries BEx con filtros, variables y selecciones
+- Obtener jerarquías, atributos y datos maestros
+- Trabajar con Key Figures (ratios) y Characteristics (características)
 - Análisis estadístico: tendencias, correlaciones, anomalías
 - Generar reportes ejecutivos con insights accionables
 - Exportar datos en múltiples formatos
 
+Herramientas BIW disponibles:
+- biw_get_cube_data: Extraer datos de InfoCubes con navegación multidimensional
+- biw_get_dso_data: Extraer datos de DataStore Objects
+- biw_get_bex_query: Ejecutar queries BEx con parámetros
+- biw_get_master_data: Obtener datos maestros con atributos
+- biw_get_hierarchy: Obtener jerarquías (geográficas, organizativas, de producto)
+- biw_get_texts: Obtener textos descriptivos
+- biw_get_ratios: Obtener ratios calculados (KPIs)
+
 Proceso de trabajo:
-1. Entender qué datos necesita el usuario (módulo, período, filtros)
-2. Determinar la mejor forma de extracción (RFC, API, Query)
-3. Ejecutar la extracción de datos
-4. Analizar los datos según la petición (estadísticas, comparativas, tendencias)
-5. Generar un reporte claro con hallazgos y recomendaciones
+1. Entender qué datos necesita el usuario (InfoCube, DSO, query BEx)
+2. Identificar características (ejes de análisis) y ratios (medidas)
+3. Aplicar filtros y variables según los requerimientos
+4. Ejecutar la extracción usando las herramientas BIW
+5. Analizar los datos según la petición (análisis multidimensional, tendencias, comparativas)
+6. Generar un reporte claro con hallazgos, insights y recomendaciones
+
+Notas importantes:
+- Los InfoCubes son multidimensionales: usa características para filtrar y navegar
+- Las jerarquías permiten drill-down (ej: Año → Trimestre → Mes)
+- Los ratios pueden ser simples o calculados (formulas complejas)
+- Siempre valida la integridad de los datos y reporta anomalías
 
 Siempre valida la integridad de los datos y reporta cualquier anomalía encontrada."""
 
 
-# Skills disponibles para el SAP Analyst
+# Skills disponibles para el SAP BIW Analyst
 SAP_ANALYST_SKILLS = [
     Skill(
-        id="financial_analysis",
-        name="Análisis Financiero SAP",
-        description="Análisis de FI/CO: balances, cash flow, cost centers, profit centers, reportes financieros"
+        id="biw_data_extraction",
+        name="Extracción de Datos BIW",
+        description="Extracción de datos desde SAP BW/BI: InfoCubes, DSOs, queries BEx, InfoProviders"
     ),
     Skill(
-        id="sales_analysis", 
-        name="Análisis de Ventas SD",
-        description="Análisis de SD: pedidos, facturas, clientes, tendencias de ventas, forecasting"
+        id="biw_reporting",
+        name="Reporting y Analytics BIW",
+        description="Creación de reportes BIW: BEx Analyzer, Web Intelligence, dashboards y visualizaciones"
     ),
     Skill(
-        id="inventory_analysis",
-        name="Análisis de Inventario MM",
-        description="Análisis de MM: stock levels, movimientos de material, ABC analysis, turnover ratios"
+        id="biw_cube_analysis",
+        name="Análisis de InfoCubes",
+        description="Análisis multidimensional: navegación por características, ratios clave, agregaciones"
     ),
     Skill(
-        id="procurement_analysis",
-        name="Análisis de Compras",
-        description="Análisis de procurement: POs, vendors, lead times, cost savings, compliance"
-    ),
-    Skill(
-        id="production_analysis",
-        name="Análisis de Producción PP",
-        description="Análisis de PP: órdenes de producción, capacidad, eficiencia, OEE, scrap rates"
-    ),
-    Skill(
-        id="hr_analysis",
-        name="Análisis de HR/HCM",
-        description="Análisis de HCM: headcount, turnover, costes de personal, absentismo, organigramas"
+        id="biw_master_data",
+        name="Datos Maestros BIW",
+        description="Gestión de atributos, jerarquías, textos y datos maestros en BW"
     ),
     Skill(
         id="sap_query_advanced",
@@ -96,56 +105,68 @@ SAP_ANALYST_SKILLS = [
 
 class SAPAnalystAgent(BaseSubAgent):
     """
-    Subagente especializado en análisis de datos SAP.
+    Subagente especializado en análisis de datos SAP BIW (Business Intelligence Warehouse).
     
-    Extrae datos desde sistemas SAP y los analiza según requerimientos,
+    Extrae datos desde SAP BW/BI y los analiza según requerimientos,
     generando reportes con insights y recomendaciones.
     """
     
     id = "sap_analyst"
-    name = "SAP Data Analyst"
-    description = "Analista de datos SAP: extracción, análisis estadístico, reportes BI"
+    name = "SAP BIW Analyst"
+    description = "Analista de datos SAP BIW: extracción BW, cubos OLAP, reportes y análisis multidimensional"
     version = "1.0.0"
     domain_tools = [
-        "execute_code",      # Para ejecutar scripts de extracción/análisis
-        "filesystem",        # Para leer/escribir archivos de datos
-        "web_search"         # Para consultar documentación SAP
+        "biw_get_cube_data",           # Extraer datos de InfoCubes
+        "biw_get_dso_data",            # Extraer datos de DSOs
+        "biw_get_bex_query",           # Ejecutar queries BEx
+        "biw_get_master_data",         # Obtener datos maestros
+        "biw_get_hierarchy",           # Obtener jerarquías
+        "biw_get_texts",               # Obtener textos
+        "biw_get_ratios",              # Obtener ratios/calculated key figures
+        "filesystem",                  # Para leer/escribir archivos
+        "execute_code"                 # Para análisis estadístico
     ]
     available_skills = SAP_ANALYST_SKILLS
     
-    role = "Analista de Datos SAP Senior"
-    expertise = """Experto en extracción y análisis de datos desde SAP S/4HANA, ECC y BI/BW.
+    role = "Analista de Datos SAP BIW Senior"
+    expertise = """Experto en extracción y análisis de datos desde SAP BW/BI (Business Intelligence Warehouse).
     
-Módulos especializados:
-- FI/CO (Finanzas y Controlling)
-- SD (Ventas y Distribución)  
-- MM (Materiales e Inventario)
-- PP (Producción)
-- HR/HCM (Recursos Humanos)
+Especializado en:
+- InfoCubes (cubos OLAP) y navegación multidimensional
+- DSOs (DataStore Objects) para datos maestros y transaccionales
+- Queries BEx y reporting estructurado
+- Jerarquías, atributos y datos maestros
+- Key Figures (ratios) y Characteristics (características)
+- Filtros, variables y selecciones dinámicas
 
 Técnicas de análisis:
-- Análisis descriptivo y diagnóstico
-- Tendencias y forecasting
-- Análisis de correlaciones y regresiones
-- Segmentación y clasificación ABC
-- Detección de anomalías y outliers
+- Análisis multidimensional (slicing, dicing, drill-down)
+- Comparativas y variaciones (YoY, MoM)
+- Forecasting y tendencias temporales
+- ABC analysis y Pareto
+- Correlaciones entre KPIs
 
-Puedo generar reportes ejecutivos con insights accionables y visualizaciones."""
+Genera reportes ejecutivos, dashboards y visualizaciones a partir de datos BW."""
     
-    task_requirements = """Para analizar datos SAP necesito:
+    task_requirements = """Para analizar datos SAP BIW necesito:
 
 **Obligatorio:**
-- Qué datos necesitas (tablas SAP, módulo, campos específicos)
-- Período de análisis (fechas desde/hasta)
-- Sistema SAP de origen (desarrollo, calidad, producción)
+- Qué datos necesitas (InfoCube, DSO, query BEx específico)
+- Período de análisis (fechas desde/hasta o período fiscal)
+- Características clave (ej: sociedad, centro, producto, cliente)
 
 **Opcional pero recomendado:**
-- Qué tipo de análisis requieres (descriptivo, comparativo, tendencias, forecasting)
-- Filtros específicos (sociedades, centros, materiales, etc.)
-- Formato de salida deseado (Excel, CSV, PDF, JSON)
-- Si tienes acceso SAP configurado (endpoint, credenciales)
+- Qué tipo de análisis requieres (cubo, tendencias, comparativas, drill-down)
+- Jerarquías a utilizar (ej: geografía, organización, producto)
+- Ratios/KPIs específicos a calcular
+- Filtros y variables (ej: solo activos, solo 2024, etc.)
+- Formato de salida deseado (Excel, CSV, PDF, JSON, tabla)
 
-Ejemplo: "Análisis de ventas del último trimestre por región y producto, comparando vs año anterior"
+**Ejemplos:**
+- "Análisis de ventas del último trimestre por región y producto desde el cubo ZC_SALES"
+- "Drill-down de costes por centro de coste y mes fiscal desde ZC_COSTS"
+- "Comparativa YoY de margen por cliente desde la query BEx ZQ_MARGIN"
+- "Datos maestros de materiales con atributos desde el DSO ZDSO_MATERIAL"
 """
     
     def __init__(self):

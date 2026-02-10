@@ -1,25 +1,25 @@
-# SAP Analyst Agent
+# SAP BIW Analyst Agent
 
-Subagente especializado en análisis de datos SAP S/4HANA, ECC y BI/BW.
+Subagente especializado en análisis de datos SAP BIW (Business Intelligence Warehouse).
 
 ## Características
 
-- **Extracción de datos**: Conecta a SAP vía RFC, OData APIs o queries
-- **Análisis estadístico**: Tendencias, correlaciones, anomalías, forecasting
-- **Múltiples módulos**: Soporte para FI/CO, SD, MM, PP, HR
-- **Reportes ejecutivos**: Genera insights y recomendaciones accionables
-- **Sistema de skills**: Carga conocimiento especializado según el tipo de análisis
+- **Extracción BIW**: InfoCubes, DSOs, queries BEx, datos maestros
+- **Análisis OLAP**: Navegación multidimensional, drill-down, slicing
+- **Reportes BIW**: Tabulares, cruzados, jerárquicos, dashboards
+- **KPIs y Ratios**: Key Figures, características, jerarquías
+- **Sistema de skills**: Conocimiento especializado en BIW/BW
 
 ## Uso
 
 ### Desde el Adaptive Agent
 
-El agente principal puede delegar tareas de análisis SAP:
+El agente principal puede delegar tareas de análisis BIW:
 
 ```python
 result = await delegate(
     agent="sap_analyst",
-    task="Análisis de ventas del último trimestre por región"
+    task="Análisis de ventas del último trimestre desde el cubo ZC_SALES"
 )
 ```
 
@@ -30,8 +30,8 @@ from src.engine.chains.agents import SAPAnalystAgent
 
 analyst = SAPAnalystAgent()
 result = await analyst.execute(
-    task='{"task": "Análisis de inventario MM", "module": "MM", "period": {"type": "last_month"}}',
-    context="connection_config"
+    task='{"task": "Análisis de cubo ZC_COSTS por centro de coste", "period": {"type": "last_quarter"}}',
+    context="biw_connection_config"
 )
 ```
 
@@ -42,116 +42,125 @@ La tarea puede ser un string simple o un JSON estructurado:
 ```json
 {
   "task": "Descripción del análisis requerido",
-  "module": "SD|FI|CO|MM|PP|HR",
-  "tables": ["VBAK", "VBAP"],
-  "fields": ["vbeln", "erdat", "netwr"],
+  "info_cube": "ZC_SALES_C01",
+  "dso": "ZDSO_SALES",
+  "bex_query": "ZQ_SALES_BY_REGION",
+  "caracteristicas": ["ZCE_REGION", "ZCE_PRODUCTO"],
+  "ratios": ["ZKF_VENTAS", "ZKF_CANTIDAD"],
+  "jerarquias": ["ZHI_CALENDARIO"],
   "period": {
     "type": "last_month|last_quarter|last_year|custom",
     "from": "20240101",
-    "to": "20241231"
+    "to": "20240331"
   },
-  "filters": {
-    "vkorg": ["1000", "2000"],
-    "vtweg": ["10"]
+  "filtros": {
+    "ZCE_SOC": ["1000", "2000"],
+    "ZCE_AÑO": ["2024"]
   },
-  "analysis_type": "descriptive|forecasting|comparative|correlation|anomaly_detection|abc_analysis",
-  "output_format": "report|excel|csv|json",
-  "comparison": true,
-  "group_by": ["region", "product"],
-  "metrics": ["revenue", "quantity", "margin"]
+  "analysis_type": "descriptive|forecasting|comparative|drill_down"
 }
 ```
 
+## Características Principales
+
+### 1. Múltiples Fuentes de Datos
+
+- **InfoCubes**: Cubos OLAP multidimensionales
+- **DSOs**: DataStore Objects para datos detallados
+- **Queries BEx**: Consultas estructuradas predefinidas
+
+### 2. Análisis Multidimensional
+
+- **Navegación**: Drill-down, roll-up, slice, dice
+- **Jerarquías**: Temporales, geográficas, organizativas
+- **Agregaciones**: Por múltiples dimensiones simultáneas
+
+### 3. Tipos de Análisis
+
+- **Descriptivo**: Resumen y estadísticas básicas
+- **Comparativo**: YoY, MoM, QoQ
+- **Forecasting**: Proyecciones y tendencias
+- **OLAP**: Navegación interactiva por dimensiones
+
+## Herramientas Disponibles
+
+- `biw_get_cube_data`: Extraer datos de InfoCubes
+- `biw_get_dso_data`: Extraer datos de DSOs
+- `biw_get_bex_query`: Ejecutar queries BEx
+- `biw_get_master_data`: Obtener datos maestros
+- `biw_get_hierarchy`: Obtener jerarquías
+- `biw_get_texts`: Obtener textos descriptivos
+- `biw_get_ratios`: Obtener ratios calculados
+- `filesystem`: Lectura/escritura de archivos
+- `execute_code`: Análisis estadístico avanzado
+
 ## Skills Disponibles
 
-1. **financial_analysis**: Análisis de FI/CO (balances, cash flow, cost centers)
-2. **sales_analysis**: Análisis de SD (ventas, clientes, forecasting)
-3. **inventory_analysis**: Análisis de MM (stock, movimientos, ABC)
-4. **procurement_analysis**: Análisis de compras (POs, vendors, compliance)
-5. **production_analysis**: Análisis de PP (eficiencia, OEE, scrap)
-6. **hr_analysis**: Análisis de HR (headcount, turnover, costes)
-7. **sap_query_advanced**: Técnicas avanzadas de extracción SAP
-8. **statistical_methods**: Métodos estadísticos (regresión, forecasting, etc.)
+1. **biw_data_extraction**: Extracción de InfoCubes, DSOs, queries
+2. **biw_reporting**: Creación de reportes y dashboards
+3. **biw_cube_analysis**: Análisis multidimensional OLAP
+4. **biw_master_data**: Gestión de datos maestros
+5. **sap_query_advanced**: Técnicas avanzadas de extracción
+6. **statistical_methods**: Métodos estadísticos
+
+## Ejemplos de Uso
+
+### Análisis de Cubo de Ventas
+
+```python
+task = {
+    "task": "Análisis de ventas por región y producto Q1 2024",
+    "info_cube": "ZC_SALES_C01",
+    "caracteristicas": ["ZCE_REGION", "ZCE_PRODUCTO"],
+    "ratios": ["ZKF_VENTAS", "ZKF_BENEFICIO"],
+    "period": {"type": "custom", "from": "20240101", "to": "20240331"},
+    "analysis_type": "comparative",
+    "group_by": ["ZCE_REGION"]
+}
+```
+
+### Extracción de Datos Maestros
+
+```python
+task = {
+    "task": "Datos maestros de materiales con atributos",
+    "dso": "ZDSO_MATERIAL",
+    "fields": ["MATNR", "MAKTX", "MTART", "MATKL"],
+    "filters": {"ZCE_ESTATUS": ["ACTIVO"]}
+}
+```
+
+### Query BEx con Filtros
+
+```python
+task = {
+    "task": "Reporte de margen por cliente y mes",
+    "bex_query": "ZQ_MARGIN_ANALYSIS",
+    "variables": {
+        "ZVA_AÑO": "2024",
+        "ZVA_SOC": "1000"
+    },
+    "output_format": "excel"
+}
+```
 
 ## Arquitectura
 
 ### Flujo de Ejecución
 
-1. **Parseo**: Extrae parámetros de la tarea
+1. **Parseo**: Extrae parámetros de la tarea (InfoCube, DSO, query)
 2. **Validación**: Verifica requisitos mínimos
 3. **Carga de skills**: Determina y carga skills relevantes
-4. **Extracción**: Ejecuta código Python para extraer datos de SAP
-5. **Análisis**: Procesa datos según el tipo de análisis solicitado
-6. **Reporte**: Genera reporte estructurado con hallazgos y recomendaciones
-
-### Tipos de Análisis Soportados
-
-- **descriptive**: Estadísticas descriptivas básicas (media, sumas, distribuciones)
-- **forecasting**: Proyecciones y tendencias futuras
-- **comparative**: Comparativas período vs período
-- **correlation**: Análisis de correlaciones entre variables
-- **anomaly_detection**: Detección de outliers y anomalías
-- **abc_analysis**: Clasificación ABC/Pareto
-
-## Ejemplos de Uso
-
-### Análisis de Ventas
-
-```python
-task = {
-    "task": "Análisis de ventas del Q4 2024",
-    "module": "SD",
-    "period": {"type": "custom", "from": "20241001", "to": "20241231"},
-    "analysis_type": "descriptive",
-    "group_by": ["region", "sales_rep"]
-}
-```
-
-### Forecasting de Inventario
-
-```python
-task = {
-    "task": "Predicción de necesidades de stock para próximo trimestre",
-    "module": "MM",
-    "analysis_type": "forecasting",
-    "metrics": ["stock_quantity", "stock_value", "turnover_rate"]
-}
-```
-
-### Análisis Financiero Comparativo
-
-```python
-task = {
-    "task": "Comparativa P&L 2024 vs 2023",
-    "module": "FI",
-    "analysis_type": "comparative",
-    "comparison": True,
-    "output_format": "excel"
-}
-```
+4. **Extracción**: Usa herramientas BIW para obtener datos
+5. **Análisis**: Procesa según tipo solicitado (OLAP, tendencias, etc.)
+6. **Reporte**: Genera output estructurado
 
 ## Notas de Implementación
 
-- **Datos simulados**: La implementación actual usa datos simulados para demostración
-- **Conexión real SAP**: Para producción, implementar conectores pyrfc/pyodata
-- **Seguridad**: No incluir credenciales SAP en las tareas, usar contexto seguro
-- **Performance**: Las extracciones grandes deben hacerse por bloques (chunking)
-
-## Dependencias
-
-El agente utiliza las siguientes tools del sistema:
-- `execute_code`: Ejecutar scripts de extracción/análisis
-- `filesystem`: Lectura/escritura de archivos
-- `web_search`: Consultar documentación SAP
-
-## Extensión
-
-Para agregar nuevos tipos de análisis:
-
-1. Crear skill en `skills/`
-2. Agregar a `SAP_ANALYST_SKILLS` en `agent.py`
-3. Implementar lógica en `_generate_analysis_code()`
-4. Actualizar `_generate_report()` para el nuevo formato
+- Las herramientas BIW requieren conexión configurada en Tools → OpenAPI
+- Los InfoCubes son multidimensionales: usa jerarquías para navegación
+- Las queries BEx pueden tener variables obligatorias
+- El agente mantiene compatibilidad hacia atrás con estructura anterior
 
 ## Testing
 
@@ -164,8 +173,8 @@ python -m pytest tests/agents/test_sap_analyst.py -v
 ## Changelog
 
 ### v1.0.0
-- Implementación inicial del SAP Analyst Agent
-- Soporte para 6 módulos SAP (FI, CO, SD, MM, PP, HR)
-- 8 skills especializados
-- 6 tipos de análisis estadísticos
-- Generación de reportes en formato Markdown
+- Implementación inicial del SAP BIW Analyst Agent
+- Soporte para InfoCubes, DSOs y queries BEx
+- 6 skills especializados en BIW
+- Navegación multidimensional OLAP
+- Generación de reportes BIW
