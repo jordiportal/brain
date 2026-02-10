@@ -303,18 +303,24 @@ Sé conciso pero útil. Responde en español."""
         
         # Agregar todas las core tools excepto delegation (para evitar recursión infinita)
         delegation_tools = {"delegate", "get_agent_info"}
-        for tool_id in CORE_TOOLS.keys():
-            if tool_id not in delegation_tools:
-                all_tool_ids.add(tool_id)
+        core_tool_ids = [k for k in CORE_TOOLS.keys() if k not in delegation_tools]
+        for tool_id in core_tool_ids:
+            all_tool_ids.add(tool_id)
         
         # Obtener las definiciones de todas las herramientas
         tools = []
+        missing_tools = []
         for tool_id in all_tool_ids:
             tool = tool_registry.get(tool_id)
             if tool:
                 tools.append(tool)
+            else:
+                missing_tools.append(tool_id)
         
-        logger.debug(f"🔧 SubAgent {self.id} has {len(tools)} tools: {[t.id for t in tools]}")
+        if missing_tools:
+            logger.warning(f"⚠️ SubAgent {self.id}: {len(missing_tools)} tools not found in registry: {missing_tools}")
+        
+        logger.info(f"🔧 SubAgent {self.id} has {len(tools)} tools ({len(all_tool_ids)} requested, {len(missing_tools)} missing)")
         return tools
     
     @abstractmethod
