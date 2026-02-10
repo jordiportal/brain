@@ -20,10 +20,27 @@ import structlog
 from .openapi_tools import openapi_toolkit
 from .tool_registry import tool_registry, ToolType
 from .schemas import configurable_tools_registry
+from ..db.repositories import OpenAPIConnectionRepository
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
+
+
+# Modelos Pydantic para OpenAPI Connections
+class OpenAPIConnectionCreate(BaseModel):
+    """Modelo para crear una nueva conexión OpenAPI"""
+    name: str
+    slug: str
+    description: Optional[str] = None
+    spec_url: str
+    base_url: str
+    auth_type: str = "none"  # none, bearer, api_key, basic
+    auth_token: Optional[str] = None
+    auth_header: Optional[str] = "Authorization"
+    auth_prefix: Optional[str] = "Bearer"
+    timeout: int = 30
+    is_active: bool = True
 
 
 class ToolExecuteRequest(BaseModel):
@@ -79,9 +96,9 @@ def _save_tools_config(configs: Dict[str, Any]) -> None:
 @router.get("/openapi/connections")
 async def list_openapi_connections():
     """Lista todas las conexiones OpenAPI configuradas"""
-    # Cargar desde Strapi si no están cargadas
+    # Cargar desde BD si no están cargadas
     if not openapi_toolkit.connections:
-        await openapi_toolkit.load_connections_from_strapi()
+        await openapi_toolkit.load_connections_from_db()
     
     return {
         "connections": [
@@ -99,6 +116,53 @@ async def list_openapi_connections():
         ],
         "total": len(openapi_toolkit.connections)
     }
+
+
+@router.post("/openapi/connections")
+async def create_openapi_connection(request: OpenAPIConnectionCreate):
+    """Crea una nueva conexión OpenAPI"""
+    try:
+        # Verificar si ya existe una conexión con ese slug
+        existing = await OpenAPIConnectionRepository.get_by_slug(request.slug)
+        if existing:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Ya existe una conexión con el slug '{request.slug}'"
+            )
+        
+        # Crear la conexión
+        connection_data = request.dict()
+        new_connection = await OpenAPIConnectionRepository.create(connection_data)
+        
+        if not new_connection:
+            raise HTTPException(
+                status_code=500, 
+                detail="Error al crear la conexión"
+            )
+        
+        # Recargar conexiones en el toolkit
+        await openapi_toolkit.load_connections_from_db()
+        
+        return {
+            "status": "ok",
+            "message": "Conexión creada exitosamente",
+            "connection": {
+                "id": new_connection.id,
+                "name": new_connection.name,
+                "slug": new_connection.slug,
+                "specUrl": new_connection.spec_url,
+                "baseUrl": new_connection.base_url,
+                "authType": new_connection.auth_type,
+                "hasAuth": bool(new_connection.auth_token),
+                "timeout": new_connection.timeout
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating OpenAPI connection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/openapi/connections/refresh")

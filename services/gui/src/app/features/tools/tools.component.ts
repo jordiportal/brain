@@ -136,14 +136,20 @@ interface CoreToolConfig {
           <h1>Herramientas</h1>
           <p class="subtitle">Conexiones OpenAPI y herramientas para agentes</p>
         </div>
-        <button mat-raised-button color="primary" (click)="refreshConnections()" [disabled]="refreshingConnections()">
-          @if (refreshingConnections()) {
-            <mat-spinner diameter="20"></mat-spinner>
-          } @else {
-            <mat-icon>refresh</mat-icon>
-          }
-          Refrescar conexiones
-        </button>
+        <div class="header-actions">
+          <button mat-raised-button color="accent" (click)="openNewConnectionDialog()">
+            <mat-icon>add</mat-icon>
+            Nueva Conexión
+          </button>
+          <button mat-raised-button color="primary" (click)="refreshConnections()" [disabled]="refreshingConnections()">
+            @if (refreshingConnections()) {
+              <mat-spinner diameter="20"></mat-spinner>
+            } @else {
+              <mat-icon>refresh</mat-icon>
+            }
+            Refrescar
+          </button>
+        </div>
       </div>
 
       <mat-tab-group>
@@ -496,6 +502,115 @@ interface CoreToolConfig {
           </div>
         </mat-tab>
       </mat-tab-group>
+
+      <!-- Diálogo para nueva conexión OpenAPI -->
+      @if (showNewConnectionDialog()) {
+        <div class="dialog-overlay" (click)="closeNewConnectionDialog()">
+          <div class="dialog-content" (click)="$event.stopPropagation()">
+            <div class="dialog-header">
+              <h2>
+                <mat-icon>add_circle</mat-icon>
+                Nueva Conexión OpenAPI
+              </h2>
+              <button mat-icon-button (click)="closeNewConnectionDialog()" class="close-btn">
+                <mat-icon>close</mat-icon>
+              </button>
+            </div>
+
+            <div class="dialog-body">
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Nombre</mat-label>
+                <input matInput [(ngModel)]="newConnection.name" (blur)="updateSlug()" placeholder="Mi API">
+                <mat-hint>Nombre descriptivo de la conexión</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Slug</mat-label>
+                <input matInput [(ngModel)]="newConnection.slug" placeholder="mi-api">
+                <mat-hint>Identificador único (se genera automáticamente del nombre)</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Descripción</mat-label>
+                <textarea matInput [(ngModel)]="newConnection.description" rows="2" placeholder="Descripción opcional..."></textarea>
+              </mat-form-field>
+
+              <div class="form-row">
+                <mat-form-field appearance="outline" class="full-width">
+                  <mat-label>Spec URL</mat-label>
+                  <input matInput [(ngModel)]="newConnection.spec_url" placeholder="https://api.example.com/openapi.json">
+                  <mat-hint>URL de la especificación OpenAPI/Swagger</mat-hint>
+                </mat-form-field>
+              </div>
+
+              <div class="form-row">
+                <mat-form-field appearance="outline" class="full-width">
+                  <mat-label>Base URL</mat-label>
+                  <input matInput [(ngModel)]="newConnection.base_url" placeholder="https://api.example.com/v1">
+                  <mat-hint>URL base para las llamadas a la API</mat-hint>
+                </mat-form-field>
+              </div>
+
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Tipo de Autenticación</mat-label>
+                <mat-select [(ngModel)]="newConnection.auth_type">
+                  <mat-option value="none">Sin autenticación</mat-option>
+                  <mat-option value="bearer">Bearer Token</mat-option>
+                  <mat-option value="api_key">API Key</mat-option>
+                  <mat-option value="basic">Basic Auth</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              @if (newConnection.auth_type !== 'none') {
+                <mat-form-field appearance="outline" class="full-width">
+                  <mat-label>Token / API Key</mat-label>
+                  <input matInput [(ngModel)]="newConnection.auth_token" type="password" placeholder="sk-...">
+                  <mat-hint>Se almacenará de forma segura</mat-hint>
+                </mat-form-field>
+
+                <div class="form-row two-col">
+                  <mat-form-field appearance="outline">
+                    <mat-label>Header</mat-label>
+                    <input matInput [(ngModel)]="newConnection.auth_header" placeholder="Authorization">
+                  </mat-form-field>
+
+                  <mat-form-field appearance="outline">
+                    <mat-label>Prefix</mat-label>
+                    <input matInput [(ngModel)]="newConnection.auth_prefix" placeholder="Bearer">
+                  </mat-form-field>
+                </div>
+              }
+
+              <div class="form-row two-col">
+                <mat-form-field appearance="outline">
+                  <mat-label>Timeout (segundos)</mat-label>
+                  <input matInput type="number" [(ngModel)]="newConnection.timeout" min="5" max="300">
+                </mat-form-field>
+
+                <div class="toggle-field">
+                  <mat-slide-toggle [(ngModel)]="newConnection.is_active" color="primary">
+                    Conexión activa
+                  </mat-slide-toggle>
+                </div>
+              </div>
+            </div>
+
+            <div class="dialog-actions">
+              <button mat-button (click)="closeNewConnectionDialog()">
+                Cancelar
+              </button>
+              <button mat-raised-button color="primary" (click)="createConnection()" [disabled]="creatingConnection()">
+                @if (creatingConnection()) {
+                  <mat-spinner diameter="20"></mat-spinner>
+                } @else {
+                  <mat-icon>save</mat-icon>
+                }
+                Crear Conexión
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: [`
@@ -821,6 +936,99 @@ interface CoreToolConfig {
     .tool-icon.execution { 
       background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); 
     }
+
+    /* Dialog Styles */
+    .dialog-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 24px;
+    }
+
+    .dialog-content {
+      background: white;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 24px 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .dialog-header h2 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .dialog-header h2 mat-icon {
+      color: #667eea;
+    }
+
+    .dialog-body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 0 24px 24px;
+      border-top: 1px solid #e0e0e0;
+      padding-top: 16px;
+    }
+
+    .full-width {
+      width: 100%;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 16px;
+    }
+
+    .form-row.two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .toggle-field {
+      display: flex;
+      align-items: center;
+      padding: 12px 0;
+    }
+
+    .close-btn {
+      color: #666;
+    }
+
+    /* Header actions layout */
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
   `]
 })
 export class ToolsComponent implements OnInit {
@@ -849,6 +1057,23 @@ export class ToolsComponent implements OnInit {
   filterType = '';
   selectedTool: Tool | null = null;
   testParams = '{}';
+  
+  // Nueva conexión OpenAPI
+  showNewConnectionDialog = signal(false);
+  creatingConnection = signal(false);
+  newConnection = {
+    name: '',
+    slug: '',
+    description: '',
+    spec_url: '',
+    base_url: '',
+    auth_type: 'none' as 'none' | 'bearer' | 'api_key' | 'basic',
+    auth_token: '',
+    auth_header: 'Authorization',
+    auth_prefix: 'Bearer',
+    timeout: 30,
+    is_active: true
+  };
 
   ngOnInit(): void {
     this.loadConnections();
@@ -1063,6 +1288,64 @@ export class ToolsComponent implements OnInit {
         error: (err) => {
           this.snackBar.open('Error refrescando conexiones', 'Cerrar', { duration: 3000 });
           this.refreshingConnections.set(false);
+        }
+      });
+  }
+
+  openNewConnectionDialog(): void {
+    this.showNewConnectionDialog.set(true);
+    // Reset form
+    this.newConnection = {
+      name: '',
+      slug: '',
+      description: '',
+      spec_url: '',
+      base_url: '',
+      auth_type: 'none',
+      auth_token: '',
+      auth_header: 'Authorization',
+      auth_prefix: 'Bearer',
+      timeout: 30,
+      is_active: true
+    };
+  }
+
+  closeNewConnectionDialog(): void {
+    this.showNewConnectionDialog.set(false);
+  }
+
+  generateSlugFromName(name: string): string {
+    return name.toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  updateSlug(): void {
+    if (this.newConnection.name && !this.newConnection.slug) {
+      this.newConnection.slug = this.generateSlugFromName(this.newConnection.name);
+    }
+  }
+
+  createConnection(): void {
+    if (!this.newConnection.name || !this.newConnection.spec_url || !this.newConnection.base_url) {
+      this.snackBar.open('Nombre, Spec URL y Base URL son obligatorios', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    this.creatingConnection.set(true);
+
+    this.http.post<any>(`${environment.apiUrl}/tools/openapi/connections`, this.newConnection)
+      .subscribe({
+        next: (response) => {
+          this.snackBar.open('Conexión creada exitosamente', 'Cerrar', { duration: 3000 });
+          this.creatingConnection.set(false);
+          this.closeNewConnectionDialog();
+          this.loadConnections();
+        },
+        error: (err) => {
+          const errorMsg = err.error?.detail || 'Error creando conexión';
+          this.snackBar.open(errorMsg, 'Cerrar', { duration: 5000 });
+          this.creatingConnection.set(false);
         }
       });
   }

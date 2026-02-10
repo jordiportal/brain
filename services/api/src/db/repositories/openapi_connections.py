@@ -86,6 +86,54 @@ class OpenAPIConnectionRepository:
             return False
     
     @staticmethod
+    async def create(connection_data: dict) -> Optional[OpenAPIConnection]:
+        """Create a new OpenAPI connection."""
+        db = get_db()
+        
+        try:
+            import json
+            
+            query = """
+                INSERT INTO openapi_connections (
+                    name, slug, description, spec_url, base_url, 
+                    auth_type, auth_token, auth_header, auth_prefix,
+                    is_active, timeout, enabled_endpoints, custom_headers,
+                    created_at, updated_at
+                ) VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8, $9,
+                    $10, $11, $12::jsonb, $13::jsonb,
+                    NOW(), NOW()
+                )
+                RETURNING *
+            """
+            
+            row = await db.fetch_one(
+                query,
+                connection_data.get('name'),
+                connection_data.get('slug'),
+                connection_data.get('description'),
+                connection_data.get('spec_url'),
+                connection_data.get('base_url'),
+                connection_data.get('auth_type', 'none'),
+                connection_data.get('auth_token'),
+                connection_data.get('auth_header', 'Authorization'),
+                connection_data.get('auth_prefix', 'Bearer'),
+                connection_data.get('is_active', True),
+                connection_data.get('timeout', 30),
+                json.dumps(connection_data.get('enabled_endpoints', [])),
+                json.dumps(connection_data.get('custom_headers', {}))
+            )
+            
+            if row:
+                return OpenAPIConnectionRepository._row_to_connection(row)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error creating OpenAPI connection: {e}")
+            return None
+    
+    @staticmethod
     def _row_to_connection(row) -> OpenAPIConnection:
         """Convert database row to OpenAPIConnection model."""
         enabled_endpoints = row.get('enabled_endpoints')
