@@ -38,7 +38,7 @@ import { MenuItem } from '../core/models';
         
         <!-- Logo -->
         <div class="sidenav-header" [class.collapsed]="sidenavCollapsed()">
-          <mat-icon class="brain-icon">psychology</mat-icon>
+          <span class="material-icons brain-icon">psychology</span>
           @if (!sidenavCollapsed()) {
             <span class="logo-text">Brain</span>
           }
@@ -55,7 +55,7 @@ import { MenuItem } from '../core/models';
                [matTooltip]="item.label"
                matTooltipPosition="right"
                class="icon-menu-item">
-              <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
+              <span class="material-icons" matListItemIcon>{{ item.icon }}</span>
             </a>
           }
         </mat-nav-list>
@@ -73,7 +73,7 @@ import { MenuItem } from '../core/models';
         <!-- Toolbar -->
         <mat-toolbar color="primary" class="toolbar">
           <button mat-icon-button (click)="sidenav.toggle()" class="menu-btn">
-            <mat-icon>menu</mat-icon>
+            <span class="material-icons">menu</span>
           </button>
           
           <span class="toolbar-title">{{ pageTitle() }}</span>
@@ -83,29 +83,29 @@ import { MenuItem } from '../core/models';
           <!-- Status Indicators -->
           <div class="status-indicators">
             <span class="status-badge online" matTooltip="API Conectada">
-              <mat-icon>cloud_done</mat-icon>
+              <span class="material-icons">cloud_done</span>
             </span>
           </div>
 
           <!-- User Menu -->
           <button mat-button [matMenuTriggerFor]="userMenu" class="user-menu-btn">
-            <mat-icon>account_circle</mat-icon>
+            <span class="material-icons">account_circle</span>
             <span class="username">{{ currentUser()?.username }}</span>
-            <mat-icon>arrow_drop_down</mat-icon>
+            <span class="material-icons">arrow_drop_down</span>
           </button>
           
           <mat-menu #userMenu="matMenu">
             <button mat-menu-item disabled>
-              <mat-icon>email</mat-icon>
+              <span class="material-icons" style="margin-right: 8px;">email</span>
               <span>{{ currentUser()?.email }}</span>
             </button>
             <mat-divider></mat-divider>
             <button mat-menu-item routerLink="/settings">
-              <mat-icon>settings</mat-icon>
+              <span class="material-icons" style="margin-right: 8px;">settings</span>
               <span>Configuración</span>
             </button>
             <button mat-menu-item (click)="logout()">
-              <mat-icon>logout</mat-icon>
+              <span class="material-icons" style="margin-right: 8px;">logout</span>
               <span>Cerrar Sesión</span>
             </button>
           </mat-menu>
@@ -154,6 +154,11 @@ import { MenuItem } from '../core/models';
       font-size: 28px;
       width: 28px;
       height: 28px;
+      font-family: 'Material Icons';
+      font-weight: normal;
+      font-style: normal;
+      line-height: 1;
+      display: inline-block;
     }
 
     .logo-text {
@@ -204,12 +209,24 @@ import { MenuItem } from '../core/models';
       border-radius: 0 3px 3px 0;
     }
 
-    mat-nav-list a.icon-menu-item mat-icon {
+    mat-nav-list a.icon-menu-item .material-icons {
       color: inherit;
       margin: 0;
       font-size: 24px;
       width: 24px;
       height: 24px;
+      font-family: 'Material Icons';
+      font-weight: normal;
+      font-style: normal;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-feature-settings: 'liga';
+      -webkit-font-smoothing: antialiased;
     }
 
     /* Sidebar Footer - Icon Only */

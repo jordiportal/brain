@@ -180,29 +180,32 @@ interface TestRunResult {
         </button>
       </div>
 
-      <!-- Grid de Subagentes -->
-      @if (loading()) {
-        <div class="loading-container">
-          <mat-spinner diameter="48"></mat-spinner>
-          <p>Cargando subagentes...</p>
-        </div>
-      } @else {
-        <div class="subagents-grid">
-          @for (agent of subagents(); track agent.id) {
-            <mat-card class="subagent-card" [class.selected]="selectedAgent?.id === agent.id">
-              <mat-card-header>
-                <div class="agent-icon" [class]="agent.id">
-                  <mat-icon>{{ agent.icon }}</mat-icon>
-                </div>
-                <mat-card-title>{{ agent.name }}</mat-card-title>
-                <mat-card-subtitle>v{{ agent.version }}</mat-card-subtitle>
-                <mat-chip class="status-chip" [class]="agent.status">
-                  {{ agent.status | uppercase }}
-                </mat-chip>
-              </mat-card-header>
-              
-              <mat-card-content>
-                <p class="description">{{ agent.description }}</p>
+      <mat-tab-group [(selectedIndex)]="activeTabIndex" animationDuration="300ms">
+        <!-- Tab: Lista de Subagentes -->
+        <mat-tab label="Subagentes">
+          <!-- Grid de Subagentes -->
+          @if (loading()) {
+            <div class="loading-container">
+              <mat-spinner diameter="48"></mat-spinner>
+              <p>Cargando subagentes...</p>
+            </div>
+          } @else {
+            <div class="subagents-grid">
+              @for (agent of subagents(); track agent.id) {
+                <mat-card class="subagent-card" [class.selected]="selectedAgent?.id === agent.id">
+                  <mat-card-header>
+                    <div class="agent-icon" [class]="agent.id">
+                      <mat-icon>{{ agent.icon }}</mat-icon>
+                    </div>
+                    <mat-card-title>{{ agent.name }}</mat-card-title>
+                    <mat-card-subtitle>v{{ agent.version }}</mat-card-subtitle>
+                    <mat-chip class="status-chip" [class]="agent.status">
+                      {{ agent.status | uppercase }}
+                    </mat-chip>
+                  </mat-card-header>
+                  
+                  <mat-card-content>
+                    <p class="description">{{ agent.description }}</p>
                 
                 <div class="tools-section">
                   <span class="tools-label">Herramientas:</span>
@@ -259,16 +262,18 @@ interface TestRunResult {
             </div>
           }
         </div>
+        </mat-tab>
 
-        <!-- Panel de Detalles/Configuración -->
-        @if (selectedAgent) {
-          <mat-card class="detail-panel">
-            <mat-card-header>
-              <mat-card-title>
+        <!-- Tab: Configuración (solo habilitada cuando hay un agente seleccionado) -->
+        <mat-tab label="Configuración" [disabled]="!selectedAgent">
+          @if (selectedAgent) {
+            <mat-card class="detail-panel">
+              <mat-card-header>
+                <mat-card-title>
                 <mat-icon>{{ selectedAgent.icon }}</mat-icon>
                 {{ selectedAgent.name }}
               </mat-card-title>
-              <button mat-icon-button (click)="selectedAgent = null" class="close-btn">
+              <button mat-icon-button (click)="closeConfiguration()" class="close-btn">
                 <mat-icon>close</mat-icon>
               </button>
             </mat-card-header>
@@ -939,7 +944,8 @@ interface TestRunResult {
             }
           </mat-card>
         }
-      }
+      </mat-tab>
+      </mat-tab-group>
     </div>
   `,
   styles: [`
@@ -2326,6 +2332,7 @@ export class SubagentsComponent implements OnInit {
 
   selectedAgent: Subagent | null = null;
   executeAgent: Subagent | null = null;
+  activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración
 
   agentConfig: SubagentConfig = {
     enabled: true,
@@ -2384,6 +2391,7 @@ export class SubagentsComponent implements OnInit {
 
   selectAgent(agent: Subagent): void {
     this.selectedAgent = agent;
+    this.activeTabIndex = 1; // Switch to configuration tab
     this.testResult.set(null);
     this.expandedSkill = null;
     this.dirtySkills.clear();
@@ -2393,6 +2401,11 @@ export class SubagentsComponent implements OnInit {
     this.loadAgentConfig(agent.id);
     this.loadAgentSkills(agent.id);
     this.loadAgentTests(agent.id);
+  }
+
+  closeConfiguration(): void {
+    this.activeTabIndex = 0; // Switch back to subagents list
+    this.selectedAgent = null;
   }
 
   loadAgentTools(agentId: string): void {
