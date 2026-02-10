@@ -142,7 +142,7 @@ interface CoreToolConfig {
           } @else {
             <mat-icon>refresh</mat-icon>
           }
-          Refrescar desde Strapi
+          Refrescar conexiones
         </button>
       </div>
 
@@ -1056,7 +1056,7 @@ export class ToolsComponent implements OnInit {
     this.http.post<any>(`${environment.apiUrl}/tools/openapi/connections/refresh`, {})
       .subscribe({
         next: (response) => {
-          this.snackBar.open(`${response.count} conexiones cargadas desde Strapi`, 'Cerrar', { duration: 3000 });
+          this.snackBar.open(`${response.count} conexiones recargadas desde base de datos`, 'Cerrar', { duration: 3000 });
           this.refreshingConnections.set(false);
           this.loadConnections();
         },
