@@ -255,8 +255,69 @@ async def generate_tools_for_connection(connection_id: str):
         tools = await openapi_toolkit.generate_tools(connection_id)
         
         # Registrar en el registry global
+        from .tool_registry import ToolDefinition
+        
         for tool in tools:
-            tool_registry.register_openapi_tool(tool)
+            # Convertir OpenAPITool a ToolDefinition
+            # Crear schema de parámetros desde los parámetros OpenAPI
+            properties = {}
+            required = []
+            
+            for param in tool.parameters:
+                param_name = param.get("name", "")
+                param_schema = param.get("schema", {"type": "string"})
+                
+                prop = {
+                    "type": param_schema.get("type", "string"),
+                    "description": param.get("description", f"Parameter {param_name}")
+                }
+                
+                if param_schema.get("type") == "array":
+                    prop["items"] = param_schema.get("items", {"type": "string"})
+                
+                if "enum" in param_schema:
+                    prop["enum"] = param_schema["enum"]
+                
+                properties[param_name] = prop
+                
+                if param.get("required", False):
+                    required.append(param_name)
+            
+            # Agregar request body si existe
+            if tool.request_body:
+                body_schema = tool.request_body.get("content", {}).get("application/json", {}).get("schema", {})
+                if body_schema:
+                    properties["request_body"] = {
+                        "type": "object",
+                        "description": "Request body",
+                        "properties": body_schema.get("properties", {})
+                    }
+                    if body_schema.get("required"):
+                        required.extend(body_schema["required"])
+            
+            parameters = {
+                "type": "object",
+                "properties": properties,
+                "required": required
+            }
+            
+            # Crear handler que ejecuta la herramienta OpenAPI
+            async def make_handler(t):
+                async def handler(params):
+                    return await t.execute(params)
+                return handler
+            
+            tool_def = ToolDefinition(
+                id=tool.id,
+                name=tool.name,
+                description=tool.description,
+                type=ToolType.OPENAPI,
+                parameters=parameters,
+                handler=make_handler(tool),
+                openapi_tool=tool  # Para compatibilidad
+            )
+            
+            tool_registry.register(tool_def)
         
         return {
             "status": "ok",
@@ -276,6 +337,7 @@ async def generate_tools_for_connection(connection_id: str):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.error(f"Error generando herramientas: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
