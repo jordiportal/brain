@@ -265,6 +265,68 @@ interface TestRunResult {
               </div>
             }
           </div>
+
+          <!-- Panel de Ejecución (dentro de la primera pestaña) -->
+          @if (executeAgent()) {
+            <mat-card class="execute-panel" style="margin-top: 24px;">
+              <mat-card-header>
+                <mat-card-title>
+                  <mat-icon>play_circle</mat-icon>
+                  Ejecutar {{ executeAgent()?.name }}
+                </mat-card-title>
+                <button mat-icon-button (click)="executeAgent.set(null)" class="close-btn">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </mat-card-header>
+              <mat-card-content>
+                <mat-form-field appearance="outline" class="full-width">
+                  <mat-label>Tarea a ejecutar</mat-label>
+                  <textarea matInput [(ngModel)]="executeTask" rows="3" placeholder="Describe la tarea..."></textarea>
+                </mat-form-field>
+                <div class="execute-options" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+                  <mat-form-field appearance="outline">
+                    <mat-label>LLM URL</mat-label>
+                    <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://localhost:11434">
+                  </mat-form-field>
+                  <mat-form-field appearance="outline">
+                    <mat-label>Modelo</mat-label>
+                    <input matInput [(ngModel)]="executeModel" placeholder="llama3.2">
+                  </mat-form-field>
+                </div>
+              </mat-card-content>
+              <mat-card-actions align="end">
+                <button mat-raised-button color="primary" (click)="executeSubagent()" [disabled]="executing()">
+                  @if (executing()) {
+                    <mat-spinner diameter="20"></mat-spinner>
+                  } @else {
+                    <mat-icon>play_arrow</mat-icon>
+                  }
+                  Ejecutar
+                </button>
+              </mat-card-actions>
+              @if (executeResult()) {
+                <mat-divider></mat-divider>
+                <div class="execute-result" style="padding: 16px;" [class]="executeResult()!.result.success ? 'success' : 'error'">
+                  <div class="result-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                    <mat-icon>{{ executeResult()!.result.success ? 'check_circle' : 'error' }}</mat-icon>
+                    <span>{{ executeResult()!.result.success ? 'Éxito' : 'Error' }}</span>
+                    <span style="margin-left: auto; font-size: 12px; color: #666;">{{ executeResult()!.result.execution_time_ms }}ms</span>
+                  </div>
+                  @if (executeResult()?.result?.tools_used?.length) {
+                    <div class="tools-used" style="margin: 12px 0;">
+                      <span style="font-weight: 500;">Herramientas usadas:</span>
+                      @for (tool of executeResult()!.result.tools_used; track tool) {
+                        <mat-chip>{{ tool }}</mat-chip>
+                      }
+                    </div>
+                  }
+                  <div class="response" style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 8px; margin-top: 12px;">
+                    {{ executeResult()!.result.response }}
+                  </div>
+                </div>
+              }
+            </mat-card>
+          }
         </mat-tab>
 
         <!-- Tab: Configuración (solo habilitada cuando hay un agente seleccionado) -->
@@ -846,108 +908,6 @@ interface TestRunResult {
           </mat-card>
         }
       </mat-tab>
-
-        <!-- Panel de Ejecución -->
-        @if (executeAgent()) {
-          <mat-card class="execute-panel">
-            <mat-card-header>
-              <mat-card-title>
-                <mat-icon>play_circle</mat-icon>
-                Ejecutar {{ executeAgent()?.name }}
-              </mat-card-title>
-              <button mat-icon-button (click)="executeAgent.set(null)" class="close-btn">
-                <mat-icon>close</mat-icon>
-              </button>
-            </mat-card-header>
-
-            <mat-card-content>
-              <mat-form-field appearance="outline" class="full-width">
-                <mat-label>Tarea a ejecutar</mat-label>
-                <textarea matInput [(ngModel)]="executeTask" rows="3" 
-                          placeholder="Ej: Genera una imagen de un gato astronauta"></textarea>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="full-width">
-                <mat-label>Contexto adicional (opcional)</mat-label>
-                <textarea matInput [(ngModel)]="executeContext" rows="2"></textarea>
-              </mat-form-field>
-
-              <div class="execute-options">
-                <mat-form-field appearance="outline">
-                  <mat-label>LLM URL</mat-label>
-                  <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://192.168.7.101:11434">
-                </mat-form-field>
-
-                <mat-form-field appearance="outline">
-                  <mat-label>Modelo</mat-label>
-                  <input matInput [(ngModel)]="executeModel" placeholder="gpt-oss:120b">
-                </mat-form-field>
-              </div>
-            </mat-card-content>
-
-            <mat-card-actions>
-              <button mat-raised-button color="primary" (click)="executeSubagent()" [disabled]="executing()">
-                @if (executing()) {
-                  <mat-spinner diameter="20"></mat-spinner>
-                  Ejecutando...
-                } @else {
-                  <mat-icon>play_arrow</mat-icon>
-                  Ejecutar
-                }
-              </button>
-            </mat-card-actions>
-
-            @if (executeResult()) {
-              <mat-divider></mat-divider>
-              <div class="execute-result" [class]="executeResult()!.result.success ? 'success' : 'error'">
-                <div class="result-header">
-                  <mat-icon>{{ executeResult()!.result.success ? 'check_circle' : 'error' }}</mat-icon>
-                  <span>{{ executeResult()!.result.success ? 'Éxito' : 'Error' }}</span>
-                  <span class="time">{{ executeResult()!.result.execution_time_ms }}ms</span>
-                </div>
-
-                <!-- Tools usadas como chips -->
-                @if (executeResult()?.result?.tools_used?.length) {
-                  <div class="tools-used">
-                    <mat-icon>build</mat-icon>
-                    <span>Herramientas:</span>
-                    @for (tool of executeResult()!.result.tools_used; track tool) {
-                      <mat-chip class="tool-used-chip">{{ tool }}</mat-chip>
-                    }
-                  </div>
-                }
-
-                <!-- Respuesta final con estilo mejorado -->
-                <div class="final-response">
-                  <div class="response-label">
-                    <mat-icon>auto_awesome</mat-icon>
-                    Respuesta
-                  </div>
-                  <p class="response">{{ executeResult()!.result.response }}</p>
-                </div>
-
-                <!-- Imágenes generadas -->
-                @if (executeResult()?.result?.images?.length) {
-                  <div class="generated-images">
-                    <div class="images-label">
-                      <mat-icon>image</mat-icon>
-                      Imágenes Generadas ({{ executeResult()!.result.images.length }})
-                    </div>
-                    <div class="images-grid">
-                      @for (img of executeResult()!.result.images; track $index) {
-                        <div class="image-item">
-                          @if (img.url) {
-                            <img [src]="sanitizeImageUrl(img.url)" alt="Generated image" class="generated-image">
-                          }
-                        </div>
-                      }
-                    </div>
-                  </div>
-                }
-              </div>
-            }
-          </mat-card>
-        }
     </mat-tab-group>
   </div>
   `,
