@@ -1,0 +1,125 @@
+/**
+ * Interfaces compartidas para el sistema de chat unificado.
+ * 
+ * Estas interfaces son utilizadas por:
+ * - ChatComponent (componente compartido)
+ * - TestingComponent
+ * - ChainsComponent
+ * - SubagentsComponent
+ */
+
+/**
+ * Paso intermedio con contenido streaming
+ * Usado en ChainsComponent para mostrar el progreso de ejecución
+ */
+export interface IntermediateStep {
+  id: string;
+  name: string;
+  icon: string;
+  status: 'running' | 'completed' | 'failed';
+  content: string;
+  data?: any;
+  startTime: Date;
+  endTime?: Date;
+  expanded: boolean;
+}
+
+/**
+ * Datos de imagen generada
+ */
+export interface ImageData {
+  url?: string;        // URL de Strapi o data URL
+  base64?: string;     // Fallback
+  mimeType?: string;
+  altText: string;
+}
+
+/**
+ * Datos de vídeo generado
+ */
+export interface VideoData {
+  url?: string;        // Data URL del vídeo
+  base64?: string;     // Fallback
+  mimeType?: string;
+  duration?: number;
+  resolution?: string;
+}
+
+/**
+ * Mensaje de chat unificado
+ * 
+ * Soporta:
+ * - Mensajes simples (testing)
+ * - Pasos intermedios (chains)
+ * - Imágenes y vídeos generados
+ * - Streaming
+ * - Tokens de uso
+ * - Timestamps
+ */
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp?: Date;
+  intermediateSteps?: IntermediateStep[];
+  tokens?: number;
+  isStreaming?: boolean;
+  images?: ImageData[];
+  videos?: VideoData[];
+}
+
+/**
+ * Configuración de features del chat
+ * 
+ * Permite habilitar/deshabilitar características según el contexto:
+ * - testing: configPanel=true, timestamps=true
+ * - chains: intermediateSteps=true, presentations=true
+ * - subagents: history=true, images=true
+ */
+export interface ChatFeatures {
+  /** Mostrar pasos intermedios desplegables (accordion) */
+  intermediateSteps: boolean;
+  /** Mostrar imágenes generadas */
+  images: boolean;
+  /** Mostrar vídeos generados */
+  videos: boolean;
+  /** Soporte para presentaciones HTML */
+  presentations: boolean;
+  /** Indicador de streaming */
+  streaming: boolean;
+  /** Contador de tokens */
+  tokens: boolean;
+  /** Mostrar timestamp del mensaje */
+  timestamps: boolean;
+  /** Botón para limpiar chat */
+  clearButton: boolean;
+  /** Panel de configuración lateral (testing) */
+  configPanel: boolean;
+}
+
+/**
+ * Configuración de LLM para el chat
+ * Usado cuando configPanel=true
+ */
+export interface ChatLLMConfig {
+  providerUrl: string;
+  providerType: string;
+  apiKey?: string;
+  model: string;
+  systemPrompt?: string;
+}
+
+/**
+ * Evento de mensaje enviado
+ */
+export interface MessageSentEvent {
+  content: string;
+  config?: ChatLLMConfig;
+}
+
+/**
+ * Evento de presentación abierta
+ */
+export interface PresentationOpenEvent {
+  html: string;
+  title?: string;
+}

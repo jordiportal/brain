@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, ViewChild, ElementRef, Pipe, PipeTransform } from '@angular/core';
+import { Component, OnInit, signal, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -12,40 +12,13 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { StrapiService } from '../../core/services/config.service';
 import { LlmProvider } from '../../core/models';
 import { HttpClient } from '@angular/common/http';
-import { marked } from 'marked';
 import { environment } from '../../../environments/environment';
 
-// Configurar marked para highlight de código
-marked.setOptions({
-  breaks: true,
-  gfm: true
-});
-
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: Date;
-  isStreaming?: boolean;
-}
-
-// Pipe para renderizar Markdown
-@Pipe({
-  name: 'markdown',
-  standalone: true
-})
-export class MarkdownPipe implements PipeTransform {
-  constructor(private sanitizer: DomSanitizer) {}
-
-  transform(value: string): SafeHtml {
-    if (!value) return '';
-    const html = marked(value) as string;
-    return this.sanitizer.bypassSecurityTrustHtml(html);
-  }
-}
+// Chat unificado
+import { ChatComponent, ChatMessage } from '../../shared/components/chat';
 
 @Component({
   selector: 'app-testing',
@@ -64,7 +37,7 @@ export class MarkdownPipe implements PipeTransform {
     MatSnackBarModule,
     MatDividerModule,
     MatSlideToggleModule,
-    MarkdownPipe
+    ChatComponent
   ],
   template: `
     <div class="testing-page">
@@ -168,73 +141,16 @@ export class MarkdownPipe implements PipeTransform {
             }
           </mat-card-header>
           
-          <mat-card-content>
-            <div class="chat-container" #chatContainer>
-              @if (messages().length === 0) {
-                <div class="empty-chat">
-                  <mat-icon>forum</mat-icon>
-                  <p>Envía un mensaje para probar el LLM</p>
-                </div>
-              }
-
-              @for (message of messages(); track message.timestamp) {
-                <div class="message" [class]="message.role">
-                  <div class="message-avatar">
-                    <mat-icon>{{ message.role === 'user' ? 'person' : 'smart_toy' }}</mat-icon>
-                  </div>
-                  <div class="message-content">
-                    <div class="message-header">
-                      <span class="message-role">{{ message.role === 'user' ? 'Tú' : 'Asistente' }}</span>
-                      <span class="message-time">{{ formatTime(message.timestamp) }}</span>
-                    </div>
-                    @if (message.role === 'user') {
-                      <div class="message-text">{{ message.content }}</div>
-                    } @else {
-                      <div class="message-text markdown-content" [innerHTML]="message.content | markdown"></div>
-                      @if (message.isStreaming) {
-                        <span class="cursor-blink">▊</span>
-                      }
-                    }
-                  </div>
-                </div>
-              }
-
-              @if (sending() && !currentStreamingMessage()) {
-                <div class="message assistant">
-                  <div class="message-avatar">
-                    <mat-icon>smart_toy</mat-icon>
-                  </div>
-                  <div class="message-content">
-                    <div class="typing-indicator">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </div>
-                  </div>
-                </div>
-              }
-            </div>
-
-            <!-- Input de mensaje -->
-            <div class="chat-input">
-              <mat-form-field appearance="outline" class="message-input">
-                <input matInput 
-                       [(ngModel)]="newMessage" 
-                       placeholder="Escribe un mensaje..."
-                       (keyup.enter)="sendMessage()"
-                       [disabled]="sending() || !selectedProvider || !selectedModel">
-              </mat-form-field>
-              <button mat-fab 
-                      color="primary" 
-                      (click)="sendMessage()"
-                      [disabled]="!newMessage.trim() || sending() || !selectedProvider || !selectedModel">
-                @if (sending()) {
-                  <mat-spinner diameter="24"></mat-spinner>
-                } @else {
-                  <mat-icon>send</mat-icon>
-                }
-              </button>
-            </div>
+          <mat-card-content class="chat-content">
+            <app-chat
+              [messages]="messages"
+              [features]="chatFeatures"
+              [isLoading]="sending"
+              [placeholder]="'Escribe un mensaje...'"
+              [emptyMessage]="'Envía un mensaje para probar el LLM'"
+              (messageSent)="onChatMessageSent($event)"
+              (chatCleared)="clearChat()">
+            </app-chat>
           </mat-card-content>
 
           <mat-card-actions>
@@ -391,186 +307,18 @@ export class MarkdownPipe implements PipeTransform {
       margin-bottom: 16px;
     }
 
-    .message {
-      display: flex;
-      gap: 12px;
-      max-width: 85%;
-    }
-
-    .message.user {
-      align-self: flex-end;
-      flex-direction: row-reverse;
-    }
-
-    .message-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .message.user .message-avatar {
-      background: #3f51b5;
-      color: white;
-    }
-
-    .message.assistant .message-avatar {
-      background: #e8f5e9;
-      color: #2e7d32;
-    }
-
-    .message-content {
-      background: #f5f5f5;
-      padding: 12px 16px;
-      border-radius: 16px;
-      min-width: 60px;
-    }
-
-    .message.user .message-content {
-      background: #3f51b5;
-      color: white;
-      border-bottom-right-radius: 4px;
-    }
-
-    .message.assistant .message-content {
-      border-bottom-left-radius: 4px;
-    }
-
-    .message-header {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      font-size: 12px;
-      margin-bottom: 4px;
-      opacity: 0.7;
-    }
-
-    .message-text {
-      word-break: break-word;
-      line-height: 1.6;
-    }
-
     /* Estilos para Markdown */
-    .markdown-content {
-      ::ng-deep {
-        /* Bloque de pensamiento (reasoning) */
-        .thinking-block {
-          background: linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%);
-          border-left: 4px solid #7c4dff;
-          border-radius: 0 12px 12px 0;
-          padding: 16px;
-          margin-bottom: 16px;
-          font-size: 0.9em;
-          
-          .thinking-header {
-            font-weight: 600;
-            color: #7c4dff;
-            margin-bottom: 12px;
-            font-size: 0.95em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-          
-          .thinking-content {
-            color: #555;
-            line-height: 1.6;
-            white-space: pre-wrap;
-          }
-        }
-        
-        p {
-          margin: 0 0 12px;
-          &:last-child { margin-bottom: 0; }
-        }
-        
-        h1, h2, h3, h4, h5, h6 {
-          margin: 16px 0 8px;
-          font-weight: 600;
-          &:first-child { margin-top: 0; }
-        }
-        
-        h1 { font-size: 1.5em; }
-        h2 { font-size: 1.3em; }
-        h3 { font-size: 1.1em; }
-        
-        code {
-          background: rgba(0,0,0,0.08);
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-family: 'Fira Code', 'Monaco', monospace;
-          font-size: 0.9em;
-        }
-        
-        pre {
-          background: #1e1e1e;
-          color: #d4d4d4;
-          padding: 16px;
-          border-radius: 8px;
-          overflow-x: auto;
-          margin: 12px 0;
-          
-          code {
-            background: none;
-            padding: 0;
-            color: inherit;
-          }
-        }
-        
-        ul, ol {
-          margin: 8px 0;
-          padding-left: 24px;
-        }
-        
-        li {
-          margin: 4px 0;
-        }
-        
-        blockquote {
-          border-left: 4px solid #3f51b5;
-          margin: 12px 0;
-          padding: 8px 16px;
-          background: rgba(63, 81, 181, 0.08);
-          border-radius: 0 8px 8px 0;
-        }
-        
-        table {
-          border-collapse: collapse;
-          width: 100%;
-          margin: 12px 0;
-        }
-        
-        th, td {
-          border: 1px solid #ddd;
-          padding: 8px 12px;
-          text-align: left;
-        }
-        
-        th {
-          background: #f5f5f5;
-          font-weight: 600;
-        }
-        
-        a {
-          color: #3f51b5;
-          text-decoration: none;
-          &:hover { text-decoration: underline; }
-        }
-        
-        hr {
-          border: none;
-          border-top: 1px solid #ddd;
-          margin: 16px 0;
-        }
+    /* Chat content - integración con ChatComponent */
+    .chat-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0 !important;
+    }
 
-        img {
-          max-width: 100%;
-          border-radius: 8px;
-        }
-      }
+    .chat-content ::ng-deep .chat-container {
+      border-radius: 0;
     }
 
     .cursor-blink {
@@ -652,7 +400,7 @@ export class MarkdownPipe implements PipeTransform {
 })
 export class TestingComponent implements OnInit {
   @ViewChild('chatContainer') chatContainer!: ElementRef;
-
+  
   providers = signal<LlmProvider[]>([]);
   selectedProvider: LlmProvider | null = null;
   selectedModel: string = '';
@@ -668,6 +416,19 @@ export class TestingComponent implements OnInit {
   connectionStatus = signal<{ success: boolean; message: string } | null>(null);
   sending = signal(false);
   totalTokens = signal(0);
+
+  // Features del chat unificado
+  chatFeatures = {
+    intermediateSteps: false,
+    images: false,
+    videos: false,
+    presentations: false,
+    streaming: true,
+    tokens: false,  // Lo mostramos en el footer
+    timestamps: true,
+    clearButton: false,  // Lo manejamos en el footer
+    configPanel: true
+  };
 
   private readonly API_URL = environment.apiUrl;
 
@@ -938,8 +699,10 @@ export class TestingComponent implements OnInit {
     this.totalTokens.set(0);
   }
 
-  formatTime(date: Date): string {
-    return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  // Handler para mensajes del ChatComponent
+  onChatMessageSent(message: string): void {
+    this.newMessage = message;
+    this.sendMessage();
   }
 
   private scrollToBottom(): void {

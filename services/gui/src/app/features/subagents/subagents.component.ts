@@ -24,6 +24,9 @@ import { MatListModule } from '@angular/material/list';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { environment } from '../../../environments/environment';
 
+// Chat unificado
+import { ChatComponent, ChatMessage } from '../../shared/components/chat';
+
 interface Skill {
   id: string;
   name: string;
@@ -161,7 +164,8 @@ interface TestRunResult {
     MatSlideToggleModule,
     MatBadgeModule,
     MatListModule,
-    MatCheckboxModule
+    MatCheckboxModule,
+    ChatComponent
   ],
   template: `
     <div class="subagents-page">
@@ -266,65 +270,48 @@ interface TestRunResult {
             }
           </div>
 
-          <!-- Panel de Ejecución (dentro de la primera pestaña) -->
+          <!-- Panel de Chat con Subagente -->
           @if (executeAgent()) {
-            <mat-card class="execute-panel" style="margin-top: 24px;">
+            <mat-card class="chat-panel" style="margin-top: 24px;">
               <mat-card-header>
                 <mat-card-title>
-                  <mat-icon>play_circle</mat-icon>
-                  Ejecutar {{ executeAgent()?.name }}
+                  <mat-icon>chat</mat-icon>
+                  Chat con {{ executeAgent()?.name }}
                 </mat-card-title>
-                <button mat-icon-button (click)="executeAgent.set(null)" class="close-btn">
-                  <mat-icon>close</mat-icon>
-                </button>
+                <div class="chat-header-actions">
+                  <button mat-icon-button (click)="clearChat()" matTooltip="Limpiar chat">
+                    <mat-icon>delete_sweep</mat-icon>
+                  </button>
+                  <button mat-icon-button (click)="closeChat()" class="close-btn">
+                    <mat-icon>close</mat-icon>
+                  </button>
+                </div>
               </mat-card-header>
-              <mat-card-content>
-                <mat-form-field appearance="outline" class="full-width">
-                  <mat-label>Tarea a ejecutar</mat-label>
-                  <textarea matInput [(ngModel)]="executeTask" rows="3" placeholder="Describe la tarea..."></textarea>
-                </mat-form-field>
-                <div class="execute-options" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
-                  <mat-form-field appearance="outline">
+              <mat-card-content class="chat-content">
+                <!-- Configuración rápida -->
+                <div class="chat-config-bar">
+                  <mat-form-field appearance="outline" class="config-field">
                     <mat-label>LLM URL</mat-label>
                     <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://localhost:11434">
                   </mat-form-field>
-                  <mat-form-field appearance="outline">
+                  <mat-form-field appearance="outline" class="config-field">
                     <mat-label>Modelo</mat-label>
                     <input matInput [(ngModel)]="executeModel" placeholder="llama3.2">
                   </mat-form-field>
                 </div>
-              </mat-card-content>
-              <mat-card-actions align="end">
-                <button mat-raised-button color="primary" (click)="executeSubagent()" [disabled]="executing()">
-                  @if (executing()) {
-                    <mat-spinner diameter="20"></mat-spinner>
-                  } @else {
-                    <mat-icon>play_arrow</mat-icon>
-                  }
-                  Ejecutar
-                </button>
-              </mat-card-actions>
-              @if (executeResult()) {
-                <mat-divider></mat-divider>
-                <div class="execute-result" style="padding: 16px;" [class]="executeResult()!.result.success ? 'success' : 'error'">
-                  <div class="result-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                    <mat-icon>{{ executeResult()!.result.success ? 'check_circle' : 'error' }}</mat-icon>
-                    <span>{{ executeResult()!.result.success ? 'Éxito' : 'Error' }}</span>
-                    <span style="margin-left: auto; font-size: 12px; color: #666;">{{ executeResult()!.result.execution_time_ms }}ms</span>
-                  </div>
-                  @if (executeResult()?.result?.tools_used?.length) {
-                    <div class="tools-used" style="margin: 12px 0;">
-                      <span style="font-weight: 500;">Herramientas usadas:</span>
-                      @for (tool of executeResult()!.result.tools_used; track tool) {
-                        <mat-chip>{{ tool }}</mat-chip>
-                      }
-                    </div>
-                  }
-                  <div class="response" style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 8px; margin-top: 12px;">
-                    {{ executeResult()!.result.response }}
-                  </div>
+                
+                <!-- Chat -->
+                <div class="chat-container-wrapper">
+                  <app-chat
+                    [messages]="messages"
+                    [features]="chatFeatures"
+                    [isLoading]="executing"
+                    [placeholder]="'Describe la tarea para ' + executeAgent()?.name + '...'"
+                    [emptyMessage]="'Envía un mensaje para comenzar la conversación con ' + executeAgent()?.name"
+                    (messageSent)="onChatMessageSent($event)">
+                  </app-chat>
                 </div>
-              }
+              </mat-card-content>
             </mat-card>
           }
         </mat-tab>
@@ -912,63 +899,46 @@ interface TestRunResult {
       <!-- Tab: Ejecutar -->
       <mat-tab label="Ejecutar" [disabled]="!executeAgent()">
         @if (executeAgent()) {
-          <mat-card class="execute-panel">
+          <mat-card class="chat-panel">
             <mat-card-header>
               <mat-card-title>
-                <mat-icon>play_circle</mat-icon>
-                Ejecutar {{ executeAgent()?.name }}
+                <mat-icon>chat</mat-icon>
+                Chat con {{ executeAgent()?.name }}
               </mat-card-title>
-              <button mat-icon-button (click)="closeExecution()" class="close-btn">
-                <mat-icon>close</mat-icon>
-              </button>
+              <div class="chat-header-actions">
+                <button mat-icon-button (click)="clearChat()" matTooltip="Limpiar chat">
+                  <mat-icon>delete_sweep</mat-icon>
+                </button>
+                <button mat-icon-button (click)="closeExecution()" class="close-btn">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </div>
             </mat-card-header>
-            <mat-card-content>
-              <mat-form-field appearance="outline" class="full-width">
-                <mat-label>Tarea a ejecutar</mat-label>
-                <textarea matInput [(ngModel)]="executeTask" rows="3" placeholder="Describe la tarea..."></textarea>
-              </mat-form-field>
-              <div class="execute-options" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
-                <mat-form-field appearance="outline">
+            <mat-card-content class="chat-content">
+              <!-- Configuración rápida -->
+              <div class="chat-config-bar">
+                <mat-form-field appearance="outline" class="config-field">
                   <mat-label>LLM URL</mat-label>
                   <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://localhost:11434">
                 </mat-form-field>
-                <mat-form-field appearance="outline">
+                <mat-form-field appearance="outline" class="config-field">
                   <mat-label>Modelo</mat-label>
                   <input matInput [(ngModel)]="executeModel" placeholder="llama3.2">
                 </mat-form-field>
               </div>
-            </mat-card-content>
-            <mat-card-actions align="end">
-              <button mat-raised-button color="primary" (click)="executeSubagent()" [disabled]="executing()">
-                @if (executing()) {
-                  <mat-spinner diameter="20"></mat-spinner>
-                } @else {
-                  <mat-icon>play_arrow</mat-icon>
-                }
-                Ejecutar
-              </button>
-            </mat-card-actions>
-            @if (executeResult()) {
-              <mat-divider></mat-divider>
-              <div class="execute-result" style="padding: 16px;" [class]="executeResult()!.result.success ? 'success' : 'error'">
-                <div class="result-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                  <mat-icon>{{ executeResult()!.result.success ? 'check_circle' : 'error' }}</mat-icon>
-                  <span>{{ executeResult()!.result.success ? 'Éxito' : 'Error' }}</span>
-                  <span style="margin-left: auto; font-size: 12px; color: #666;">{{ executeResult()!.result.execution_time_ms }}ms</span>
-                </div>
-                @if (executeResult()?.result?.tools_used?.length) {
-                  <div class="tools-used" style="margin: 12px 0;">
-                    <span style="font-weight: 500;">Herramientas usadas:</span>
-                    @for (tool of executeResult()!.result.tools_used; track tool) {
-                      <mat-chip>{{ tool }}</mat-chip>
-                    }
-                  </div>
-                }
-                <div class="response" style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 8px; margin-top: 12px;">
-                  {{ executeResult()!.result.response }}
-                </div>
+              
+              <!-- Chat -->
+              <div class="chat-container-wrapper">
+                <app-chat
+                  [messages]="messages"
+                  [features]="chatFeatures"
+                  [isLoading]="executing"
+                  [placeholder]="'Describe la tarea para ' + executeAgent()?.name + '...'"
+                  [emptyMessage]="'Envía un mensaje para comenzar la conversación con ' + executeAgent()?.name"
+                  (messageSent)="onChatMessageSent($event)">
+                </app-chat>
               </div>
-            }
+            </mat-card-content>
           </mat-card>
         }
       </mat-tab>
@@ -1677,6 +1647,67 @@ interface TestRunResult {
       background: #ffebee;
     }
 
+    /* Chat Panel */
+    .chat-panel {
+      margin-top: 24px;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .chat-panel mat-card-header {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+      padding: 16px;
+      border-radius: 12px 12px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .chat-panel mat-card-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #1a1a2e;
+      margin: 0;
+    }
+
+    .chat-panel mat-card-title mat-icon {
+      color: #667eea;
+    }
+
+    .chat-header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .chat-content {
+      display: flex;
+      flex-direction: column;
+      padding: 0 !important;
+    }
+
+    .chat-config-bar {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      background: #fafafa;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .config-field {
+      flex: 1;
+    }
+
+    .chat-container-wrapper {
+      flex: 1;
+      min-height: 400px;
+      max-height: 600px;
+    }
+
+    .chat-container-wrapper ::ng-deep .chat-container {
+      border-radius: 0;
+    }
+
     .execute-result .result-header {
       display: flex;
       align-items: center;
@@ -2370,6 +2401,20 @@ export class SubagentsComponent implements OnInit {
   testingAgent = signal<string | null>(null);
   executing = signal(false);
 
+  // Chat unificado
+  messages = signal<ChatMessage[]>([]);
+  chatFeatures = {
+    intermediateSteps: false,
+    images: true,
+    videos: true,
+    presentations: false,
+    streaming: false,  // No streaming por ahora en subagentes
+    tokens: true,
+    timestamps: true,
+    clearButton: true,
+    configPanel: false
+  };
+
   selectedAgent: Subagent | null = null;
   executeAgent = signal<Subagent | null>(null);
   activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración, 2 = Ejecutar
@@ -2605,6 +2650,8 @@ export class SubagentsComponent implements OnInit {
   closeExecution(): void {
     this.activeTabIndex = 0; // Switch back to subagents list
     this.executeAgent.set(null);
+    this.messages.set([]);
+    this.executeResult.set(null);
   }
 
   executeSubagent(): void {
@@ -2615,7 +2662,14 @@ export class SubagentsComponent implements OnInit {
     }
 
     this.executing.set(true);
-    this.executeResult.set(null);
+
+    // Agregar mensaje del usuario
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: this.executeTask,
+      timestamp: new Date()
+    };
+    this.messages.update(msgs => [...msgs, userMessage]);
 
     this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${agent.id}/execute`, {
       task: this.executeTask,
@@ -2625,8 +2679,24 @@ export class SubagentsComponent implements OnInit {
       provider_type: 'ollama'
     }).subscribe({
       next: (result) => {
-        this.executeResult.set(result);
         this.executing.set(false);
+        
+        // Construir mensaje del asistente con el resultado
+        const assistantMessage: ChatMessage = {
+          role: 'assistant',
+          content: result.result.response,
+          timestamp: new Date(),
+          tokens: result.result.execution_time_ms,
+          images: result.result.images?.map((img: any) => ({
+            url: img.url,
+            base64: img.base64,
+            mimeType: img.mime_type || 'image/png',
+            altText: 'Generated image'
+          })) || []
+        };
+        
+        this.messages.update(msgs => [...msgs, assistantMessage]);
+        this.executeResult.set(result);
         
         if (result.result.success) {
           this.snackBar.open('Ejecución completada', 'Cerrar', { duration: 3000 });
@@ -2635,10 +2705,36 @@ export class SubagentsComponent implements OnInit {
         }
       },
       error: (err) => {
-        this.snackBar.open('Error ejecutando subagente', 'Cerrar', { duration: 3000 });
         this.executing.set(false);
+        
+        // Agregar mensaje de error
+        const errorMessage: ChatMessage = {
+          role: 'assistant',
+          content: 'Error ejecutando el subagente. Por favor, intenta de nuevo.',
+          timestamp: new Date()
+        };
+        this.messages.update(msgs => [...msgs, errorMessage]);
+        
+        this.snackBar.open('Error ejecutando subagente', 'Cerrar', { duration: 3000 });
       }
     });
+  }
+
+  // Handler para mensajes del ChatComponent
+  onChatMessageSent(message: string): void {
+    this.executeTask = message;
+    this.executeSubagent();
+  }
+
+  clearChat(): void {
+    this.messages.set([]);
+    this.executeResult.set(null);
+  }
+
+  closeChat(): void {
+    this.executeAgent.set(null);
+    this.messages.set([]);
+    this.executeResult.set(null);
   }
 
   getChecks(): Array<{key: string; label: string; value: boolean}> {

@@ -320,7 +320,13 @@ Sé conciso pero útil. Responde en español."""
         if missing_tools:
             logger.warning(f"⚠️ SubAgent {self.id}: {len(missing_tools)} tools not found in registry: {missing_tools}")
         
-        logger.info(f"🔧 SubAgent {self.id} has {len(tools)} tools ({len(all_tool_ids)} requested, {len(missing_tools)} missing)")
+        # DEBUG: Log detallado
+        logger.info(f"🔧 SubAgent {self.id}:")
+        logger.info(f"   Domain tools: {self.domain_tools}")
+        logger.info(f"   All tool IDs: {len(all_tool_ids)} - {sorted(all_tool_ids)}")
+        logger.info(f"   Found tools: {len(tools)} - {[t.id for t in tools]}")
+        logger.info(f"   Missing tools: {len(missing_tools)} - {missing_tools}")
+        
         return tools
     
     @abstractmethod

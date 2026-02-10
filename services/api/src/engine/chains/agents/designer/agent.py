@@ -80,38 +80,6 @@ Para vídeos uso Veo 3.1 de Google (hasta 8 segundos, 1080p, con audio generado)
         self.system_prompt = _read_system_prompt()
         logger.info(f"🎨 DesignerAgent initialized with {len(self.available_skills)} skills")
 
-    def get_tools(self) -> list:
-        """Obtiene las tools del Designer (override del método base)."""
-        from src.tools.domains.media import MEDIA_TOOLS
-        from src.tools.core import SLIDES_TOOLS
-        from src.tools.tool_registry import ToolDefinition, ToolType
-        
-        tools = []
-        
-        # Convertir MEDIA_TOOLS dict a ToolDefinition
-        for tool_id, tool_dict in MEDIA_TOOLS.items():
-            tools.append(ToolDefinition(
-                id=tool_dict.get("id", tool_id),
-                name=tool_dict.get("name", tool_id),
-                description=tool_dict.get("description", ""),
-                type=ToolType.CORE,
-                parameters=tool_dict.get("parameters", {}),
-                handler=tool_dict.get("handler")
-            ))
-        
-        # Convertir SLIDES_TOOLS dict a ToolDefinition
-        for tool_id, tool_dict in SLIDES_TOOLS.items():
-            tools.append(ToolDefinition(
-                id=tool_dict.get("id", tool_id),
-                name=tool_dict.get("name", tool_id),
-                description=tool_dict.get("description", ""),
-                type=ToolType.CORE,
-                parameters=tool_dict.get("parameters", {}),
-                handler=tool_dict.get("handler")
-            ))
-        
-        return tools
-
     async def execute(
         self,
         task: str,

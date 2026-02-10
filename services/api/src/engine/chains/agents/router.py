@@ -83,7 +83,9 @@ async def get_subagent(agent_id: str):
         )
     
     # Obtener herramientas del agente
+    print(f"DEBUG: Getting tools for {agent_id}")
     tools = agent.get_tools()
+    print(f"DEBUG: Got {len(tools)} tools for {agent_id}: {[t.id for t in tools]}")
     
     return {
         "subagent": {
