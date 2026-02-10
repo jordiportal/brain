@@ -908,6 +908,70 @@ interface TestRunResult {
           </mat-card>
         }
       </mat-tab>
+
+      <!-- Tab: Ejecutar -->
+      <mat-tab label="Ejecutar" [disabled]="!executeAgent()">
+        @if (executeAgent()) {
+          <mat-card class="execute-panel">
+            <mat-card-header>
+              <mat-card-title>
+                <mat-icon>play_circle</mat-icon>
+                Ejecutar {{ executeAgent()?.name }}
+              </mat-card-title>
+              <button mat-icon-button (click)="closeExecution()" class="close-btn">
+                <mat-icon>close</mat-icon>
+              </button>
+            </mat-card-header>
+            <mat-card-content>
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>Tarea a ejecutar</mat-label>
+                <textarea matInput [(ngModel)]="executeTask" rows="3" placeholder="Describe la tarea..."></textarea>
+              </mat-form-field>
+              <div class="execute-options" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+                <mat-form-field appearance="outline">
+                  <mat-label>LLM URL</mat-label>
+                  <input matInput [(ngModel)]="executeLlmUrl" placeholder="http://localhost:11434">
+                </mat-form-field>
+                <mat-form-field appearance="outline">
+                  <mat-label>Modelo</mat-label>
+                  <input matInput [(ngModel)]="executeModel" placeholder="llama3.2">
+                </mat-form-field>
+              </div>
+            </mat-card-content>
+            <mat-card-actions align="end">
+              <button mat-raised-button color="primary" (click)="executeSubagent()" [disabled]="executing()">
+                @if (executing()) {
+                  <mat-spinner diameter="20"></mat-spinner>
+                } @else {
+                  <mat-icon>play_arrow</mat-icon>
+                }
+                Ejecutar
+              </button>
+            </mat-card-actions>
+            @if (executeResult()) {
+              <mat-divider></mat-divider>
+              <div class="execute-result" style="padding: 16px;" [class]="executeResult()!.result.success ? 'success' : 'error'">
+                <div class="result-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                  <mat-icon>{{ executeResult()!.result.success ? 'check_circle' : 'error' }}</mat-icon>
+                  <span>{{ executeResult()!.result.success ? 'Éxito' : 'Error' }}</span>
+                  <span style="margin-left: auto; font-size: 12px; color: #666;">{{ executeResult()!.result.execution_time_ms }}ms</span>
+                </div>
+                @if (executeResult()?.result?.tools_used?.length) {
+                  <div class="tools-used" style="margin: 12px 0;">
+                    <span style="font-weight: 500;">Herramientas usadas:</span>
+                    @for (tool of executeResult()!.result.tools_used; track tool) {
+                      <mat-chip>{{ tool }}</mat-chip>
+                    }
+                  </div>
+                }
+                <div class="response" style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 8px; margin-top: 12px;">
+                  {{ executeResult()!.result.response }}
+                </div>
+              </div>
+            }
+          </mat-card>
+        }
+      </mat-tab>
     </mat-tab-group>
   </div>
   `,
@@ -2308,7 +2372,7 @@ export class SubagentsComponent implements OnInit {
 
   selectedAgent: Subagent | null = null;
   executeAgent = signal<Subagent | null>(null);
-  activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración
+  activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración, 2 = Ejecutar
 
   agentConfig: SubagentConfig = {
     enabled: true,
@@ -2535,6 +2599,12 @@ export class SubagentsComponent implements OnInit {
     this.executeResult.set(null);
     this.executeTask = '';
     this.executeContext = '';
+    this.activeTabIndex = 2; // Switch to execution tab
+  }
+
+  closeExecution(): void {
+    this.activeTabIndex = 0; // Switch back to subagents list
+    this.executeAgent.set(null);
   }
 
   executeSubagent(): void {
