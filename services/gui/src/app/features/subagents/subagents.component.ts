@@ -183,85 +183,88 @@ interface TestRunResult {
       <mat-tab-group [(selectedIndex)]="activeTabIndex" animationDuration="300ms">
         <!-- Tab: Lista de Subagentes -->
         <mat-tab label="Subagentes">
-          <!-- Grid de Subagentes -->
-          @if (loading()) {
-            <div class="loading-container">
-              <mat-spinner diameter="48"></mat-spinner>
-              <p>Cargando subagentes...</p>
-            </div>
-          } @else {
-            <div class="subagents-grid">
-              @for (agent of subagents(); track agent.id) {
-                <mat-card class="subagent-card" [class.selected]="selectedAgent?.id === agent.id">
-                  <mat-card-header>
-                    <div class="agent-icon" [class]="agent.id">
-                      <mat-icon>{{ agent.icon }}</mat-icon>
-                    </div>
-                    <mat-card-title>{{ agent.name }}</mat-card-title>
-                    <mat-card-subtitle>v{{ agent.version }}</mat-card-subtitle>
-                    <mat-chip class="status-chip" [class]="agent.status">
-                      {{ agent.status | uppercase }}
-                    </mat-chip>
-                  </mat-card-header>
-                  
-                  <mat-card-content>
-                    <p class="description">{{ agent.description }}</p>
-                
-                <div class="tools-section">
-                  <span class="tools-label">Herramientas:</span>
-                  <div class="tools-chips">
-                    @for (tool of agent.domain_tools; track tool) {
-                      <mat-chip class="tool-chip">{{ tool }}</mat-chip>
-                    }
-                  </div>
-                </div>
+          <div class="tab-content-wrapper">
+            <!-- Grid de Subagentes -->
+            @if (loading()) {
+              <div class="loading-container">
+                <mat-spinner diameter="48"></mat-spinner>
+                <p>Cargando subagentes...</p>
+              </div>
+            } @else {
+              <div class="subagents-grid">
+                @for (agent of subagents(); track agent.id) {
+                  <mat-card class="subagent-card" [class.selected]="selectedAgent?.id === agent.id">
+                    <mat-card-header>
+                      <div class="agent-icon" [class]="agent.id" mat-card-avatar>
+                        <mat-icon>{{ agent.icon }}</mat-icon>
+                      </div>
+                      <mat-card-title>{{ agent.name }}</mat-card-title>
+                      <mat-card-subtitle>v{{ agent.version }}</mat-card-subtitle>
+                      <mat-chip class="status-chip" [class]="agent.status">
+                        {{ agent.status | uppercase }}
+                      </mat-chip>
+                    </mat-card-header>
+                    
+                    <mat-card-content>
+                      <p class="description">{{ agent.description }}</p>
+                      
+                      <div class="tools-section">
+                        <span class="tools-label">Herramientas:</span>
+                        <div class="tools-chips">
+                          @for (tool of agent.domain_tools; track tool) {
+                            <mat-chip class="tool-chip">{{ tool }}</mat-chip>
+                          }
+                        </div>
+                      </div>
 
-                @if (agent.skills && agent.skills.length > 0) {
-                  <div class="skills-section">
-                    <span class="skills-label">
-                      <mat-icon>school</mat-icon>
-                      Skills:
-                    </span>
-                    <div class="skills-chips">
-                      @for (skill of agent.skills; track skill.id) {
-                        <mat-chip class="skill-chip" [matTooltip]="skill.description">{{ skill.name }}</mat-chip>
+                      @if (agent.skills && agent.skills.length > 0) {
+                        <div class="skills-section">
+                          <span class="skills-label">
+                            <mat-icon>school</mat-icon>
+                            Skills:
+                          </span>
+                          <div class="skills-chips">
+                            @for (skill of agent.skills; track skill.id) {
+                              <mat-chip class="skill-chip" [matTooltip]="skill.description">{{ skill.name }}</mat-chip>
+                            }
+                          </div>
+                        </div>
                       }
-                    </div>
+                    </mat-card-content>
+
+                    <mat-card-actions align="end">
+                      <button mat-button (click)="testAgent(agent.id)" [disabled]="testingAgent() === agent.id">
+                        @if (testingAgent() === agent.id) {
+                          <mat-spinner diameter="16"></mat-spinner>
+                        } @else {
+                          <mat-icon>health_and_safety</mat-icon>
+                        }
+                        Test
+                      </button>
+                      <button mat-button color="primary" (click)="selectAgent(agent)">
+                        <mat-icon>settings</mat-icon>
+                        Configurar
+                      </button>
+                      <button mat-raised-button color="accent" (click)="openExecutePanel(agent)">
+                        <mat-icon>play_arrow</mat-icon>
+                        Ejecutar
+                      </button>
+                    </mat-card-actions>
+                  </mat-card>
+                } @empty {
+                  <div class="empty-state">
+                    <mat-icon>smart_toy</mat-icon>
+                    <h3>No hay subagentes registrados</h3>
+                    <p>Los subagentes se registran automáticamente al iniciar la API</p>
+                    <button mat-raised-button color="primary" (click)="loadSubagents()">
+                      <mat-icon>refresh</mat-icon>
+                      Recargar
+                    </button>
                   </div>
                 }
-              </mat-card-content>
-
-              <mat-card-actions align="end">
-                <button mat-button (click)="testAgent(agent.id)" [disabled]="testingAgent() === agent.id">
-                  @if (testingAgent() === agent.id) {
-                    <mat-spinner diameter="16"></mat-spinner>
-                  } @else {
-                    <mat-icon>health_and_safety</mat-icon>
-                  }
-                  Test
-                </button>
-                <button mat-button color="primary" (click)="selectAgent(agent)">
-                  <mat-icon>settings</mat-icon>
-                  Configurar
-                </button>
-                <button mat-raised-button color="accent" (click)="openExecutePanel(agent)">
-                  <mat-icon>play_arrow</mat-icon>
-                  Ejecutar
-                </button>
-              </mat-card-actions>
-            </mat-card>
-          } @empty {
-            <div class="empty-state">
-              <mat-icon>smart_toy</mat-icon>
-              <h3>No hay subagentes registrados</h3>
-              <p>Los subagentes se registran automáticamente al iniciar la API</p>
-              <button mat-raised-button color="primary" (click)="loadSubagents()">
-                <mat-icon>refresh</mat-icon>
-                Recargar
-              </button>
-            </div>
-          }
-        </div>
+              </div>
+            }
+          </div>
         </mat-tab>
 
         <!-- Tab: Configuración (solo habilitada cuando hay un agente seleccionado) -->
@@ -432,7 +435,7 @@ interface TestRunResult {
                                   (ngModelChange)="markSkillDirty(skill.id)"
                                   placeholder="Contenido markdown del skill..."></textarea>
                                 <div class="editor-footer">
-                                  <span class="char-count">{{ skill.content?.length || 0 }} caracteres</span>
+                                  <span class="char-count">{{ skill.content.length || 0 }} caracteres</span>
                                   @if (dirtySkills.has(skill.id)) {
                                     <button mat-raised-button color="primary" (click)="saveSkillContent(skill)" [disabled]="savingSkill()">
                                       @if (savingSkill()) {
@@ -842,6 +845,7 @@ interface TestRunResult {
             </mat-tab-group>
           </mat-card>
         }
+      </mat-tab>
 
         <!-- Panel de Ejecución -->
         @if (executeAgent) {
@@ -903,7 +907,7 @@ interface TestRunResult {
                 </div>
 
                 <!-- Tools usadas como chips -->
-                @if (executeResult()!.result.tools_used?.length) {
+                @if (executeResult()?.result?.tools_used?.length) {
                   <div class="tools-used">
                     <mat-icon>build</mat-icon>
                     <span>Herramientas:</span>
@@ -923,7 +927,7 @@ interface TestRunResult {
                 </div>
 
                 <!-- Imágenes generadas -->
-                @if (executeResult()!.result.images?.length) {
+                @if (executeResult()?.result?.images?.length) {
                   <div class="generated-images">
                     <div class="images-label">
                       <mat-icon>image</mat-icon>
@@ -944,9 +948,8 @@ interface TestRunResult {
             }
           </mat-card>
         }
-      </mat-tab>
-      </mat-tab-group>
-    </div>
+    </mat-tab-group>
+  </div>
   `,
   styles: [`
     .subagents-page {
@@ -994,6 +997,9 @@ interface TestRunResult {
     .subagent-card {
       border-radius: 12px;
       transition: transform 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
     }
 
     .subagent-card:hover {
@@ -1003,6 +1009,16 @@ interface TestRunResult {
 
     .subagent-card.selected {
       border: 2px solid #667eea;
+    }
+
+    .subagent-card mat-card-content {
+      flex: 1 1 auto;
+    }
+
+    .subagent-card mat-card-actions {
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid #f0f0f0;
     }
 
     .agent-icon {

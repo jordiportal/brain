@@ -135,20 +135,23 @@ import { environment } from '../../../environments/environment';
                     }
 
                     <div class="form-row">
-                      <mat-form-field appearance="outline">
-                        <mat-label>Modelo por defecto</mat-label>
-                        @if (availableModels().length > 0) {
+                      @if (availableModels().length > 0) {
+                        <mat-form-field appearance="outline">
+                          <mat-label>Modelo por defecto</mat-label>
                           <mat-select formControlName="defaultModel">
                             @for (model of availableModels(); track model) {
                               <mat-option [value]="model">{{ model }}</mat-option>
                             }
                           </mat-select>
                           <mat-hint>{{ availableModels().length }} modelos disponibles</mat-hint>
-                        } @else {
+                        </mat-form-field>
+                      } @else {
+                        <mat-form-field appearance="outline">
+                          <mat-label>Modelo por defecto</mat-label>
                           <input matInput formControlName="defaultModel" placeholder="llama3.2">
                           <mat-hint>Prueba la conexión para ver modelos disponibles</mat-hint>
-                        }
-                      </mat-form-field>
+                        </mat-form-field>
+                      }
                     </div>
 
                     <div class="form-row">

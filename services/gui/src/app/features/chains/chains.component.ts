@@ -187,7 +187,7 @@ interface VideoData {
               @for (chain of engineChains(); track chain.id) {
                 <mat-card class="chain-card" [class.selected]="selectedChain()?.id === chain.id">
                   <mat-card-header>
-                    <div class="chain-icon" [class]="chain.type">
+                    <div class="chain-icon" [class]="chain.type" mat-card-avatar>
                       <mat-icon>{{ getChainIcon(chain.type) }}</mat-icon>
                     </div>
                     <mat-card-title>{{ chain.name }}</mat-card-title>
@@ -563,6 +563,9 @@ interface VideoData {
       border-radius: 12px;
       transition: transform 0.2s, box-shadow 0.2s;
       cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
     }
 
     .chain-card:hover {
@@ -572,6 +575,16 @@ interface VideoData {
 
     .chain-card.selected {
       border: 2px solid #667eea;
+    }
+
+    .chain-card mat-card-content {
+      flex: 1 1 auto;
+    }
+
+    .chain-card mat-card-actions {
+      margin-top: auto;
+      padding-top: 16px;
+      border-top: 1px solid #f0f0f0;
     }
 
     .chain-icon {
