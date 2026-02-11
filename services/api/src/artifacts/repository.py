@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import structlog
 
-from src.db.postgres import get_db
+from src.db import get_db
 from .models import ArtifactCreate, ArtifactUpdate, ArtifactResponse, ArtifactType, ArtifactStatus
 
 logger = structlog.get_logger()
