@@ -168,7 +168,7 @@ async def create_openapi_connection(request: OpenAPIConnectionCreate):
 
 
 @router.put("/openapi/connections/{connection_id}")
-async def update_openapi_connection(connection_id: int, request: OpenAPIConnectionCreate):
+async def update_openapi_connection(connection_id: str, request: OpenAPIConnectionCreate):
     """Actualiza una conexión OpenAPI existente"""
     try:
         # Verificar si existe

@@ -27,12 +27,22 @@ class OpenAPIConnectionRepository:
         return [OpenAPIConnectionRepository._row_to_connection(row) for row in rows]
     
     @staticmethod
-    async def get_by_id(connection_id: int) -> Optional[OpenAPIConnection]:
-        """Get connection by ID."""
+    async def get_by_id(connection_id: str) -> Optional[OpenAPIConnection]:
+        """Get connection by ID or document_id."""
         db = get_db()
         
-        query = "SELECT * FROM openapi_connections WHERE id = $1"
+        # Try to find by document_id first (for Strapi-like IDs)
+        query = "SELECT * FROM openapi_connections WHERE document_id = $1"
         row = await db.fetch_one(query, connection_id)
+        
+        if not row:
+            # Fallback to numeric ID
+            try:
+                numeric_id = int(connection_id)
+                query = "SELECT * FROM openapi_connections WHERE id = $1"
+                row = await db.fetch_one(query, numeric_id)
+            except ValueError:
+                pass
         
         if not row:
             return None
@@ -86,17 +96,20 @@ class OpenAPIConnectionRepository:
             return False
     
     @staticmethod
-    async def update(connection_id: int, connection_data: dict) -> Optional[OpenAPIConnection]:
+    async def update(connection_id: str, connection_data: dict) -> Optional[OpenAPIConnection]:
         """Update an existing OpenAPI connection."""
         db = get_db()
         
         try:
             import json
             
-            # Check if connection exists
+            # Check if connection exists (accepts both document_id and numeric id)
             existing = await OpenAPIConnectionRepository.get_by_id(connection_id)
             if not existing:
                 return None
+            
+            # Use the actual numeric ID from the database for the WHERE clause
+            actual_id = existing.id
             
             query = """
                 UPDATE openapi_connections 
@@ -134,7 +147,7 @@ class OpenAPIConnectionRepository:
                 connection_data.get('timeout', existing.timeout),
                 json.dumps(connection_data.get('enabled_endpoints', existing.enabled_endpoints or [])),
                 json.dumps(connection_data.get('custom_headers', existing.custom_headers or {})),
-                connection_id
+                actual_id
             )
             
             if row:
