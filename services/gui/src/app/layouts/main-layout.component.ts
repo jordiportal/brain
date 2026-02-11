@@ -12,6 +12,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { AuthService } from '../core/services/auth.service';
 import { MenuItem } from '../core/models';
 import { ArtifactSidebarComponent } from '../shared/components/artifact-sidebar/artifact-sidebar.component';
+import { ArtifactViewerComponent } from '../shared/components/artifact-viewer/artifact-viewer.component';
+import { ArtifactService, Artifact } from '../core/services/artifact.service';
 
 @Component({
   selector: 'app-main-layout',
@@ -27,7 +29,8 @@ import { ArtifactSidebarComponent } from '../shared/components/artifact-sidebar/
     MatMenuModule,
     MatDividerModule,
     MatTooltipModule,
-    ArtifactSidebarComponent
+    ArtifactSidebarComponent,
+    ArtifactViewerComponent
   ],
   template: `
     <mat-sidenav-container class="sidenav-container">
@@ -136,9 +139,18 @@ import { ArtifactSidebarComponent } from '../shared/components/artifact-sidebar/
                    class="artifact-sidenav">
         <app-artifact-sidebar
           [isExpanded]="true"
-          (expandChanged)="onArtifactPanelToggle($event)">
+          (expandChanged)="onArtifactPanelToggle($event)"
+          (previewRequested)="onArtifactPreview($event)">
         </app-artifact-sidebar>
       </mat-sidenav>
+
+      <!-- Artifact Viewer Modal -->
+      <app-artifact-viewer
+        *ngIf="selectedArtifact"
+        [artifact]="selectedArtifact"
+        (closed)="selectedArtifact = undefined"
+        (downloadRequested)="downloadArtifact($event)">
+      </app-artifact-viewer>
     </mat-sidenav-container>
   `,
   styles: [`
@@ -438,6 +450,7 @@ export class MainLayoutComponent {
   // Artifact panel (right sidebar)
   artifactPanelOpened = signal(false);
   artifactPanelMode = signal<'side' | 'over'>('side');
+  selectedArtifact?: Artifact;
 
   currentUser = computed(() => this.authService.currentUser());
 
@@ -456,7 +469,8 @@ export class MainLayoutComponent {
 
   constructor(
     private authService: AuthService,
-    private router: Router
+    private router: Router,
+    private artifactService: ArtifactService
   ) {
     // Ajustar sidebar según tamaño de pantalla
     this.checkScreenSize();
@@ -483,6 +497,22 @@ export class MainLayoutComponent {
 
   onArtifactPanelToggle(expanded: boolean): void {
     this.artifactPanelOpened.set(expanded);
+  }
+
+  onArtifactPreview(artifact: Artifact): void {
+    this.selectedArtifact = artifact;
+  }
+
+  downloadArtifact(artifact: Artifact): void {
+    this.artifactService.downloadArtifact(artifact.artifact_id)
+      .subscribe(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = artifact.file_name;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      });
   }
 
   logout(): void {
