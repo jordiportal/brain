@@ -915,14 +915,49 @@ interface TestRunResult {
               </div>
             </mat-card-header>
             <mat-card-content class="chat-content">
-              <!-- Selector LLM unificado -->
+              <!-- Toggle: Usar config guardada vs Personalizar -->
               <div class="chat-config-bar">
-                <app-llm-selector
-                  [(providerId)]="executeProviderId"
-                  [(model)]="executeModel"
-                  mode="compact"
-                  (selectionChange)="onExecuteSelectionChange($event)">
-                </app-llm-selector>
+                <div class="config-toggle-row">
+                  <mat-slide-toggle 
+                    [(ngModel)]="useSavedConfig" 
+                    color="primary"
+                    class="config-toggle">
+                    Usar configuración guardada del subagente
+                  </mat-slide-toggle>
+                </div>
+                
+                @if (useSavedConfig()) {
+                  <!-- Mostrar info de la config guardada -->
+                  <div class="saved-config-info">
+                    @if (agentConfig.llm_provider) {
+                      @let provider = getProviderById(agentConfig.llm_provider);
+                      <div class="config-info-item">
+                        <mat-icon>smart_toy</mat-icon>
+                        <span class="config-label">Proveedor:</span>
+                        <span class="config-value">{{ provider?.name || 'Cargando...' }}</span>
+                        <span class="config-type">({{ provider?.type }})</span>
+                      </div>
+                      <div class="config-info-item">
+                        <mat-icon>memory</mat-icon>
+                        <span class="config-label">Modelo:</span>
+                        <span class="config-value">{{ agentConfig.llm_model || provider?.defaultModel || 'Por defecto' }}</span>
+                      </div>
+                    } @else {
+                      <div class="no-config-warning">
+                        <mat-icon>warning</mat-icon>
+                        <span>No hay proveedor LLM configurado. <a (click)="switchToConfigTab()">Configurar ahora</a></span>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <!-- Selector LLM personalizado -->
+                  <app-llm-selector
+                    [(providerId)]="executeProviderId"
+                    [(model)]="executeModel"
+                    mode="compact"
+                    (selectionChange)="onExecuteSelectionChange($event)">
+                  </app-llm-selector>
+                }
               </div>
               
               <!-- Chat -->
@@ -1686,10 +1721,84 @@ interface TestRunResult {
 
     .chat-config-bar {
       display: flex;
-      gap: 16px;
+      flex-direction: column;
+      gap: 12px;
       padding: 16px;
       background: #fafafa;
       border-bottom: 1px solid #e0e0e0;
+    }
+
+    .config-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .config-toggle {
+      font-size: 14px;
+    }
+
+    .saved-config-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: #e3f2fd;
+      border-radius: 8px;
+      border-left: 4px solid #2196f3;
+    }
+
+    .config-info-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .config-info-item mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #1976d2;
+    }
+
+    .config-label {
+      font-weight: 500;
+      color: #424242;
+    }
+
+    .config-value {
+      color: #212121;
+      font-weight: 600;
+    }
+
+    .config-type {
+      color: #757575;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .no-config-warning {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: #fff3e0;
+      border-radius: 8px;
+      border-left: 4px solid #ff9800;
+      font-size: 14px;
+      color: #e65100;
+    }
+
+    .no-config-warning mat-icon {
+      color: #ff9800;
+    }
+
+    .no-config-warning a {
+      color: #e65100;
+      text-decoration: underline;
+      cursor: pointer;
+      font-weight: 500;
     }
 
     .config-field {
@@ -2451,6 +2560,9 @@ export class SubagentsComponent implements OnInit {
   executeContext = '';
   executeProviderId: string | number | null = null;
   executeModel = '';
+  
+  // Toggle: usar config guardada del subagente vs personalizar
+  useSavedConfig = signal(true); // Por defecto usar la config guardada
 
   ngOnInit(): void {
     this.loadSubagents();
@@ -2551,7 +2663,20 @@ export class SubagentsComponent implements OnInit {
 
   getSelectedProvider(): DBLLMProvider | undefined {
     if (!this.agentConfig.llm_provider) return undefined;
-    return this.dbProviders().find(p => p.id.toString() === this.agentConfig.llm_provider?.toString());
+    return this.dbProviders().find(p => 
+      p.id.toString() === this.agentConfig.llm_provider?.toString()
+    );
+  }
+  
+  getProviderById(providerId: number | string | null | undefined): DBLLMProvider | undefined {
+    if (!providerId) return undefined;
+    return this.dbProviders().find(p => 
+      p.id.toString() === providerId.toString()
+    );
+  }
+  
+  switchToConfigTab(): void {
+    this.activeTabIndex = 1; // Tab de configuración
   }
 
   onProviderChange(newProviderId: any): void {
@@ -2719,26 +2844,39 @@ export class SubagentsComponent implements OnInit {
     };
     this.messages.update(msgs => [...msgs, userMessage]);
 
-    // Obtener configuración del LLM desde el servicio de selección
-    const llmConfig = this.llmSelectionService.buildExecutionConfig(
-      this.executeProviderId,
-      this.executeModel
-    );
+    // Preparar el payload según si usamos config guardada o personalizada
+    let payload: any = {
+      task: this.executeTask,
+      context: this.executeContext || null
+    };
     
-    if (!llmConfig) {
-      this.executing.set(false);
-      this.snackBar.open('Selecciona un proveedor LLM válido', 'Cerrar', { duration: 3000 });
-      return;
+    if (this.useSavedConfig()) {
+      // Usar configuración guardada del subagente (backend la resolverá desde la BD)
+      console.log('Ejecutando con configuración guardada del subagente');
+      // No enviamos llm_url, model, provider_type - el backend los obtiene de subagent_configs
+    } else {
+      // Usar configuración personalizada seleccionada
+      const llmConfig = this.llmSelectionService.buildExecutionConfig(
+        this.executeProviderId,
+        this.executeModel
+      );
+      
+      if (!llmConfig) {
+        this.executing.set(false);
+        this.snackBar.open('Selecciona un proveedor LLM válido', 'Cerrar', { duration: 3000 });
+        return;
+      }
+      
+      payload = {
+        ...payload,
+        llm_url: llmConfig.provider_url,
+        model: llmConfig.model,
+        provider_type: llmConfig.provider_type,
+        api_key: llmConfig.api_key
+      };
     }
 
-    this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${agent.id}/execute`, {
-      task: this.executeTask,
-      context: this.executeContext || null,
-      llm_url: llmConfig.provider_url,
-      model: llmConfig.model,
-      provider_type: llmConfig.provider_type,
-      api_key: llmConfig.api_key
-    }).subscribe({
+    this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${agent.id}/execute`, payload).subscribe({
       next: (result) => {
         this.executing.set(false);
         
