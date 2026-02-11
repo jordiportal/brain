@@ -560,13 +560,22 @@ class MonitoringRepository:
     
     @staticmethod
     def _row_to_alert(row) -> MonitoringAlert:
+        # Parse metadata from JSON string to dict if necessary
+        metadata = row.get('metadata')
+        if isinstance(metadata, str):
+            try:
+                import json
+                metadata = json.loads(metadata)
+            except (json.JSONDecodeError, TypeError):
+                metadata = None
+        
         return MonitoringAlert(
             id=row['id'],
             timestamp=row['timestamp'],
             alert_type=row['alert_type'],
             severity=row['severity'],
             message=row['message'],
-            metadata=row.get('metadata'),
+            metadata=metadata,
             acknowledged=row['acknowledged'],
             acknowledged_at=row.get('acknowledged_at'),
             acknowledged_by=row.get('acknowledged_by')
