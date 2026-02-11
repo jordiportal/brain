@@ -31,6 +31,7 @@ interface OpenAPIConnection {
   baseUrl: string;
   authType: string;
   hasAuth: boolean;
+  authToken?: string;
   timeout: number;
 }
 
@@ -579,7 +580,12 @@ interface CoreToolConfig {
               @if (newConnection.auth_type !== 'none') {
                 <mat-form-field appearance="outline" class="full-width">
                   <mat-label>Token / API Key</mat-label>
-                  <input matInput [(ngModel)]="newConnection.auth_token" type="password" placeholder="sk-...">
+                  <input matInput [(ngModel)]="newConnection.auth_token" 
+                         [type]="showAuthToken() ? 'text' : 'password'" 
+                         placeholder="sk-...">
+                  <button mat-icon-button matSuffix (click)="toggleAuthTokenVisibility()" type="button">
+                    <mat-icon>{{ showAuthToken() ? 'visibility_off' : 'visibility' }}</mat-icon>
+                  </button>
                   <mat-hint>Se almacenará de forma segura</mat-hint>
                 </mat-form-field>
 
@@ -1120,6 +1126,7 @@ export class ToolsComponent implements OnInit {
   creatingConnection = signal(false);
   editingConnection = signal<OpenAPIConnection | null>(null);
   savingConnection = signal(false);
+  showAuthToken = signal(false);
   newConnection = {
     name: '',
     slug: '',
@@ -1421,7 +1428,7 @@ export class ToolsComponent implements OnInit {
       spec_url: connection.specUrl,
       base_url: connection.baseUrl,
       auth_type: connection.authType as 'none' | 'bearer' | 'api_key' | 'basic',
-      auth_token: '', // Don't populate token for security
+      auth_token: connection.authToken || '', // Populate token so it can be edited
       auth_header: 'Authorization',
       auth_prefix: 'Bearer',
       timeout: connection.timeout,
@@ -1459,6 +1466,10 @@ export class ToolsComponent implements OnInit {
 
   isEditing(): boolean {
     return this.editingConnection() !== null;
+  }
+
+  toggleAuthTokenVisibility(): void {
+    this.showAuthToken.update(value => !value);
   }
 
   generateTools(connectionId: string): void {

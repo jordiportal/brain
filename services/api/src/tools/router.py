@@ -111,6 +111,7 @@ async def list_openapi_connections():
                 "baseUrl": conn["baseUrl"],
                 "authType": conn["authType"],
                 "hasAuth": bool(conn.get("authToken")),
+                "authToken": conn.get("authToken", ""),
                 "timeout": conn["timeout"]
             }
             for conn in openapi_toolkit.connections.values()
