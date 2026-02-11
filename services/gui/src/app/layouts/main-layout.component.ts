@@ -140,7 +140,8 @@ import { ArtifactService, Artifact } from '../core/services/artifact.service';
         <app-artifact-sidebar
           [isExpanded]="true"
           (expandChanged)="onArtifactPanelToggle($event)"
-          (previewRequested)="onArtifactPreview($event)">
+          (previewRequested)="onArtifactPreview($event)"
+          (artifactSelected)="onArtifactPreview($event)">
         </app-artifact-sidebar>
       </mat-sidenav>
 
