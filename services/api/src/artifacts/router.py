@@ -150,7 +150,8 @@ async def get_artifact_content(artifact_id: str):
         raise HTTPException(status_code=404, detail="Artifact not found")
     
     # Construir path completo
-    file_path = WORKSPACE_BASE / artifact.file_path.lstrip('/')
+    # El file_path en BD ya es absoluto (/workspace/images/...), usarlo directamente
+    file_path = Path(artifact.file_path)
     
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
@@ -178,7 +179,8 @@ async def get_artifact_viewer(artifact_id: str):
         raise HTTPException(status_code=404, detail="Artifact not found")
     
     # Construir path completo
-    file_path = WORKSPACE_BASE / artifact.file_path.lstrip('/')
+    # El file_path en BD ya es absoluto (/workspace/images/...), usarlo directamente
+    file_path = Path(artifact.file_path)
     
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
