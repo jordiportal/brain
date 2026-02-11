@@ -17,6 +17,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatDialogModule, MatDialog } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatDividerModule } from '@angular/material/divider';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { ArtifactService, Artifact, ArtifactListResponse } from '../../core/services/artifact.service';
@@ -44,6 +45,7 @@ import { ArtifactViewerComponent } from '../../shared/components/artifact-viewer
     MatDialogModule,
     MatTooltipModule,
     MatSnackBarModule,
+    MatDividerModule,
     ArtifactViewerComponent
   ],
   template: `
