@@ -18,8 +18,104 @@ import base64
 import httpx
 import structlog
 from typing import Dict, Any, Optional, Literal, List
+from datetime import datetime
+from pathlib import Path
 
 logger = structlog.get_logger()
+
+# Workspace path for storing generated videos
+WORKSPACE_PATH = Path("/workspace/videos")
+
+
+async def _save_video_as_artifact(
+    video_bytes: bytes,
+    prompt: str,
+    provider: str,
+    model: str,
+    mime_type: str,
+    duration_seconds: int,
+    aspect_ratio: str,
+    resolution: str,
+    conversation_id: Optional[str] = None,
+    agent_id: Optional[str] = "designer_agent"
+) -> Dict[str, Any]:
+    """
+    Guarda el video en el workspace y registra como artifact.
+    
+    Returns:
+        Dict con file_path, file_name, video_url, artifact_id
+    """
+    try:
+        # Asegurar que el directorio existe
+        WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
+        
+        # Generar nombre de archivo único
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_prompt = prompt[:30].replace(' ', '_').replace('/', '_').replace('\\', '_')
+        file_name = f"{provider}_{safe_prompt}_{timestamp}.mp4"
+        file_path = WORKSPACE_PATH / file_name
+        
+        # Guardar archivo
+        with open(file_path, 'wb') as f:
+            f.write(video_bytes)
+        
+        file_size = len(video_bytes)
+        
+        # Crear registro en artifacts
+        try:
+            from src.artifacts import ArtifactRepository, ArtifactCreate, ArtifactType
+            
+            artifact_data = ArtifactCreate(
+                type=ArtifactType.VIDEO,
+                title=f"Video generado: {prompt[:50]}...",
+                description=prompt,
+                file_path=f"/workspace/videos/{file_name}",
+                file_name=file_name,
+                mime_type=mime_type,
+                file_size=file_size,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                tool_id="generate_video",
+                metadata={
+                    "duration": duration_seconds,
+                    "resolution": resolution,
+                    "aspect_ratio": aspect_ratio,
+                    "provider": provider,
+                    "model": model,
+                    "prompt": prompt
+                }
+            )
+            
+            artifact = await ArtifactRepository.create(artifact_data)
+            
+            if artifact:
+                logger.info(
+                    f"✅ Video saved and artifact created: {artifact.artifact_id}",
+                    file_path=str(file_path),
+                    file_size=file_size
+                )
+                
+                return {
+                    "file_path": str(file_path),
+                    "file_name": file_name,
+                    "local_url": f"/workspace/videos/{file_name}",
+                    "artifact_id": artifact.artifact_id,
+                    "file_size": file_size
+                }
+        except Exception as e:
+            logger.error(f"Error creating artifact record: {e}")
+            # Continuar sin registro de artifact si falla
+        
+        return {
+            "file_path": str(file_path),
+            "file_name": file_name,
+            "local_url": f"/workspace/videos/{file_name}",
+            "file_size": file_size
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving video to workspace: {e}")
+        return {"error": str(e)}
 
 # Configuración de Veo
 VEO_CONFIG = {
@@ -451,35 +547,40 @@ async def generate_video(
     mime_type = download_result["mime_type"]
     size_bytes = download_result.get("size_bytes", len(video_bytes))
     
-    # Generar nombre de archivo único
-    import uuid
-    ext = "mp4" if "mp4" in mime_type else "webm"
-    filename = f"video_{uuid.uuid4().hex[:12]}.{ext}"
+    # Guardar en workspace y crear artifact
+    save_result = await _save_video_as_artifact(
+        video_bytes=video_bytes,
+        prompt=prompt,
+        provider="google",
+        model=model or VEO_CONFIG["default_model"],
+        mime_type=mime_type,
+        duration_seconds=duration_seconds or VEO_CONFIG["default_duration"],
+        aspect_ratio=aspect_ratio or VEO_CONFIG["default_aspect_ratio"],
+        resolution=resolution or VEO_CONFIG["default_resolution"]
+    )
     
-    # Guardar en workspace del persistent-runner
-    workspace_path = _save_video_to_workspace(video_bytes, filename)
-    
-    if workspace_path:
-        # Devolver URL del archivo en el workspace
-        video_url = f"/api/v1/workspace/files/{workspace_path}"
+    if "error" not in save_result:
+        video_url = save_result.get("local_url", f"/workspace/videos/{save_result['file_name']}")
         logger.info(
             "✅ Video generated and saved to workspace",
             model=model,
             duration=duration_seconds,
             size_kb=size_bytes // 1024,
-            path=workspace_path
+            path=save_result.get("file_path")
         )
     else:
         # Fallback a data URL si falla el guardado
         video_b64 = base64.b64encode(video_bytes).decode("utf-8")
         video_url = f"data:{mime_type};base64,{video_b64}"
-        workspace_path = None
+        save_result = {"error": "Failed to save to workspace"}
         logger.warning("Video saved as data URL (workspace save failed)")
     
     return {
         "success": True,
         "video_url": video_url,
-        "workspace_path": workspace_path,
+        "workspace_path": save_result.get("local_url") if "error" not in save_result else None,
+        "artifact_id": save_result.get("artifact_id") if "error" not in save_result else None,
+        "file_name": save_result.get("file_name") if "error" not in save_result else None,
         "mime_type": mime_type,
         "duration_seconds": duration_seconds,
         "aspect_ratio": aspect_ratio,
@@ -488,7 +589,8 @@ async def generate_video(
         "model": model,
         "operation_name": operation_name,
         "provider": "google",
-        "prompt": prompt
+        "prompt": prompt,
+        "saved_to_workspace": "error" not in save_result
     }
 
 
