@@ -13,8 +13,111 @@ import base64
 import httpx
 import structlog
 from typing import Dict, Any, Optional, Literal
+from datetime import datetime
+from pathlib import Path
 
 logger = structlog.get_logger()
+
+# Workspace path for storing generated images
+WORKSPACE_PATH = Path("/workspace/images")
+
+
+async def _save_image_to_workspace(
+    image_data: bytes,
+    prompt: str,
+    provider: str,
+    model: str,
+    mime_type: str = "image/png",
+    conversation_id: Optional[str] = None,
+    agent_id: Optional[str] = "designer_agent"
+) -> Dict[str, Any]:
+    """
+    Guarda la imagen en el workspace y registra como artifact.
+    
+    Returns:
+        Dict con file_path, file_name, image_url (local), artifact_id
+    """
+    try:
+        # Asegurar que el directorio existe
+        WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
+        
+        # Generar nombre de archivo único
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_prompt = prompt[:30].replace(' ', '_').replace('/', '_').replace('\\', '_')
+        file_name = f"{provider}_{safe_prompt}_{timestamp}.png"
+        file_path = WORKSPACE_PATH / file_name
+        
+        # Guardar archivo
+        with open(file_path, 'wb') as f:
+            f.write(image_data)
+        
+        file_size = len(image_data)
+        
+        # Determinar dimensiones si es posible
+        width, height = None, None
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(file_path) as img:
+                width, height = img.size
+        except Exception:
+            pass  # No es crítico
+        
+        # Crear registro en artifacts
+        try:
+            from src.artifacts import ArtifactRepository, ArtifactCreate, ArtifactType
+            
+            artifact_data = ArtifactCreate(
+                type=ArtifactType.IMAGE,
+                title=f"Imagen generada: {prompt[:50]}...",
+                description=prompt,
+                file_path=f"/workspace/images/{file_name}",
+                file_name=file_name,
+                mime_type=mime_type,
+                file_size=file_size,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                tool_id="generate_image",
+                metadata={
+                    "width": width,
+                    "height": height,
+                    "provider": provider,
+                    "model": model,
+                    "prompt": prompt
+                }
+            )
+            
+            artifact = await ArtifactRepository.create(artifact_data)
+            
+            if artifact:
+                logger.info(
+                    f"✅ Image saved and artifact created: {artifact.artifact_id}",
+                    file_path=str(file_path),
+                    file_size=file_size
+                )
+                
+                return {
+                    "file_path": str(file_path),
+                    "file_name": file_name,
+                    "local_url": f"/workspace/images/{file_name}",
+                    "artifact_id": artifact.artifact_id,
+                    "file_size": file_size,
+                    "width": width,
+                    "height": height
+                }
+        except Exception as e:
+            logger.error(f"Error creating artifact record: {e}")
+            # Continuar sin registro de artifact si falla
+        
+        return {
+            "file_path": str(file_path),
+            "file_name": file_name,
+            "local_url": f"/workspace/images/{file_name}",
+            "file_size": file_size
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving image to workspace: {e}")
+        return {"error": str(e)}
 
 # Configuración de proveedores
 IMAGE_PROVIDERS = {
@@ -181,15 +284,16 @@ async def generate_image(
                     }
     
     try:
+        # Generar la imagen según el proveedor
         if provider == "gemini":
-            return await _generate_with_gemini(
+            result = await _generate_with_gemini(
                 prompt=prompt,
                 model=model or "gemini-2.5-flash-image",
                 aspect_ratio=aspect_ratio,
                 resolution=resolution
             )
         elif provider == "openai":
-            return await _generate_with_openai(
+            result = await _generate_with_openai(
                 prompt=prompt,
                 model=model or "dall-e-3",
                 size=size,
@@ -197,7 +301,7 @@ async def generate_image(
                 style=style
             )
         elif provider == "replicate":
-            return await _generate_with_replicate(
+            result = await _generate_with_replicate(
                 prompt=prompt,
                 model=model,
                 negative_prompt=negative_prompt
@@ -208,6 +312,60 @@ async def generate_image(
                 "error": f"Proveedor no soportado: {provider}",
                 "available_providers": list(IMAGE_PROVIDERS.keys())
             }
+        
+        # Si la generación falló, retornar error
+        if not result.get("success"):
+            return result
+        
+        # Guardar la imagen en el workspace y crear artifact
+        image_data = None
+        mime_type = "image/png"
+        
+        # Intentar obtener datos de la imagen
+        if result.get("image_base64"):
+            # Viene como base64 (Gemini)
+            image_data = base64.b64decode(result["image_base64"])
+            mime_type = result.get("mime_type", "image/png")
+        elif result.get("image_url") and result["image_url"].startswith("data:"):
+            # Data URL (base64 embed)
+            data_url = result["image_url"]
+            header, encoded = data_url.split(",", 1)
+            image_data = base64.b64decode(encoded)
+            mime_type = header.split(";")[0].replace("data:", "")
+        elif result.get("image_url") and result["image_url"].startswith("http"):
+            # URL externa (OpenAI, Replicate) - descargar
+            async with httpx.AsyncClient() as client:
+                response = await client.get(result["image_url"], timeout=30.0)
+                if response.status_code == 200:
+                    image_data = response.content
+                    # Detectar mime type
+                    content_type = response.headers.get("content-type", "image/png")
+                    mime_type = content_type.split(";")[0]
+        
+        if image_data:
+            # Guardar en workspace y crear artifact
+            save_result = await _save_image_to_workspace(
+                image_data=image_data,
+                prompt=prompt,
+                provider=provider,
+                model=result.get("model", model or "unknown"),
+                mime_type=mime_type
+            )
+            
+            # Enriquecer resultado con información del archivo guardado
+            if "error" not in save_result:
+                result.update({
+                    "local_path": save_result.get("local_url"),
+                    "file_name": save_result.get("file_name"),
+                    "file_size": save_result.get("file_size"),
+                    "artifact_id": save_result.get("artifact_id"),
+                    "width": save_result.get("width"),
+                    "height": save_result.get("height"),
+                    "saved_to_workspace": True
+                })
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Error generating image: {e}", exc_info=True)
         return {
