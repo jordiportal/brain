@@ -145,12 +145,13 @@ import { ArtifactService, Artifact } from '../core/services/artifact.service';
       </mat-sidenav>
 
       <!-- Artifact Viewer Modal -->
-      <app-artifact-viewer
-        *ngIf="selectedArtifact"
-        [artifact]="selectedArtifact"
-        (closed)="selectedArtifact = undefined"
-        (downloadRequested)="downloadArtifact($event)">
-      </app-artifact-viewer>
+      @if (selectedArtifact()) {
+        <app-artifact-viewer
+          [artifact]="selectedArtifact()!"
+          (closed)="selectedArtifact.set(undefined)"
+          (downloadRequested)="downloadArtifact($event)">
+        </app-artifact-viewer>
+      }
     </mat-sidenav-container>
   `,
   styles: [`
@@ -450,7 +451,7 @@ export class MainLayoutComponent {
   // Artifact panel (right sidebar)
   artifactPanelOpened = signal(false);
   artifactPanelMode = signal<'side' | 'over'>('side');
-  selectedArtifact?: Artifact;
+  selectedArtifact = signal<Artifact | undefined>(undefined);
 
   currentUser = computed(() => this.authService.currentUser());
 
@@ -500,7 +501,8 @@ export class MainLayoutComponent {
   }
 
   onArtifactPreview(artifact: Artifact): void {
-    this.selectedArtifact = artifact;
+    console.log('Opening artifact preview:', artifact);
+    this.selectedArtifact.set(artifact);
   }
 
   downloadArtifact(artifact: Artifact): void {
