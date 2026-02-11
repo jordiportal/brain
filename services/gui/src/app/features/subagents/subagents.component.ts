@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, signal, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -930,17 +930,16 @@ interface TestRunResult {
                   <!-- Mostrar info de la config guardada -->
                   <div class="saved-config-info">
                     @if (agentConfig.llm_provider) {
-                      @let provider = getProviderById(agentConfig.llm_provider);
                       <div class="config-info-item">
                         <mat-icon>smart_toy</mat-icon>
                         <span class="config-label">Proveedor:</span>
-                        <span class="config-value">{{ provider?.name || 'Cargando...' }}</span>
-                        <span class="config-type">({{ provider?.type }})</span>
+                        <span class="config-value">{{ savedConfigProvider()?.name || 'Cargando...' }}</span>
+                        <span class="config-type">({{ savedConfigProvider()?.type }})</span>
                       </div>
                       <div class="config-info-item">
                         <mat-icon>memory</mat-icon>
                         <span class="config-label">Modelo:</span>
-                        <span class="config-value">{{ agentConfig.llm_model || provider?.defaultModel || 'Por defecto' }}</span>
+                        <span class="config-value">{{ agentConfig.llm_model || savedConfigProvider()?.defaultModel || 'Por defecto' }}</span>
                       </div>
                     } @else {
                       <div class="no-config-warning">
@@ -2563,6 +2562,13 @@ export class SubagentsComponent implements OnInit {
   
   // Toggle: usar config guardada del subagente vs personalizar
   useSavedConfig = signal(true); // Por defecto usar la config guardada
+  
+  // Computed signal para obtener el proveedor actual de la config
+  savedConfigProvider = computed(() => {
+    const providerId = this.agentConfig.llm_provider;
+    if (!providerId) return undefined;
+    return this.dbProviders().find(p => p.id.toString() === providerId.toString());
+  });
 
   ngOnInit(): void {
     this.loadSubagents();
