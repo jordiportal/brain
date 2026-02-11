@@ -11,7 +11,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AuthService } from '../core/services/auth.service';
 import { MenuItem } from '../core/models';
-import { ArtifactFabComponent } from '../shared/components/artifact-sidebar/artifact-fab.component';
+import { ArtifactSidebarComponent } from '../shared/components/artifact-sidebar/artifact-sidebar.component';
 
 @Component({
   selector: 'app-main-layout',
@@ -27,7 +27,7 @@ import { ArtifactFabComponent } from '../shared/components/artifact-sidebar/arti
     MatMenuModule,
     MatDividerModule,
     MatTooltipModule,
-    ArtifactFabComponent
+    ArtifactSidebarComponent
   ],
   template: `
     <mat-sidenav-container class="sidenav-container">
@@ -89,6 +89,15 @@ import { ArtifactFabComponent } from '../shared/components/artifact-sidebar/arti
             </span>
           </div>
 
+          <!-- Artifact Panel Toggle -->
+          <button mat-icon-button 
+                  (click)="toggleArtifactPanel()" 
+                  class="artifact-toggle-btn"
+                  [class.active]="artifactPanelOpened()"
+                  matTooltip="Ver artefactos">
+            <mat-icon>folder_special</mat-icon>
+          </button>
+
           <!-- User Menu -->
           <button mat-button [matMenuTriggerFor]="userMenu" class="user-menu-btn">
             <span class="material-icons">account_circle</span>
@@ -119,8 +128,17 @@ import { ArtifactFabComponent } from '../shared/components/artifact-sidebar/arti
         </main>
       </mat-sidenav-content>
 
-      <!-- Artifact FAB - Floating action button for artifacts -->
-      <app-artifact-fab></app-artifact-fab>
+      <!-- Artifact Panel - Right Side -->
+      <mat-sidenav #artifactPanel
+                   [mode]="artifactPanelMode()"
+                   [opened]="artifactPanelOpened()"
+                   position="end"
+                   class="artifact-sidenav">
+        <app-artifact-sidebar
+          [isExpanded]="true"
+          (expandChanged)="onArtifactPanelToggle($event)">
+        </app-artifact-sidebar>
+      </mat-sidenav>
     </mat-sidenav-container>
   `,
   styles: [`
@@ -375,6 +393,40 @@ import { ArtifactFabComponent } from '../shared/components/artifact-sidebar/arti
         padding: 20px;
       }
     }
+
+    /* Artifact Panel Toggle Button */
+    .artifact-toggle-btn {
+      margin-right: 8px;
+      color: rgba(255, 255, 255, 0.7);
+      transition: all 0.2s ease;
+    }
+
+    .artifact-toggle-btn:hover {
+      color: white;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .artifact-toggle-btn.active {
+      color: #4caf50;
+      background: rgba(76, 175, 80, 0.15);
+    }
+
+    .artifact-toggle-btn.active mat-icon {
+      color: #4caf50;
+    }
+
+    /* Artifact Sidenav (Right Panel) */
+    .artifact-sidenav {
+      width: 320px;
+      background: #fafafa;
+      border-left: 1px solid #e0e0e0;
+    }
+
+    @media (max-width: 768px) {
+      .artifact-sidenav {
+        width: 100%;
+      }
+    }
   `]
 })
 export class MainLayoutComponent {
@@ -382,6 +434,10 @@ export class MainLayoutComponent {
   sidenavCollapsed = signal(false);
   sidenavMode = signal<'side' | 'over'>('side');
   pageTitle = signal('Dashboard');
+  
+  // Artifact panel (right sidebar)
+  artifactPanelOpened = signal(false);
+  artifactPanelMode = signal<'side' | 'over'>('side');
 
   currentUser = computed(() => this.authService.currentUser());
 
@@ -419,6 +475,14 @@ export class MainLayoutComponent {
 
   toggleSidenavCollapse(): void {
     this.sidenavCollapsed.update(v => !v);
+  }
+
+  toggleArtifactPanel(): void {
+    this.artifactPanelOpened.update(v => !v);
+  }
+
+  onArtifactPanelToggle(expanded: boolean): void {
+    this.artifactPanelOpened.set(expanded);
   }
 
   logout(): void {
