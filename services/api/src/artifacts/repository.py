@@ -4,6 +4,7 @@ Artefactos - Repositorio para acceso a base de datos
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import json
 import structlog
 
 from src.db import get_db
@@ -30,9 +31,12 @@ class ArtifactRepository:
                     artifact_id, type, title, description, file_path, file_name,
                     mime_type, file_size, conversation_id, agent_id,
                     source, tool_id, metadata, parent_artifact_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
                 RETURNING *
             """
+            
+            # Serializar metadata a JSON string para PostgreSQL JSONB
+            metadata_json = json.dumps(artifact_data.metadata) if artifact_data.metadata else '{}'
             
             row = await db.fetch_one(
                 query,
@@ -48,7 +52,7 @@ class ArtifactRepository:
                 artifact_data.agent_id,
                 artifact_data.source.value,
                 artifact_data.tool_id,
-                artifact_data.metadata,
+                metadata_json,
                 artifact_data.parent_artifact_id
             )
             
@@ -147,7 +151,7 @@ class ArtifactRepository:
             """
             params.extend([limit, offset])
             
-            rows = await db.fetch(query, *params)
+            rows = await db.fetch_all(query, *params)
             return [ArtifactRepository._row_to_response(row) for row in rows]
             
         except Exception as e:
@@ -213,8 +217,8 @@ class ArtifactRepository:
                 param_idx += 1
             
             if update_data.metadata is not None:
-                updates.append(f"metadata = ${param_idx}")
-                params.append(update_data.metadata)
+                updates.append(f"metadata = ${param_idx}::jsonb")
+                params.append(json.dumps(update_data.metadata))
                 param_idx += 1
             
             if not updates:
