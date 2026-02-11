@@ -24,6 +24,7 @@ import { StrapiService } from '../../core/services/config.service';
 import { LlmProvider } from '../../core/models';
 import { ChainEditorComponent } from './chain-editor/chain-editor.component';
 import { BrowserViewerComponent } from '../../shared/components/browser-viewer/browser-viewer.component';
+import { ArtifactSidebarComponent } from '../../shared/components/artifact-sidebar/artifact-sidebar.component';
 import { environment } from '../../../environments/environment';
 
 // Chat unificado
@@ -71,7 +72,8 @@ interface ExecutionStep {
     MatExpansionModule,
     ChatComponent,
     ChainEditorComponent,
-    BrowserViewerComponent
+    BrowserViewerComponent,
+    ArtifactSidebarComponent
   ],
   template: `
     <div class="chains-page">
@@ -217,37 +219,46 @@ interface ExecutionStep {
                 </div>
               </div>
 
-              <!-- Chat Area -->
-              <div class="chat-area">
-                <app-chat
-                  [messages]="messages"
-                  [features]="chatFeatures"
-                  [isLoading]="isExecuting"
-                  [placeholder]="'Escribe tu mensaje...'"
-                  [emptyMessage]="'Selecciona una cadena y envía un mensaje para comenzar'"
-                  [currentStepName]="currentStepName"
-                  (messageSent)="onChatMessageSent($event)"
-                  (presentationOpened)="openPresentation($event)">
-                </app-chat>
+              <!-- Chat Area with Sidebar -->
+              <div class="execution-content" [class.sidebar-collapsed]="!sidebarExpanded()">
+                <div class="chat-wrapper">
+                  <app-chat
+                    [messages]="messages"
+                    [features]="chatFeatures"
+                    [isLoading]="isExecuting"
+                    [placeholder]="'Escribe tu mensaje...'"
+                    [emptyMessage]="'Selecciona una cadena y envía un mensaje para comenzar'"
+                    [currentStepName]="currentStepName"
+                    (messageSent)="onChatMessageSent($event)"
+                    (presentationOpened)="openPresentation($event)">
+                  </app-chat>
 
-                <!-- Browser Viewer - Solo para Browser Agent -->
-                @if (selectedChain()?.id === 'browser_agent') {
-                  <app-browser-viewer 
-                    [apiUrl]="apiBaseUrl"
-                    [browserPort]="6080"
-                    (connectionChange)="onBrowserConnectionChange($event)">
-                  </app-browser-viewer>
-                }
+                  <!-- Browser Viewer - Solo para Browser Agent -->
+                  @if (selectedChain()?.id === 'browser_agent') {
+                    <app-browser-viewer 
+                      [apiUrl]="apiBaseUrl"
+                      [browserPort]="6080"
+                      (connectionChange)="onBrowserConnectionChange($event)">
+                    </app-browser-viewer>
+                  }
 
-                @if (useMemory && sessionId) {
-                  <div class="session-info">
-                    <span>Sesión: {{ sessionId }}</span>
-                    <button mat-button color="warn" (click)="clearMemory()">
-                      <mat-icon>delete</mat-icon>
-                      Limpiar memoria
-                    </button>
-                  </div>
-                }
+                  @if (useMemory && sessionId) {
+                    <div class="session-info">
+                      <span>Sesión: {{ sessionId }}</span>
+                      <button mat-button color="warn" (click)="clearMemory()">
+                        <mat-icon>delete</mat-icon>
+                        Limpiar memoria
+                      </button>
+                    </div>
+                  }
+                </div>
+
+                <!-- Artifact Sidebar -->
+                <app-artifact-sidebar
+                  [conversationId]="sessionId"
+                  [isExpanded]="sidebarExpanded()"
+                  (expandChanged)="sidebarExpanded.set($event)">
+                </app-artifact-sidebar>
               </div>
             </div>
           }
@@ -543,6 +554,52 @@ interface ExecutionStep {
       font-size: 12px;
       color: #666;
     }
+
+    /* Execution Content Layout with Sidebar */
+    .execution-content {
+      display: flex;
+      flex: 1;
+      gap: 16px;
+      overflow: hidden;
+      min-height: 500px;
+    }
+
+    .chat-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+      background: white;
+      border-radius: 12px;
+    }
+
+    /* Artifact Sidebar */
+    app-artifact-sidebar {
+      flex-shrink: 0;
+      height: 100%;
+      max-height: calc(100vh - 280px);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    /* Collapsed state */
+    .execution-content.sidebar-collapsed app-artifact-sidebar {
+      width: 60px;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .execution-content {
+        flex-direction: column;
+      }
+      
+      app-artifact-sidebar {
+        max-height: 300px;
+        border-left: none;
+        border-top: 1px solid #e0e0e0;
+      }
+    }
   `]
 })
 export class ChainsComponent implements OnInit {
@@ -580,6 +637,10 @@ export class ChainsComponent implements OnInit {
   // Browser viewer
   apiBaseUrl = environment.apiUrl;
   browserConnected = signal(false);
+
+  // Artifact sidebar
+  sidebarExpanded = signal(true);
+  artifactRefreshTrigger = signal(0);
 
   // Chat unificado
   chatFeatures = {
