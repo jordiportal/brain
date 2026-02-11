@@ -6,8 +6,8 @@ import { MatBadgeModule } from '@angular/material/badge';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { ArtifactSidebarComponent } from './artifact-sidebar/artifact-sidebar.component';
-import { ArtifactViewerComponent } from './artifact-viewer/artifact-viewer.component';
+import { ArtifactSidebarComponent } from './artifact-sidebar.component';
+import { ArtifactViewerComponent } from '../artifact-viewer/artifact-viewer.component';
 import { ArtifactService, Artifact } from '../../../core/services/artifact.service';
 
 /**

@@ -11,6 +11,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AuthService } from '../core/services/auth.service';
 import { MenuItem } from '../core/models';
+import { ArtifactFabComponent } from '../shared/components/artifact-sidebar/artifact-fab.component';
 
 @Component({
   selector: 'app-main-layout',
@@ -25,7 +26,8 @@ import { MenuItem } from '../core/models';
     MatButtonModule,
     MatMenuModule,
     MatDividerModule,
-    MatTooltipModule
+    MatTooltipModule,
+    ArtifactFabComponent
   ],
   template: `
     <mat-sidenav-container class="sidenav-container">
@@ -116,6 +118,9 @@ import { MenuItem } from '../core/models';
           <router-outlet></router-outlet>
         </main>
       </mat-sidenav-content>
+
+      <!-- Artifact FAB - Floating action button for artifacts -->
+      <app-artifact-fab></app-artifact-fab>
     </mat-sidenav-container>
   `,
   styles: [`

@@ -91,21 +91,21 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
         <!-- Footer -->
         <div class="viewer-footer" *ngIf="artifact.metadata && hasMetadata()">
           <div class="metadata-grid">
-            <div class="metadata-item" *ngIf="artifact.metadata.width">
+            <div class="metadata-item" *ngIf="artifact.metadata['width']">
               <span class="label">Ancho:</span>
-              <span class="value">{{ artifact.metadata.width }}px</span>
+              <span class="value">{{ artifact.metadata['width'] }}px</span>
             </div>
-            <div class="metadata-item" *ngIf="artifact.metadata.height">
+            <div class="metadata-item" *ngIf="artifact.metadata['height']">
               <span class="label">Alto:</span>
-              <span class="value">{{ artifact.metadata.height }}px</span>
+              <span class="value">{{ artifact.metadata['height'] }}px</span>
             </div>
-            <div class="metadata-item" *ngIf="artifact.metadata.duration">
+            <div class="metadata-item" *ngIf="artifact.metadata['duration']">
               <span class="label">Duración:</span>
-              <span class="value">{{ formatDuration(artifact.metadata.duration) }}</span>
+              <span class="value">{{ formatDuration(artifact.metadata['duration']) }}</span>
             </div>
-            <div class="metadata-item" *ngIf="artifact.metadata.provider">
+            <div class="metadata-item" *ngIf="artifact.metadata['provider']">
               <span class="label">Proveedor:</span>
-              <span class="value">{{ artifact.metadata.provider }}</span>
+              <span class="value">{{ artifact.metadata['provider'] }}</span>
             </div>
           </div>
         </div>
@@ -382,6 +382,6 @@ export class ArtifactViewerComponent implements OnInit {
   hasMetadata(): boolean {
     if (!this.artifact?.metadata) return false;
     const m = this.artifact.metadata;
-    return !!(m.width || m.height || m.duration || m.provider);
+    return !!(m['width'] || m['height'] || m['duration'] || m['provider']);
   }
 }

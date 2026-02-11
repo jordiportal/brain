@@ -10,6 +10,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatBadgeModule } from '@angular/material/badge';
+import { MatMenuModule } from '@angular/material/menu';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { ArtifactService, Artifact } from '../../../core/services/artifact.service';
@@ -28,7 +29,8 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     MatTooltipModule,
     MatSelectModule,
     MatFormFieldModule,
-    MatBadgeModule
+    MatBadgeModule,
+    MatMenuModule
   ],
   template: `
     <div class="artifact-sidebar" [class.expanded]="isExpanded">
