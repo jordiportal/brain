@@ -178,21 +178,57 @@ class SAPAnalystAgent(BaseSubAgent):
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
         
-        # Ejecutar tool calls
+        # Ejecutar tool calls y recolectar resultados
+        import json
         tools_used = []
+        tool_results = []
+        data_results = []
+        
         for tc in response.tool_calls:
             tool_name = tc.function.get("name", "")
+            tool_params_raw = tc.function.get("arguments", {})
+            
+            # Parsear argumentos si vienen como string JSON
+            if isinstance(tool_params_raw, str):
+                try:
+                    tool_params = json.loads(tool_params_raw)
+                except json.JSONDecodeError:
+                    tool_params = {}
+            else:
+                tool_params = tool_params_raw or {}
+            
             tools_used.append(tool_name)
             
-            # Tool result se añade automáticamente por el sistema base
-            logger.info(f"🛠️ Tool executed: {tool_name}")
+            try:
+                # Buscar y ejecutar la tool
+                tool = next((t for t in tools if t.id == tool_name or t.name == tool_name), None)
+                if tool and tool.handler:
+                    logger.info(f"🛠️ Executing BIW tool: {tool_name}", params=tool_params)
+                    result = await tool.handler(**tool_params)
+                    tool_results.append({"tool": tool_name, "result": result})
+                    
+                    # Extraer datos del resultado
+                    if isinstance(result, dict) and result.get("success"):
+                        if result.get("data"):
+                            data_results.append({
+                                "tool": tool_name,
+                                "data": result.get("data")
+                            })
+                    
+                    logger.info(f"✅ BIW tool {tool_name} executed successfully")
+                else:
+                    logger.warning(f"⚠️ BIW tool {tool_name} not found or no handler")
+            except Exception as e:
+                logger.error(f"❌ Error executing BIW tool {tool_name}: {e}")
+                tool_results.append({"tool": tool_name, "error": str(e)})
         
         return SubAgentResult(
             success=True,
-            response=response.content or f"Ejecutadas herramientas: {', '.join(tools_used)}",
+            response=response.content or f"Análisis BIW completado. Herramientas usadas: {', '.join(tools_used)}",
             agent_id=self.id,
             agent_name=self.name,
             tools_used=tools_used,
+            data={"tool_results": tool_results, "data_results": data_results} if tool_results else {},
             execution_time_ms=int((time.time() - start_time) * 1000)
         )
 

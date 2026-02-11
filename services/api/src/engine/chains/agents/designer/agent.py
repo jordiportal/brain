@@ -156,19 +156,74 @@ class DesignerAgent(BaseSubAgent):
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
         
-        # Ejecutar tool calls
+        # Ejecutar tool calls y recolectar resultados
+        import json
         tools_used = []
+        images = []
+        videos = []
+        tool_results = []
+        
         for tc in response.tool_calls:
             tool_name = tc.function.get("name", "")
+            tool_params_raw = tc.function.get("arguments", {})
+            
+            # Parsear argumentos si vienen como string JSON
+            if isinstance(tool_params_raw, str):
+                try:
+                    tool_params = json.loads(tool_params_raw)
+                except json.JSONDecodeError:
+                    tool_params = {}
+            else:
+                tool_params = tool_params_raw or {}
+            
             tools_used.append(tool_name)
-            logger.info(f"🛠️ Tool executed: {tool_name}")
+            
+            try:
+                # Buscar y ejecutar la tool
+                tool = next((t for t in tools if t.id == tool_name or t.name == tool_name), None)
+                if tool and tool.handler:
+                    logger.info(f"🛠️ Executing tool: {tool_name}", params=tool_params)
+                    result = await tool.handler(**tool_params)
+                    tool_results.append({"tool": tool_name, "result": result})
+                    
+                    # Extraer imágenes del resultado
+                    if isinstance(result, dict):
+                        if result.get("success") and result.get("image_base64"):
+                            images.append({
+                                "url": result.get("image_url", ""),
+                                "base64": result.get("image_base64"),
+                                "mime_type": "image/png"
+                            })
+                        if result.get("success") and result.get("video_url"):
+                            videos.append({
+                                "url": result.get("video_url"),
+                                "mime_type": "video/mp4"
+                            })
+                    
+                    logger.info(f"✅ Tool {tool_name} executed successfully")
+                else:
+                    logger.warning(f"⚠️ Tool {tool_name} not found or no handler")
+            except Exception as e:
+                logger.error(f"❌ Error executing tool {tool_name}: {e}")
+                tool_results.append({"tool": tool_name, "error": str(e)})
+        
+        # Construir mensaje de respuesta
+        if images:
+            response_text = f"✅ Imagen generada exitosamente.\n\nTareas completadas: {', '.join(tools_used)}"
+        elif videos:
+            response_text = f"✅ Vídeo generado exitosamente.\n\nTareas completadas: {', '.join(tools_used)}"
+        else:
+            response_text = response.content or f"Ejecutadas herramientas: {', '.join(tools_used)}"
         
         return SubAgentResult(
             success=True,
-            response=response.content or f"Ejecutadas herramientas: {', '.join(tools_used)}",
+            response=response_text,
             agent_id=self.id,
             agent_name=self.name,
             tools_used=tools_used,
+            images=images,
+            videos=videos,
+            data={"tool_results": tool_results} if tool_results else {},
             execution_time_ms=int((time.time() - start_time) * 1000)
         )
 

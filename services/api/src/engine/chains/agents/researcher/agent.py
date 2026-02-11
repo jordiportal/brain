@@ -148,19 +148,64 @@ class ResearcherAgent(BaseSubAgent):
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
         
-        # Ejecutar tool calls
+        # Ejecutar tool calls y recolectar resultados
+        import json
         tools_used = []
+        sources = []
+        tool_results = []
+        
         for tc in response.tool_calls:
             tool_name = tc.function.get("name", "")
+            tool_params_raw = tc.function.get("arguments", {})
+            
+            # Parsear argumentos si vienen como string JSON
+            if isinstance(tool_params_raw, str):
+                try:
+                    tool_params = json.loads(tool_params_raw)
+                except json.JSONDecodeError:
+                    tool_params = {}
+            else:
+                tool_params = tool_params_raw or {}
+            
             tools_used.append(tool_name)
-            logger.info(f"🛠️ Tool executed: {tool_name}")
+            
+            try:
+                # Buscar y ejecutar la tool
+                tool = next((t for t in tools if t.id == tool_name or t.name == tool_name), None)
+                if tool and tool.handler:
+                    logger.info(f"🛠️ Executing tool: {tool_name}", params=tool_params)
+                    result = await tool.handler(**tool_params)
+                    tool_results.append({"tool": tool_name, "result": result})
+                    
+                    # Extraer fuentes del resultado de búsqueda
+                    if isinstance(result, dict):
+                        if result.get("sources"):
+                            sources.extend(result.get("sources", []))
+                        if result.get("results") and tool_name == "web_search":
+                            # Convertir resultados de búsqueda a fuentes
+                            for item in result.get("results", []):
+                                if isinstance(item, dict):
+                                    sources.append({
+                                        "title": item.get("title", ""),
+                                        "url": item.get("url", ""),
+                                        "snippet": item.get("snippet", "")
+                                    })
+                    
+                    logger.info(f"✅ Tool {tool_name} executed successfully")
+                else:
+                    logger.warning(f"⚠️ Tool {tool_name} not found or no handler")
+            except Exception as e:
+                logger.error(f"❌ Error executing tool {tool_name}: {e}")
+                tool_results.append({"tool": tool_name, "error": str(e)})
         
         return SubAgentResult(
             success=True,
-            response=response.content or f"Ejecutadas herramientas: {', '.join(tools_used)}",
+            response=response.content or f"Investigación completada usando: {', '.join(tools_used)}",
             agent_id=self.id,
             agent_name=self.name,
             tools_used=tools_used,
+            sources=sources,
+            data={"tool_results": tool_results, "source_count": len(sources)} if tool_results else {},
             execution_time_ms=int((time.time() - start_time) * 1000)
         )
 
