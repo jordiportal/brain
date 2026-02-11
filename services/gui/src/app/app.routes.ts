@@ -55,6 +55,10 @@ export const routes: Routes = [
       {
         path: 'external-api',
         loadComponent: () => import('./features/external-api/external-api.component').then(m => m.ExternalApiComponent)
+      },
+      {
+        path: 'artifacts',
+        loadComponent: () => import('./features/artifacts/artifacts.component').then(m => m.ArtifactsComponent)
       }
     ]
   },

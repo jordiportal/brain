@@ -391,6 +391,7 @@ export class MainLayoutComponent {
     { label: 'Subagentes', icon: 'smart_toy', route: '/subagents' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
     { label: 'API Externa', icon: 'api', route: '/external-api' },
+    { label: 'Artefactos', icon: 'folder_special', route: '/artifacts' },
     { label: 'Testing LLM', icon: 'science', route: '/testing' },
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
     { label: 'RAG / Documentos', icon: 'description', route: '/rag' },
