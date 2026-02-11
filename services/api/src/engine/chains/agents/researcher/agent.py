@@ -68,7 +68,7 @@ class ResearcherAgent(BaseSubAgent):
         context: Optional[str] = None,
         llm_url: Optional[str] = None,
         model: Optional[str] = None,
-        provider_type: str = "ollama",
+        provider_type: Optional[str] = None,
         api_key: Optional[str] = None
     ) -> SubAgentResult:
         """Ejecuta investigación usando LLM con herramientas."""
@@ -76,7 +76,7 @@ class ResearcherAgent(BaseSubAgent):
         logger.info("🔍 ResearcherAgent executing", task=task[:80])
 
         # Validar LLM configurado
-        if not llm_url or not model:
+        if not llm_url or not model or not provider_type:
             return SubAgentResult(
                 success=False,
                 response="❌ **Error:** Se requiere configuración LLM para este agente.\n\nPor favor, configure un modelo LLM en la sección de Configuración.",

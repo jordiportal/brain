@@ -17,6 +17,94 @@ import structlog
 logger = structlog.get_logger()
 
 
+async def _get_subagent_llm_config(agent_id: str, parent_llm_url: Optional[str], 
+                                   parent_model: Optional[str], parent_provider_type: Optional[str],
+                                   parent_api_key: Optional[str]) -> Dict[str, Optional[str]]:
+    """
+    Obtiene la configuración LLM para un subagente.
+    
+    Prioridad:
+    1. Configuración guardada en subagent_configs (si existe llm_provider_id)
+    2. Configuración del agente padre (heredada)
+    3. Error - no hay proveedor disponible
+    
+    Returns:
+        Dict con llm_url, model, provider_type, api_key
+    """
+    try:
+        from src.db.repositories.subagent_configs import SubagentConfigRepository
+        from src.db.repositories.llm_providers import LLMProviderRepository
+        
+        # 1. Buscar config específica del subagente
+        subagent_config = await SubagentConfigRepository.get_by_agent_id(agent_id)
+        
+        if subagent_config and subagent_config.llm_provider_id:
+            # El subagente tiene un proveedor configurado
+            provider = await LLMProviderRepository.get_by_id(subagent_config.llm_provider_id)
+            
+            if provider and provider.is_active:
+                logger.info(
+                    f"Using subagent-specific LLM config",
+                    agent_id=agent_id,
+                    provider_id=provider.id,
+                    provider_name=provider.name,
+                    provider_type=provider.type
+                )
+                return {
+                    "llm_url": provider.base_url,
+                    "model": subagent_config.llm_model or provider.default_model,
+                    "provider_type": provider.type,
+                    "api_key": provider.api_key
+                }
+            elif provider:
+                logger.warning(
+                    f"Subagent LLM provider is inactive",
+                    agent_id=agent_id,
+                    provider_id=provider.id,
+                    provider_name=provider.name
+                )
+        
+        # 2. Si no hay config específica, usar la del padre (si existe y tiene provider_type)
+        if parent_llm_url and parent_provider_type:
+            logger.info(
+                f"Using parent LLM config for subagent",
+                agent_id=agent_id,
+                parent_url=parent_llm_url,
+                parent_provider=parent_provider_type
+            )
+            return {
+                "llm_url": parent_llm_url,
+                "model": parent_model,
+                "provider_type": parent_provider_type,
+                "api_key": parent_api_key
+            }
+        
+        # 3. No hay configuración disponible
+        logger.error(
+            f"No LLM configuration available for subagent",
+            agent_id=agent_id,
+            has_parent_config=bool(parent_llm_url),
+            has_subagent_config=bool(subagent_config and subagent_config.llm_provider_id)
+        )
+        
+        raise ValueError(
+            f"No hay configuración LLM disponible para el subagente '{agent_id}'. "
+            f"Configure un proveedor LLM para este subagente en la sección de Configuración."
+        )
+        
+    except Exception as e:
+        logger.error(f"Error resolving subagent LLM config: {e}", agent_id=agent_id)
+        # Si hay error en la BD, intentar usar la del padre como fallback
+        if parent_llm_url:
+            return {
+                "llm_url": parent_llm_url,
+                "model": parent_model,
+                "provider_type": parent_provider_type,
+                "api_key": parent_api_key
+            }
+        raise
+
+
 async def delegate(
     agent: str,
     task: str,
@@ -94,14 +182,19 @@ async def delegate(
         }
     
     try:
-        # Ejecutar el subagente
+        # Obtener configuración LLM del subagente (o heredar del padre)
+        llm_config = await _get_subagent_llm_config(
+            agent, _llm_url, _model, _provider_type, _api_key
+        )
+        
+        # Ejecutar el subagente con su configuración específica
         result = await subagent.execute(
             task=task,
             context=context,
-            llm_url=_llm_url,
-            model=_model,
-            provider_type=_provider_type or "ollama",
-            api_key=_api_key
+            llm_url=llm_config["llm_url"],
+            model=llm_config["model"],
+            provider_type=llm_config["provider_type"],
+            api_key=llm_config["api_key"]
         )
         
         execution_time = int((time.time() - start_time) * 1000)
@@ -198,13 +291,18 @@ async def consult_team_member(
         }
     
     try:
+        # Obtener configuración LLM del subagente (o heredar del padre)
+        llm_config = await _get_subagent_llm_config(
+            agent, _llm_url, _model, _provider_type, _api_key
+        )
+        
         result = await subagent.consult(
             topic=task,
             context=context,
-            llm_url=_llm_url,
-            model=_model,
-            provider_type=_provider_type or "ollama",
-            api_key=_api_key
+            llm_url=llm_config["llm_url"],
+            model=llm_config["model"],
+            provider_type=llm_config["provider_type"],
+            api_key=llm_config["api_key"]
         )
         return {
             "success": result.success,

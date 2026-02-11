@@ -76,7 +76,7 @@ class DesignerAgent(BaseSubAgent):
         context: Optional[str] = None,
         llm_url: Optional[str] = None,
         model: Optional[str] = None,
-        provider_type: str = "ollama",
+        provider_type: Optional[str] = None,
         api_key: Optional[str] = None
     ) -> SubAgentResult:
         """Ejecuta usando LLM con herramientas."""
@@ -84,10 +84,10 @@ class DesignerAgent(BaseSubAgent):
         logger.info("🎨 DesignerAgent executing", task=task[:100])
 
         # Validar LLM configurado
-        if not llm_url or not model:
+        if not llm_url or not model or not provider_type:
             return SubAgentResult(
                 success=False,
-                response="❌ **Error:** Se requiere configuración LLM para este agente.\n\nPor favor, configure un modelo LLM en la sección de Configuración.",
+                response="❌ **Error:** Se requiere configuración LLM completa para este agente (URL, modelo y tipo de proveedor).\n\nPor favor, configure un modelo LLM en la sección de Configuración del subagente.",
                 agent_id=self.id,
                 agent_name=self.name,
                 error="LLM_NOT_CONFIGURED",
