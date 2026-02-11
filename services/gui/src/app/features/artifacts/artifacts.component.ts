@@ -422,6 +422,8 @@ export class ArtifactsComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
+    console.log('🔍 ArtifactsComponent initialized');
+    console.log('🔍 API URL:', this.artifactService['apiUrl']);
     this.loadArtifacts();
   }
 
@@ -445,6 +447,9 @@ export class ArtifactsComponent implements OnInit, OnDestroy {
     .pipe(takeUntil(this.destroy$))
     .subscribe({
       next: (response: ArtifactListResponse) => {
+        console.log('🔍 ArtifactsComponent - Got response:', JSON.stringify(response, null, 2));
+        console.log('🔍 ArtifactsComponent - artifacts array:', response.artifacts);
+        console.log('🔍 ArtifactsComponent - total:', response.total);
         this.artifacts = response.artifacts;
         this.totalArtifacts = response.total;
         this.loading = false;

@@ -77,7 +77,12 @@ export class ArtifactService {
     if (type) url += `&type=${type}`;
     if (agentId) url += `&agent_id=${agentId}`;
     
+    console.log('🔍 ArtifactService.listArtifacts() - URL:', url);
+    
     return this.http.get<ArtifactListResponse>(url).pipe(
+      tap(response => {
+        console.log('🔍 ArtifactService.listArtifacts() - Response:', response);
+      }),
       tap(response => {
         this.artifactsSubject.next(response.artifacts);
       })

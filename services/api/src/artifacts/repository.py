@@ -276,6 +276,14 @@ class ArtifactRepository:
     @staticmethod
     def _row_to_response(row) -> ArtifactResponse:
         """Convierte una fila de BD a ArtifactResponse"""
+        # Parsear metadata si viene como string JSON
+        metadata = row.get('metadata', {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata = {}
+        
         return ArtifactResponse(
             id=row['id'],
             artifact_id=row['artifact_id'],
@@ -290,7 +298,7 @@ class ArtifactRepository:
             agent_id=row.get('agent_id'),
             source=row['source'],
             tool_id=row.get('tool_id'),
-            metadata=row.get('metadata', {}),
+            metadata=metadata,
             parent_artifact_id=row.get('parent_artifact_id'),
             version=row.get('version', 1),
             is_latest=row.get('is_latest', True),
