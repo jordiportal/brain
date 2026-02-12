@@ -181,7 +181,6 @@ interface ApiConfig {
                       <mat-select [(ngModel)]="newKey.models" multiple>
                         <mat-option value="brain-adaptive">Brain Adaptive</mat-option>
                         <mat-option value="brain-chat">Brain Chat</mat-option>
-                        <mat-option value="brain-rag">Brain RAG</mat-option>
                       </mat-select>
                     </mat-form-field>
 
@@ -205,6 +204,58 @@ interface ApiConfig {
                       <mat-icon>add</mat-icon>
                     }
                     Crear Key
+                  </button>
+                </mat-card-actions>
+              </mat-card>
+            }
+
+            <!-- Edit Key Form -->
+            @if (editingKey()) {
+              <mat-card class="edit-form">
+                <mat-card-header>
+                  <mat-card-title>Editar API Key</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  <div class="form-grid">
+                    <mat-form-field appearance="outline">
+                      <mat-label>Nombre</mat-label>
+                      <input matInput [(ngModel)]="editKeyData.name" placeholder="Mi aplicación">
+                    </mat-form-field>
+
+                    <mat-form-field appearance="outline">
+                      <mat-label>Modelos permitidos</mat-label>
+                      <mat-select [(ngModel)]="editKeyData.models" multiple>
+                        <mat-option value="brain-adaptive">Brain Adaptive</mat-option>
+                        <mat-option value="brain-chat">Brain Chat</mat-option>
+                      </mat-select>
+                    </mat-form-field>
+
+                    <mat-form-field appearance="outline">
+                      <mat-label>Rate Limit (req/min)</mat-label>
+                      <input matInput type="number" [(ngModel)]="editKeyData.rateLimit">
+                    </mat-form-field>
+
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-label>Notas</mat-label>
+                      <textarea matInput [(ngModel)]="editKeyData.notes" rows="2"></textarea>
+                    </mat-form-field>
+
+                    <div class="toggle-field">
+                      <mat-slide-toggle [(ngModel)]="editKeyData.isActive">
+                        {{ editKeyData.isActive ? 'Activa' : 'Inactiva' }}
+                      </mat-slide-toggle>
+                    </div>
+                  </div>
+                </mat-card-content>
+                <mat-card-actions align="end">
+                  <button mat-button (click)="cancelEditKey()">Cancelar</button>
+                  <button mat-raised-button color="primary" (click)="saveEditKey()" [disabled]="savingKey()">
+                    @if (savingKey()) {
+                      <mat-spinner diameter="20"></mat-spinner>
+                    } @else {
+                      <mat-icon>save</mat-icon>
+                    }
+                    Guardar Cambios
                   </button>
                 </mat-card-actions>
               </mat-card>
@@ -281,6 +332,10 @@ interface ApiConfig {
                         <mat-icon>more_vert</mat-icon>
                       </button>
                       <mat-menu #keyMenu="matMenu">
+                        <button mat-menu-item (click)="startEditKey(key)">
+                          <mat-icon>edit</mat-icon>
+                          <span>Editar</span>
+                        </button>
                         <button mat-menu-item (click)="toggleKeyStatus(key)">
                           <mat-icon>{{ key.isActive ? 'pause' : 'play_arrow' }}</mat-icon>
                           <span>{{ key.isActive ? 'Desactivar' : 'Activar' }}</span>
@@ -601,6 +656,13 @@ interface ApiConfig {
       border-radius: 12px;
     }
 
+    /* Edit Form */
+    .edit-form {
+      margin-bottom: 24px;
+      border-radius: 12px;
+      border: 2px solid #2196f3;
+    }
+
     .form-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -609,6 +671,11 @@ interface ApiConfig {
 
     .full-width {
       grid-column: 1 / -1;
+    }
+
+    .toggle-field {
+      grid-column: 1 / -1;
+      padding: 8px 0;
     }
 
     /* New Key Card */
@@ -856,9 +923,18 @@ export class ExternalApiComponent implements OnInit {
 
   newKey = {
     name: '',
-    models: ['brain-adaptive', 'brain-chat', 'brain-rag'],
+    models: ['brain-adaptive', 'brain-chat'],
     rateLimit: 60,
     notes: ''
+  };
+  
+  editingKey = signal<ApiKey | null>(null);
+  editKeyData = {
+    name: '',
+    models: [] as string[],
+    rateLimit: 60,
+    notes: '',
+    isActive: true
   };
 
   config: ApiConfig = {
@@ -930,8 +1006,7 @@ export class ExternalApiComponent implements OnInit {
     // Usar modelos por defecto (sin Strapi)
     this.availableModels.set([
       { id: 'brain-adaptive', name: 'Brain Adaptive', description: 'Full agent with tools', chainId: 'adaptive', maxTokens: 4096, supportsStreaming: true, supportsTools: true },
-      { id: 'brain-chat', name: 'Brain Chat', description: 'Simple chat', chainId: 'conversational', maxTokens: 4096, supportsStreaming: true, supportsTools: false },
-      { id: 'brain-rag', name: 'Brain RAG', description: 'Chat with documents', chainId: 'rag', maxTokens: 4096, supportsStreaming: true, supportsTools: false }
+      { id: 'brain-chat', name: 'Brain Chat', description: 'Simple chat', chainId: 'conversational', maxTokens: 4096, supportsStreaming: true, supportsTools: false }
     ]);
     
     // Cargar configuración de LLM providers desde la API
@@ -986,7 +1061,7 @@ export class ExternalApiComponent implements OnInit {
       next: (response) => {
         this.newlyCreatedKey.set(response.key);
         this.showCreateKeyForm = false;
-        this.newKey = { name: '', models: ['brain-adaptive', 'brain-chat', 'brain-rag'], rateLimit: 60, notes: '' };
+        this.newKey = { name: '', models: ['brain-adaptive', 'brain-chat'], rateLimit: 60, notes: '' };
         this.loadApiKeys();
         this.creatingKey.set(false);
         this.snackBar.open('API key creada', 'Cerrar', { duration: 3000 });
@@ -1025,6 +1100,67 @@ export class ExternalApiComponent implements OnInit {
       },
       error: () => {
         this.snackBar.open('Error eliminando key', 'Cerrar', { duration: 3000 });
+      }
+    });
+  }
+
+  startEditKey(key: ApiKey): void {
+    this.editingKey.set(key);
+    this.editKeyData = {
+      name: key.name,
+      models: key.permissions?.models || ['brain-adaptive', 'brain-chat'],
+      rateLimit: key.permissions?.rateLimit || 60,
+      notes: key.notes || '',
+      isActive: key.isActive
+    };
+  }
+
+  cancelEditKey(): void {
+    this.editingKey.set(null);
+    this.editKeyData = {
+      name: '',
+      models: [],
+      rateLimit: 60,
+      notes: '',
+      isActive: true
+    };
+  }
+
+  savingKey = signal(false);
+
+  saveEditKey(): void {
+    const key = this.editingKey();
+    if (!key) return;
+    
+    if (!this.editKeyData.name.trim()) {
+      this.snackBar.open('El nombre es requerido', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    this.savingKey.set(true);
+
+    const payload = {
+      name: this.editKeyData.name,
+      permissions: {
+        models: this.editKeyData.models,
+        maxTokensPerRequest: 4096,
+        rateLimit: this.editKeyData.rateLimit
+      },
+      notes: this.editKeyData.notes,
+      isActive: this.editKeyData.isActive
+    };
+
+    this.http.put<any>(`${environment.apiUrl}/config/api-keys/${key.id}`, payload).subscribe({
+      next: () => {
+        this.editingKey.set(null);
+        this.loadApiKeys();
+        this.savingKey.set(false);
+        this.snackBar.open('API key actualizada', 'Cerrar', { duration: 3000 });
+      },
+      error: (err) => {
+        console.error('Error updating API key:', err);
+        this.snackBar.open('Error actualizando API key: ' + (err.error?.detail || 'Unknown error'), 'Cerrar', { duration: 5000 });
+        this.savingKey.set(false);
       }
     });
   }

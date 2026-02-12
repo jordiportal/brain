@@ -485,6 +485,7 @@ async def create_api_key(request: CreateApiKeyRequest):
 
 
 class UpdateApiKeyRequest(BaseModel):
+    name: Optional[str] = None
     isActive: Optional[bool] = None
     permissions: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
@@ -499,6 +500,11 @@ async def update_api_key(key_id: int, request: UpdateApiKeyRequest):
         updates = []
         values = []
         param_idx = 1
+        
+        if request.name is not None:
+            updates.append(f"name = ${param_idx}")
+            values.append(request.name)
+            param_idx += 1
         
         if request.isActive is not None:
             updates.append(f"is_active = ${param_idx}")
