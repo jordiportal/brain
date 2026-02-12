@@ -310,10 +310,22 @@ class ToolRegistry:
                 handler=td["handler"]
             )
         
+        # Registrar domain tools: RAG
+        from .domains.rag import RAG_TOOLS
+        for tool_id, tool_def in RAG_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
+            self.register_domain_tool(
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
+            )
+        
         self._core_registered = True
         
         # Log de herramientas registradas
-        all_tools = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys()) + list(MEDIA_TOOLS.keys()) + list(SLIDES_TOOLS.keys()) + list(BIW_TOOLS.keys())
+        all_tools = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys()) + list(MEDIA_TOOLS.keys()) + list(SLIDES_TOOLS.keys()) + list(BIW_TOOLS.keys()) + list(RAG_TOOLS.keys())
         logger.info(
             f"✅ Brain 2.0 Tools registradas: {len(all_tools)}",
             tools=all_tools

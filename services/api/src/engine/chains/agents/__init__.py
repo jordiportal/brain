@@ -3,7 +3,7 @@ Brain 2.0 Subagentes por Rol Profesional (v3.0.0)
 
 Subagentes invocables via delegate desde Adaptive Agent o Team.
 
-Estructura: designer (imágenes+presentaciones), researcher (web), strategist (comunicación).
+Estructura: designer (imágenes+presentaciones), researcher (web), strategist (comunicación), rag (documentos).
 """
 
 from .base import BaseSubAgent, SubAgentResult, SubAgentRegistry, subagent_registry
@@ -11,6 +11,7 @@ from .designer import DesignerAgent
 from .researcher import ResearcherAgent
 from .communication import CommunicationAgent
 from .sap_analyst import SAPAnalystAgent
+from .rag import RagAgent
 
 
 def register_all_subagents():
@@ -20,6 +21,7 @@ def register_all_subagents():
         subagent_registry.register(ResearcherAgent())
         subagent_registry.register(CommunicationAgent())
         subagent_registry.register(SAPAnalystAgent())
+        subagent_registry.register(RagAgent())
 
 
 __all__ = [
@@ -31,5 +33,6 @@ __all__ = [
     "ResearcherAgent",
     "CommunicationAgent",
     "SAPAnalystAgent",
+    "RagAgent",
     "register_all_subagents"
 ]
