@@ -1078,6 +1078,14 @@ interface TestRunResult {
       background: linear-gradient(135deg, #1e88e5 0%, #0d47a1 100%);
     }
 
+    .agent-icon.communication_agent {
+      background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+    }
+
+    .agent-icon.rag_agent {
+      background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
+    }
+
     .agent-icon.mail_agent {
       background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
     }
