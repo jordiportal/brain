@@ -385,14 +385,18 @@ interface ApiConfig {
               @for (model of availableModels(); track model.id) {
                 <mat-card class="model-card">
                   <mat-card-header>
-                    <div class="model-icon">
+                    <div class="model-icon" mat-card-avatar>
                       <mat-icon>psychology</mat-icon>
                     </div>
-                    <mat-card-title>{{ model.name }}</mat-card-title>
-                    <mat-card-subtitle>{{ model.id }}</mat-card-subtitle>
+                    <div>
+                      <mat-card-title>{{ model.name }}</mat-card-title>
+                      <mat-card-subtitle>{{ model.id }}</mat-card-subtitle>
+                    </div>
                   </mat-card-header>
                   <mat-card-content>
                     <p class="description">{{ model.description }}</p>
+                  </mat-card-content>
+                  <mat-card-actions>
                     <div class="model-features">
                       <mat-chip class="feature">
                         <mat-icon>memory</mat-icon>
@@ -411,7 +415,7 @@ interface ApiConfig {
                         </mat-chip>
                       }
                     </div>
-                  </mat-card-content>
+                  </mat-card-actions>
                 </mat-card>
               }
             </div>
@@ -772,6 +776,38 @@ interface ApiConfig {
 
     .model-card {
       border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .model-card mat-card-header {
+      display: flex;
+      align-items: flex-start;
+      padding: 16px 16px 0;
+    }
+
+    .model-card mat-card-title {
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+
+    .model-card mat-card-subtitle {
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .model-card mat-card-content {
+      flex: 1 1 auto;
+      padding: 16px;
+    }
+
+    .model-card mat-card-actions {
+      margin-top: auto;
+      padding: 16px;
+      border-top: 1px solid #f0f0f0;
     }
 
     .model-icon {
@@ -783,6 +819,7 @@ interface ApiConfig {
       align-items: center;
       justify-content: center;
       margin-right: 16px;
+      flex-shrink: 0;
     }
 
     .model-icon mat-icon {
@@ -794,7 +831,6 @@ interface ApiConfig {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 12px;
     }
 
     .feature {
