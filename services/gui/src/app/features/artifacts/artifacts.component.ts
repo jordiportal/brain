@@ -189,6 +189,10 @@ import { ArtifactViewerComponent } from '../../shared/components/artifact-viewer
                   <mat-icon>visibility</mat-icon>
                   <span>Ver</span>
                 </button>
+                <button mat-menu-item (click)="copyArtifactId(artifact)">
+                  <mat-icon>content_copy</mat-icon>
+                  <span>Copiar ID</span>
+                </button>
                 <button mat-menu-item (click)="downloadArtifact(artifact)">
                   <mat-icon>download</mat-icon>
                   <span>Descargar</span>
@@ -505,6 +509,23 @@ export class ArtifactsComponent implements OnInit, OnDestroy {
           this.artifacts = this.artifacts.filter(a => a.artifact_id !== artifact.artifact_id);
           this.totalArtifacts--;
           this.snackBar.open('Artefacto eliminado', 'Cerrar', { duration: 2000 });
+        });
+    }
+  }
+
+  copyArtifactId(artifact: Artifact): void {
+    if (artifact?.artifact_id) {
+      navigator.clipboard.writeText(`@${artifact.artifact_id}`)
+        .then(() => {
+          this.snackBar.open(`ID copiado: @${artifact.artifact_id}`, 'Cerrar', {
+            duration: 3000,
+            horizontalPosition: 'center',
+            verticalPosition: 'bottom'
+          });
+        })
+        .catch(err => {
+          console.error('Error al copiar:', err);
+          this.snackBar.open('Error al copiar ID', 'Cerrar', { duration: 3000 });
         });
     }
   }

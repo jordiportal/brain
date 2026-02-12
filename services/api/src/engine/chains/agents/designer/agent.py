@@ -58,7 +58,7 @@ class DesignerAgent(BaseSubAgent):
     name = "Designer"
     description = "Diseñador visual: imágenes, vídeos, presentaciones, logos"
     version = "3.0.0"
-    domain_tools = ["generate_image", "generate_video", "generate_slides", "analyze_image"]
+    domain_tools = ["generate_image", "edit_image", "generate_video", "generate_slides", "analyze_image"]
     available_skills = DESIGNER_SKILLS
 
     role = "Diseñador Visual"

@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
@@ -11,6 +11,8 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { ArtifactService, Artifact } from '../../../core/services/artifact.service';
@@ -30,7 +32,9 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     MatSelectModule,
     MatFormFieldModule,
     MatBadgeModule,
-    MatMenuModule
+    MatMenuModule,
+    MatSnackBarModule,
+    MatDividerModule
   ],
   template: `
     <div class="artifact-sidebar" [class.expanded]="isExpanded">
@@ -131,10 +135,15 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
                 <mat-icon>more_vert</mat-icon>
               </button>
               <mat-menu #menu="matMenu">
+                <button mat-menu-item (click)="copyArtifactId(artifact)">
+                  <mat-icon>content_copy</mat-icon>
+                  <span>Copiar ID</span>
+                </button>
                 <button mat-menu-item (click)="downloadArtifact(artifact)">
                   <mat-icon>download</mat-icon>
                   <span>Descargar</span>
                 </button>
+                <mat-divider></mat-divider>
                 <button mat-menu-item (click)="deleteArtifact(artifact)">
                   <mat-icon>delete</mat-icon>
                   <span>Eliminar</span>
@@ -358,6 +367,7 @@ export class ArtifactSidebarComponent implements OnInit, OnDestroy {
   loading = false;
   
   private destroy$ = new Subject<void>();
+  private snackBar = inject(MatSnackBar);
 
   constructor(private artifactService: ArtifactService) {}
 
@@ -449,5 +459,22 @@ export class ArtifactSidebarComponent implements OnInit, OnDestroy {
 
   formatSize(bytes?: number): string {
     return this.artifactService.formatFileSize(bytes);
+  }
+
+  copyArtifactId(artifact: Artifact): void {
+    if (artifact?.artifact_id) {
+      navigator.clipboard.writeText(`@${artifact.artifact_id}`)
+        .then(() => {
+          this.snackBar.open(`ID copiado: @${artifact.artifact_id}`, 'Cerrar', {
+            duration: 3000,
+            horizontalPosition: 'center',
+            verticalPosition: 'bottom'
+          });
+        })
+        .catch(err => {
+          console.error('Error al copiar:', err);
+          this.snackBar.open('Error al copiar ID', 'Cerrar', { duration: 3000 });
+        });
+    }
   }
 }

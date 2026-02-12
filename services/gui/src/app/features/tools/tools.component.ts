@@ -418,11 +418,13 @@ interface CoreToolConfig {
                 @for (tool of getFilteredTools(); track tool.id) {
                   <mat-card class="core-tool-card" [id]="'tool-config-' + tool.id">
                     <mat-card-header>
-                      <div class="tool-icon" [ngClass]="tool.category">
+                      <div class="tool-icon" [ngClass]="tool.category" mat-card-avatar>
                         <mat-icon>{{ tool.icon }}</mat-icon>
                       </div>
-                      <mat-card-title>{{ tool.name }}</mat-card-title>
-                      <mat-card-subtitle>{{ tool.description }}</mat-card-subtitle>
+                      <div>
+                        <mat-card-title>{{ tool.name }}</mat-card-title>
+                        <mat-card-subtitle>{{ tool.description }}</mat-card-subtitle>
+                      </div>
                     </mat-card-header>
 
                     <mat-card-content>
@@ -939,6 +941,38 @@ interface CoreToolConfig {
 
     .core-tool-card {
       border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .core-tool-card mat-card-header {
+      display: flex;
+      align-items: flex-start;
+      padding: 16px 16px 0;
+    }
+
+    .core-tool-card mat-card-title {
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+
+    .core-tool-card mat-card-subtitle {
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .core-tool-card mat-card-content {
+      flex: 1 1 auto;
+      padding: 16px;
+    }
+
+    .core-tool-card mat-card-actions {
+      margin-top: auto;
+      padding: 16px;
+      border-top: 1px solid #f0f0f0;
     }
 
     .tool-icon {
@@ -949,6 +983,7 @@ interface CoreToolConfig {
       align-items: center;
       justify-content: center;
       margin-right: 16px;
+      flex-shrink: 0;
     }
 
     .tool-icon mat-icon {

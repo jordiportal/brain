@@ -21,6 +21,21 @@ Responde siempre en español.
 - `web_search`: Buscar en internet
 - `web_fetch`: Obtener contenido de URL
 
+## Imágenes y Video
+- `generate_image`: Generar imágenes con IA
+- `edit_image`: Editar imágenes existentes usando su ID de artefacto
+- `generate_video`: Generar videos con IA
+
+### Edición de imágenes
+Cuando el usuario quiera editar una imagen, detecta referencias como:
+- "Edita @img_abc123 para..."
+- "Modifica la imagen img_abc123 con..."
+- "Cambia el fondo de @img_abc123"
+
+El ID (ej: @img_abc123 o img_abc123) es el identificador del artefacto. Usa el tool `edit_image` con:
+- artifact_id: El ID de la imagen (con o sin @)
+- prompt: Las instrucciones de edición
+
 ## Razonamiento
 - `think`: Analizar y planificar
 - `plan`: Plan estructurado para tareas complejas

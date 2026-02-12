@@ -1,10 +1,11 @@
-import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
+import { Component, OnInit, Input, Output, EventEmitter, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ArtifactService, Artifact } from '../../../core/services/artifact.service';
 
@@ -17,7 +18,8 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,
-    MatChipsModule
+    MatChipsModule,
+    MatSnackBarModule
   ],
   template: `
     <div class="artifact-viewer-overlay" *ngIf="artifact" (click)="onOverlayClick($event)">
@@ -36,6 +38,9 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
             </div>
           </div>
           <div class="header-actions">
+            <button mat-icon-button (click)="copyArtifactId()" matTooltip="Copiar ID" *ngIf="artifact?.artifact_id">
+              <mat-icon>content_copy</mat-icon>
+            </button>
             <button mat-icon-button (click)="download()" matTooltip="Descargar">
               <mat-icon>download</mat-icon>
             </button>
@@ -308,6 +313,8 @@ export class ArtifactViewerComponent implements OnInit {
   contentUrl: string = '';
   safeViewerUrl?: SafeResourceUrl;
   loading = true;
+  
+  private snackBar = inject(MatSnackBar);
 
   constructor(
     private artifactService: ArtifactService,
@@ -383,5 +390,22 @@ export class ArtifactViewerComponent implements OnInit {
     if (!this.artifact?.metadata) return false;
     const m = this.artifact.metadata;
     return !!(m['width'] || m['height'] || m['duration'] || m['provider']);
+  }
+
+  copyArtifactId(): void {
+    if (this.artifact?.artifact_id) {
+      navigator.clipboard.writeText(`@${this.artifact.artifact_id}`)
+        .then(() => {
+          this.snackBar.open(`ID copiado: @${this.artifact?.artifact_id}`, 'Cerrar', {
+            duration: 3000,
+            horizontalPosition: 'center',
+            verticalPosition: 'bottom'
+          });
+        })
+        .catch(err => {
+          console.error('Error al copiar:', err);
+          this.snackBar.open('Error al copiar ID', 'Cerrar', { duration: 3000 });
+        });
+    }
   }
 }

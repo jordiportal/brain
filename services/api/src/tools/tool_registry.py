@@ -22,6 +22,7 @@ class ToolType(str, Enum):
     """Tipos de herramientas disponibles"""
     CORE = "core"       # Las 15 core tools de Brain 2.0
     BUILTIN = "builtin" # Alias para compatibilidad (=CORE)
+    DOMAIN = "domain"   # Herramientas específicas de subagentes (media, web, etc.)
     OPENAPI = "openapi" # Compatibilidad Brain 1.x
     MCP = "mcp"         # Compatibilidad Brain 1.x
     CUSTOM = "custom"   # Compatibilidad Brain 1.x
@@ -83,6 +84,25 @@ class ToolRegistry:
             name=name,
             description=description,
             type=ToolType.CORE,
+            parameters=parameters,
+            handler=handler
+        )
+        self.register(tool)
+    
+    def register_domain_tool(
+        self,
+        id: str,
+        name: str,
+        description: str,
+        parameters: Dict[str, Any],
+        handler: Callable
+    ) -> None:
+        """Registra una domain tool (herramienta específica de subagente)"""
+        tool = ToolDefinition(
+            id=id,
+            name=name,
+            description=description,
+            type=ToolType.DOMAIN,
             parameters=parameters,
             handler=handler
         )
@@ -260,7 +280,7 @@ class ToolRegistry:
         # Registrar domain tools: Media
         for tool_id, tool_def in MEDIA_TOOLS.items():
             td = tool_def() if callable(tool_def) else tool_def
-            self.register_core_tool(
+            self.register_domain_tool(
                 id=td["id"],
                 name=td["name"],
                 description=td["description"],
@@ -271,7 +291,7 @@ class ToolRegistry:
         # Registrar domain tools: Slides
         for tool_id, tool_def in SLIDES_TOOLS.items():
             td = tool_def() if callable(tool_def) else tool_def
-            self.register_core_tool(
+            self.register_domain_tool(
                 id=td["id"],
                 name=td["name"],
                 description=td["description"],
@@ -282,7 +302,7 @@ class ToolRegistry:
         # Registrar domain tools: SAP BIW
         for tool_id, tool_def in BIW_TOOLS.items():
             td = tool_def() if callable(tool_def) else tool_def
-            self.register_core_tool(
+            self.register_domain_tool(
                 id=td["id"],
                 name=td["name"],
                 description=td["description"],

@@ -298,8 +298,9 @@ async def get_chain_details(chain_id: str):
     if not chain:
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
     
-    # Obtener tools disponibles
+    # Obtener tools disponibles (solo CORE, no DOMAIN ni otras)
     from ..tools import tool_registry as tr
+    from ..tools.tool_registry import ToolType
     tr.register_core_tools()
     all_tools = tr.list()
     tools_info = [
@@ -311,6 +312,7 @@ async def get_chain_details(chain_id: str):
             "category": getattr(t, 'category', 'general')
         }
         for t in all_tools
+        if t.type == ToolType.CORE or t.type == ToolType.BUILTIN
     ]
     
     # Obtener subagentes disponibles
