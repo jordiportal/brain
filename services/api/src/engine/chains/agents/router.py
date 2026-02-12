@@ -742,6 +742,7 @@ def _get_agent_icon(agent_id: str) -> str:
         "designer_agent": "palette",
         "researcher_agent": "search",
         "communication_agent": "campaign",
+        "rag_agent": "menu_book",
         "sap_agent": "business",
         "sap_analyst": "analytics",
         "mail_agent": "email",
