@@ -8,6 +8,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ArtifactService, Artifact } from '../../../core/services/artifact.service';
+import { SpreadsheetViewerComponent } from './spreadsheet-viewer.component';
 
 @Component({
   selector: 'app-artifact-viewer',
@@ -19,7 +20,8 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     MatIconModule,
     MatProgressSpinnerModule,
     MatChipsModule,
-    MatSnackBarModule
+    MatSnackBarModule,
+    SpreadsheetViewerComponent
   ],
   template: `
     <div class="artifact-viewer-overlay" *ngIf="artifact" (click)="onOverlayClick($event)">
@@ -80,32 +82,12 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
             </iframe>
           </div>
 
-          <!-- Spreadsheet (Download/Open) -->
+          <!-- Spreadsheet (Syncfusion Native) -->
           <div class="spreadsheet-container" *ngIf="artifact.type === 'spreadsheet' && !loading">
-            <div class="spreadsheet-actions">
-              <div class="spreadsheet-icon">
-                <mat-icon>table_chart</mat-icon>
-              </div>
-              <h3>{{ artifact.title || artifact.file_name }}</h3>
-              <p class="file-info">
-                Excel • {{ formatSize(artifact.file_size) }} • 
-                {{ artifact.metadata?.['rows_count'] || '?' }} filas × 
-                {{ artifact.metadata?.['columns_count'] || '?' }} columnas
-              </p>
-              <div class="action-buttons">
-                <button mat-raised-button color="primary" (click)="download()">
-                  <mat-icon>download</mat-icon>
-                  Descargar Excel
-                </button>
-                <a *ngIf="contentUrl" [href]="contentUrl" target="_blank" mat-stroked-button>
-                  <mat-icon>open_in_new</mat-icon>
-                  Abrir en nueva pestaña
-                </a>
-              </div>
-              <p class="note">
-                El visor online está en desarrollo. Por ahora, descarga el archivo para editarlo.
-              </p>
-            </div>
+            <app-spreadsheet-viewer
+              [artifactId]="artifact.artifact_id"
+              [fileName]="artifact.file_name">
+            </app-spreadsheet-viewer>
           </div>
 
           <!-- Document/Code (Preview) -->
@@ -288,60 +270,7 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     .spreadsheet-container {
       width: 100%;
       height: 100%;
-      min-height: 400px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
-    }
-
-    .spreadsheet-actions {
-      text-align: center;
-      padding: 40px;
-    }
-
-    .spreadsheet-icon {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: #4caf50;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 20px;
-    }
-
-    .spreadsheet-icon mat-icon {
-      font-size: 40px;
-      width: 40px;
-      height: 40px;
-      color: white;
-    }
-
-    .spreadsheet-actions h3 {
-      margin: 0 0 8px 0;
-      font-size: 20px;
-      color: #333;
-    }
-
-    .file-info {
-      color: #666;
-      margin: 0 0 24px 0;
-      font-size: 14px;
-    }
-
-    .action-buttons {
-      display: flex;
-      gap: 12px;
-      justify-content: center;
-      margin-bottom: 16px;
-    }
-
-    .note {
-      color: #888;
-      font-size: 12px;
-      margin: 0;
-      font-style: italic;
+      min-height: 600px;
     }
 
     .document-container {
@@ -424,10 +353,15 @@ export class ArtifactViewerComponent implements OnInit {
       this.contentUrl = this.artifactService.getContentUrl(this.artifact.artifact_id);
       this.loading = false;
     }
-    // Para HTML/presentaciones/spreadsheets, usar viewer sandboxed
-    else if (this.artifact.type === 'html' || this.artifact.type === 'presentation' || this.artifact.type === 'spreadsheet') {
+    // Para HTML/presentaciones, usar viewer sandboxed
+    else if (this.artifact.type === 'html' || this.artifact.type === 'presentation') {
       const viewerUrl = this.artifactService.getViewerUrl(this.artifact.artifact_id);
       this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(viewerUrl);
+      this.loading = false;
+    }
+    // Para spreadsheets, usar componente nativo Syncfusion (no iframe)
+    else if (this.artifact.type === 'spreadsheet') {
+      this.contentUrl = this.artifactService.getContentUrl(this.artifact.artifact_id);
       this.loading = false;
     }
     // Para otros, no hay preview directa
