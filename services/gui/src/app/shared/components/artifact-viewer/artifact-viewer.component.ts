@@ -89,8 +89,8 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
               <h3>{{ artifact.title || artifact.file_name }}</h3>
               <p class="file-info">
                 Excel • {{ formatSize(artifact.file_size) }} • 
-                {{ artifact.metadata?.rows_count || '?' }} filas × 
-                {{ artifact.metadata?.columns_count || '?' }} columnas
+                {{ artifact.metadata?.['rows_count'] || '?' }} filas × 
+                {{ artifact.metadata?.['columns_count'] || '?' }} columnas
               </p>
               <div class="action-buttons">
                 <button mat-raised-button color="primary" (click)="download()">
