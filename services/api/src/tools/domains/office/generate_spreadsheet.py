@@ -13,7 +13,6 @@ import structlog
 logger = structlog.get_logger()
 
 # Workspace path for storing spreadsheets
-import os
 if os.path.exists("/workspace") and os.access("/workspace", os.W_OK):
     WORKSPACE_PATH = Path("/workspace/spreadsheets")
 else:
