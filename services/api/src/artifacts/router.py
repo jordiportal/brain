@@ -89,12 +89,30 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
     </div>
     
     <script>
+        // DIAGNOSTIC: Check what's available in ej object
+        console.log('=== Syncfusion Diagnostics ===');
+        console.log('ej object:', typeof ej);
+        console.log('ej.base:', typeof ej.base);
+        console.log('ej.licensing:', typeof ej.licensing);
+        console.log('ej.spreadsheet:', typeof ej.spreadsheet);
+        
         // Register Syncfusion license - MUST be done before creating any components
-        // Using single quotes as per ES5 documentation
         var licenseKey = '{SYNCFUSION_LICENSE_KEY}';
+        
+        // Try multiple license registration methods for compatibility
         try {{
-            ej.base.registerLicense(licenseKey);
-            console.log('✅ Syncfusion license registered successfully');
+            if (ej.licensing && ej.licensing.registerLicense) {{
+                ej.licensing.registerLicense(licenseKey);
+                console.log('✅ License registered via ej.licensing');
+            }} else if (ej.base && ej.base.registerLicense) {{
+                ej.base.registerLicense(licenseKey);
+                console.log('✅ License registered via ej.base');
+            }} else if (ej.spreadsheet && ej.spreadsheet.registerLicense) {{
+                ej.spreadsheet.registerLicense(licenseKey);
+                console.log('✅ License registered via ej.spreadsheet');
+            }} else {{
+                console.error('❌ No license registration method found in ej object');
+            }}
         }} catch(e) {{
             console.error('❌ Error registering license:', e);
         }}
