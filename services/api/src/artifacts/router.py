@@ -89,59 +89,54 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
     </div>
     
     <script>
-        // Asegurar que el DOM esté listo
+        // Register license immediately
+        ej.base.registerLicense("{SYNCFUSION_LICENSE_KEY}");
+        
+        // Load and display spreadsheet
         document.addEventListener('DOMContentLoaded', function() {{
-            try {{
-                // Verificar que Syncfusion está cargado
-                if (typeof ej === 'undefined' || !ej.base) {{
-                    document.getElementById('spreadsheet').innerHTML = 
-                        '<div class="error">Error: Syncfusion no se cargó correctamente. Recarga la página.</div>';
-                    return;
-                }}
-                
-                // Register Syncfusion license
-                var licenseKey = "{SYNCFUSION_LICENSE_KEY}";
-                ej.base.registerLicense(licenseKey);
-                console.log('Syncfusion license registered successfully');
-                
-                // Create spreadsheet instance
-                var spreadsheet = new ej.spreadsheet.Spreadsheet({{
-                    allowOpen: true,
-                    allowSave: false,
-                    allowEditing: true,
-                    showRibbon: true,
-                    showSheetTabs: true,
-                    created: function() {{
-                        // Open file after creation
-                        var fileUrl = "{content_url}";
-                        console.log('Opening file from:', fileUrl);
-                        
-                        // Fetch the file and open it
-                        fetch(fileUrl)
-                            .then(response => {{
-                                if (!response.ok) throw new Error('Network response was not ok');
-                                return response.blob();
-                            }})
-                            .then(blob => {{
-                                var file = new File([blob], "{file_name}", {{ type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }});
-                                this.open({{ file: file }});
-                            }})
-                            .catch(error => {{
-                                console.error('Error loading file:', error);
-                                document.getElementById('spreadsheet').innerHTML = 
-                                    '<div class="error">Error cargando archivo: ' + error.message + '</div>';
+            var fileUrl = "{content_url}";
+            var fileName = "{file_name}";
+            
+            // Create empty spreadsheet first
+            var spreadsheet = new ej.spreadsheet.Spreadsheet({{
+                allowOpen: true,
+                allowSave: false,
+                allowEditing: true,
+                showRibbon: true,
+                showSheetTabs: true
+            }});
+            
+            spreadsheet.appendTo('#spreadsheet');
+            
+            // Load file data separately after component is mounted
+            fetch(fileUrl)
+                .then(function(response) {{
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    return response.blob();
+                }})
+                .then(function(blob) {{
+                    var reader = new FileReader();
+                    reader.onload = function(e) {{
+                        var data = e.target.result;
+                        try {{
+                            // Use XLSX open method with file data
+                            spreadsheet.open({{ 
+                                file: data,
+                                fileName: fileName
                             }});
-                    }}
+                        }} catch(err) {{
+                            console.error('Error opening file:', err);
+                            document.getElementById('spreadsheet').innerHTML = 
+                                '<div class="error">Error al abrir el archivo Excel</div>';
+                        }}
+                    }};
+                    reader.readAsBinaryString(blob);
+                }})
+                .catch(function(err) {{
+                    console.error('Fetch error:', err);
+                    document.getElementById('spreadsheet').innerHTML = 
+                        '<div class="error">Error cargando archivo: ' + err.message + '</div>';
                 }});
-                
-                // Render the spreadsheet
-                spreadsheet.appendTo('#spreadsheet');
-                
-            }} catch (error) {{
-                console.error('Error initializing spreadsheet:', error);
-                document.getElementById('spreadsheet').innerHTML = 
-                    '<div class="error">Error inicializando: ' + error.message + '</div>';
-            }}
         }});
     </script>
 </body>
