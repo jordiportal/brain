@@ -89,8 +89,15 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
     </div>
     
     <script>
-        // Register license immediately
-        ej.base.registerLicense("{SYNCFUSION_LICENSE_KEY}");
+        // Register Syncfusion license - MUST be done before creating any components
+        // Using single quotes as per ES5 documentation
+        var licenseKey = '{SYNCFUSION_LICENSE_KEY}';
+        try {{
+            ej.base.registerLicense(licenseKey);
+            console.log('✅ Syncfusion license registered successfully');
+        }} catch(e) {{
+            console.error('❌ Error registering license:', e);
+        }}
         
         // Load and display spreadsheet
         document.addEventListener('DOMContentLoaded', function() {{
