@@ -12,12 +12,14 @@ Herramientas especializadas organizadas por dominio:
 from .media import MEDIA_TOOLS
 from .sap_biw import BIW_TOOLS
 from .rag import RAG_TOOLS
+from .office import OFFICE_TOOLS
 
 # Exportar todas las herramientas de dominio
 DOMAIN_TOOLS = {
     **MEDIA_TOOLS,
     **BIW_TOOLS,
-    **RAG_TOOLS
+    **RAG_TOOLS,
+    **OFFICE_TOOLS
 }
 
-__all__ = ["DOMAIN_TOOLS", "MEDIA_TOOLS", "BIW_TOOLS", "RAG_TOOLS"]
+__all__ = ["DOMAIN_TOOLS", "MEDIA_TOOLS", "BIW_TOOLS", "RAG_TOOLS", "OFFICE_TOOLS"]
