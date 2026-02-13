@@ -24,7 +24,7 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 WORKSPACE_BASE = Path("/workspace")
 
 # Syncfusion license key (provided by user)
-SYNCFUSION_LICENSE_KEY = "Ngo9BigBOggjHTQxAR8/V1JFaF5cXGRCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdmWXZcc3RWRmJZVEJ2XkRWYEA="
+SYNCFUSION_LICENSE_KEY = "Ngo9BigBOggjHTQxAR8/V1JGaF5cXGpCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdlWX1fc3VSQ2lZUEV+V0NWZ0k="
 
 
 def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
