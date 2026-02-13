@@ -23,6 +23,73 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 # Base path para archivos en workspace
 WORKSPACE_BASE = Path("/workspace")
 
+# Syncfusion license key (provided by user)
+SYNCFUSION_LICENSE_KEY = "Ngo9BigBOggjHTQxAR8/V1JFaF5cXGRCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdmWXZcc3RWRmJZVEJ2XkRWYEA="
+
+
+def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
+    """
+    Construye un HTML viewer usando Syncfusion Spreadsheet.
+    """
+    file_name = artifact.file_name
+    
+    # Construir URLs para el spreadsheet
+    content_url = f"/api/v1/artifacts/{artifact_id}/content"
+    
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{artifact.title or file_name}</title>
+    
+    <!-- Syncfusion CSS -->
+    <link href="https://cdn.syncfusion.com/ej2/25.1.35/material.css" rel="stylesheet">
+    
+    <!-- Syncfusion Scripts -->
+    <script src="https://cdn.syncfusion.com/ej2/25.1.35/dist/ej2.min.js"></script>
+    <script src="https://cdn.syncfusion.com/ej2/25.1.35/dist/ej2-spreadsheet.min.js"></script>
+    
+    <style>
+        body {{ 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }}
+        #spreadsheet {{ 
+            width: 100%; 
+            height: 100vh; 
+        }}
+    </style>
+</head>
+<body>
+    <div id="spreadsheet"></div>
+    
+    <script>
+        // Register Syncfusion license
+        ej.base.registerLicense("{SYNCFUSION_LICENSE_KEY}");
+        
+        // Initialize Spreadsheet
+        var spreadsheet = new ej.spreadsheet.Spreadsheet({{
+            openUrl: "{content_url}",
+            allowOpen: true,
+            allowSave: false,
+            allowEditing: true,
+            showRibbon: true,
+            showSheetTabs: true
+        }});
+        
+        // Load the file
+        spreadsheet.openRemoteFile = true;
+        spreadsheet.openFile("{content_url}", "{file_name}");
+        
+        spreadsheet.appendTo('#spreadsheet');
+    </script>
+</body>
+</html>"""
+    
+    return HTMLResponse(content=html_content)
+
 
 @router.post("", response_model=ArtifactResponse)
 async def create_artifact(artifact: ArtifactCreate):
@@ -215,6 +282,10 @@ async def get_artifact_viewer(artifact_id: str):
         
         return HTMLResponse(content=html_content)
     
+    # Para spreadsheets, usar Syncfusion viewer
+    if artifact.type == 'spreadsheet':
+        return _build_syncfusion_viewer(artifact, artifact_id)
+    
     # Para otros tipos, redirigir a content
     return Response(
         status_code=307,
@@ -234,7 +305,7 @@ async def get_artifact_info(artifact_id: str):
     
     # Determinar tipo de viewer
     viewer_type = artifact.type
-    is_sandboxed = artifact.type in ['html', 'presentation']
+    is_sandboxed = artifact.type in ['html', 'presentation', 'spreadsheet']
     
     # Construir URLs
     content_url = f"/api/v1/artifacts/{artifact_id}/content"

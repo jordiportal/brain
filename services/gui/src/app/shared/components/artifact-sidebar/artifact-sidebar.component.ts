@@ -74,6 +74,7 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
             <mat-option value="image">Imágenes</mat-option>
             <mat-option value="video">Videos</mat-option>
             <mat-option value="presentation">Presentaciones</mat-option>
+            <mat-option value="spreadsheet">Hojas de cálculo</mat-option>
             <mat-option value="document">Documentos</mat-option>
             <mat-option value="code">Código</mat-option>
           </mat-select>
@@ -296,6 +297,7 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     .artifact-icon.image { background: #e3f2fd; color: #1976d2; }
     .artifact-icon.video { background: #fce4ec; color: #c2185b; }
     .artifact-icon.presentation { background: #f3e5f5; color: #7b1fa2; }
+    .artifact-icon.spreadsheet { background: #e8f5e9; color: #2e7d32; }
     .artifact-icon.document { background: #e8f5e9; color: #388e3c; }
     .artifact-icon.code { background: #fff3e0; color: #f57c00; }
 

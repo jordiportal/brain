@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 export interface Artifact {
   id: number;
   artifact_id: string;
-  type: 'image' | 'video' | 'presentation' | 'code' | 'document' | 'html' | 'audio' | 'file';
+  type: 'image' | 'video' | 'presentation' | 'code' | 'document' | 'html' | 'audio' | 'file' | 'spreadsheet';
   title?: string;
   description?: string;
   file_name: string;
@@ -195,7 +195,8 @@ export class ArtifactService {
       'document': 'description',
       'html': 'html',
       'audio': 'audiotrack',
-      'file': 'insert_drive_file'
+      'file': 'insert_drive_file',
+      'spreadsheet': 'table_chart'
     };
     return icons[type] || 'insert_drive_file';
   }

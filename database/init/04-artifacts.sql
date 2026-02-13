@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS artifacts (
     id SERIAL PRIMARY KEY,
     artifact_id VARCHAR(255) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('image', 'video', 'presentation', 'code', 'document', 'html', 'audio', 'file')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('image', 'video', 'presentation', 'code', 'document', 'html', 'audio', 'file', 'spreadsheet')),
     title VARCHAR(255),
     description TEXT,
     file_path VARCHAR(500) NOT NULL,
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     -- video: {duration, resolution, codec, fps}
     -- presentation: {slides_count, theme}
     -- document: {pages, author}
+    -- spreadsheet: {sheets_count, rows_count, columns_count, file_format}
     
     -- Versionado
     parent_artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,

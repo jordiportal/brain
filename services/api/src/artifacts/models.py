@@ -18,6 +18,7 @@ class ArtifactType(str, Enum):
     HTML = "html"
     AUDIO = "audio"
     FILE = "file"
+    SPREADSHEET = "spreadsheet"
 
 
 class ArtifactSource(str, Enum):
@@ -67,6 +68,14 @@ class DocumentMetadata(BaseModel):
     pages: Optional[int] = None
     author: Optional[str] = None
     title: Optional[str] = None
+
+
+class SpreadsheetMetadata(BaseModel):
+    """Metadata específica para hojas de cálculo"""
+    sheets_count: Optional[int] = None
+    rows_count: Optional[int] = None
+    columns_count: Optional[int] = None
+    file_format: Optional[str] = None  # xlsx, xls, csv, etc.
 
 
 class ArtifactBase(BaseModel):

@@ -80,6 +80,16 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
             </iframe>
           </div>
 
+          <!-- Spreadsheet (Syncfusion) -->
+          <div class="spreadsheet-container" *ngIf="artifact.type === 'spreadsheet' && !loading">
+            <iframe 
+              [src]="safeViewerUrl"
+              sandbox="allow-scripts allow-same-origin allow-downloads"
+              frameborder="0"
+              title="{{ artifact.title || artifact.file_name }}">
+            </iframe>
+          </div>
+
           <!-- Document/Code (Preview) -->
           <div class="document-container" *ngIf="(artifact.type === 'document' || artifact.type === 'code' || artifact.type === 'file') && !loading">
             <div class="preview-not-available">
@@ -257,6 +267,19 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
       border: none;
     }
 
+    .spreadsheet-container {
+      width: 100%;
+      height: 100%;
+      min-height: 600px;
+    }
+
+    .spreadsheet-container iframe {
+      width: 100%;
+      height: 100%;
+      min-height: 600px;
+      border: none;
+    }
+
     .document-container {
       padding: 40px;
       text-align: center;
@@ -337,8 +360,8 @@ export class ArtifactViewerComponent implements OnInit {
       this.contentUrl = this.artifactService.getContentUrl(this.artifact.artifact_id);
       this.loading = false;
     }
-    // Para HTML/presentaciones, usar viewer sandboxed
-    else if (this.artifact.type === 'html' || this.artifact.type === 'presentation') {
+    // Para HTML/presentaciones/spreadsheets, usar viewer sandboxed
+    else if (this.artifact.type === 'html' || this.artifact.type === 'presentation' || this.artifact.type === 'spreadsheet') {
       const viewerUrl = this.artifactService.getViewerUrl(this.artifact.artifact_id);
       this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(viewerUrl);
       this.loading = false;

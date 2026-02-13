@@ -79,6 +79,7 @@ import { ArtifactViewerComponent } from '../../shared/components/artifact-viewer
                 <mat-option value="image">Imágenes</mat-option>
                 <mat-option value="video">Videos</mat-option>
                 <mat-option value="presentation">Presentaciones</mat-option>
+                <mat-option value="spreadsheet">Hojas de cálculo</mat-option>
                 <mat-option value="document">Documentos</mat-option>
                 <mat-option value="code">Código</mat-option>
                 <mat-option value="html">HTML</mat-option>
