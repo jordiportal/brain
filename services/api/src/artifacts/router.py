@@ -69,6 +69,18 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
             font-size: 18px;
             color: #666;
         }}
+        .error {{
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 16px;
+            color: #d32f2f;
+            text-align: center;
+            padding: 20px;
+            background: #ffebee;
+            border-radius: 8px;
+        }}
     </style>
 </head>
 <body>
@@ -77,33 +89,60 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
     </div>
     
     <script>
-        // Register Syncfusion license BEFORE creating any components
-        ej.base.registerLicense("{SYNCFUSION_LICENSE_KEY}");
-        
-        // Initialize Spreadsheet
-        var spreadsheet = new ej.spreadsheet.Spreadsheet({{
-            allowOpen: true,
-            allowSave: false,
-            allowEditing: true,
-            showRibbon: true,
-            showSheetTabs: true,
-            openUrl: "{content_url}",
-            beforeOpen: function(args) {{
-                // Configurar para abrir archivo desde URL
-                args.file = "{content_url}";
+        // Asegurar que el DOM esté listo
+        document.addEventListener('DOMContentLoaded', function() {{
+            try {{
+                // Verificar que Syncfusion está cargado
+                if (typeof ej === 'undefined' || !ej.base) {{
+                    document.getElementById('spreadsheet').innerHTML = 
+                        '<div class="error">Error: Syncfusion no se cargó correctamente. Recarga la página.</div>';
+                    return;
+                }}
+                
+                // Register Syncfusion license
+                var licenseKey = "{SYNCFUSION_LICENSE_KEY}";
+                ej.base.registerLicense(licenseKey);
+                console.log('Syncfusion license registered successfully');
+                
+                // Create spreadsheet instance
+                var spreadsheet = new ej.spreadsheet.Spreadsheet({{
+                    allowOpen: true,
+                    allowSave: false,
+                    allowEditing: true,
+                    showRibbon: true,
+                    showSheetTabs: true,
+                    created: function() {{
+                        // Open file after creation
+                        var fileUrl = "{content_url}";
+                        console.log('Opening file from:', fileUrl);
+                        
+                        // Fetch the file and open it
+                        fetch(fileUrl)
+                            .then(response => {{
+                                if (!response.ok) throw new Error('Network response was not ok');
+                                return response.blob();
+                            }})
+                            .then(blob => {{
+                                var file = new File([blob], "{file_name}", {{ type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }});
+                                this.open({{ file: file }});
+                            }})
+                            .catch(error => {{
+                                console.error('Error loading file:', error);
+                                document.getElementById('spreadsheet').innerHTML = 
+                                    '<div class="error">Error cargando archivo: ' + error.message + '</div>';
+                            }});
+                    }}
+                }});
+                
+                // Render the spreadsheet
+                spreadsheet.appendTo('#spreadsheet');
+                
+            }} catch (error) {{
+                console.error('Error initializing spreadsheet:', error);
+                document.getElementById('spreadsheet').innerHTML = 
+                    '<div class="error">Error inicializando: ' + error.message + '</div>';
             }}
         }});
-        
-        // Evento cuando el spreadsheet está listo
-        spreadsheet.created = function() {{
-            // Abrir el archivo Excel desde la URL
-            this.openFromJson({{
-                file: "{content_url}",
-                triggerEvent: true
-            }});
-        }};
-        
-        spreadsheet.appendTo('#spreadsheet');
     </script>
 </body>
 </html>"""
