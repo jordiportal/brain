@@ -13,7 +13,12 @@ import structlog
 logger = structlog.get_logger()
 
 # Workspace path for storing spreadsheets
-WORKSPACE_PATH = Path("/workspace/spreadsheets")
+import os
+if os.path.exists("/workspace") and os.access("/workspace", os.W_OK):
+    WORKSPACE_PATH = Path("/workspace/spreadsheets")
+else:
+    # Fallback para entorno local de desarrollo
+    WORKSPACE_PATH = Path(os.path.expanduser("~/workspace/spreadsheets"))
 
 
 async def generate_spreadsheet(

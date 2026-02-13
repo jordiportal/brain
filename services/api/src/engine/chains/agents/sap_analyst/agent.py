@@ -39,6 +39,7 @@ Herramientas BIW disponibles:
 - biw_get_hierarchy: Obtener jerarquías
 - biw_get_texts: Obtener textos descriptivos
 - biw_get_ratios: Obtener ratios/KPIs
+- generate_spreadsheet: Generar archivos Excel con los datos extraídos
 
 También tienes acceso a herramientas de filesystem y ejecución de código para análisis.
 
@@ -78,6 +79,7 @@ class SAPAnalystAgent(BaseSubAgent):
         "biw_get_hierarchy",
         "biw_get_texts",
         "biw_get_ratios",
+        "generate_spreadsheet",
         "filesystem",
         "execute_code"
     ]
