@@ -55,33 +55,53 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
             margin: 0; 
             padding: 0; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
         }}
         #spreadsheet {{ 
             width: 100%; 
             height: 100vh; 
         }}
+        .loading {{
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            color: #666;
+        }}
     </style>
 </head>
 <body>
-    <div id="spreadsheet"></div>
+    <div id="spreadsheet">
+        <div class="loading">Cargando Excel...</div>
+    </div>
     
     <script>
-        // Register Syncfusion license
+        // Register Syncfusion license BEFORE creating any components
         ej.base.registerLicense("{SYNCFUSION_LICENSE_KEY}");
         
         // Initialize Spreadsheet
         var spreadsheet = new ej.spreadsheet.Spreadsheet({{
-            openUrl: "{content_url}",
             allowOpen: true,
             allowSave: false,
             allowEditing: true,
             showRibbon: true,
-            showSheetTabs: true
+            showSheetTabs: true,
+            openUrl: "{content_url}",
+            beforeOpen: function(args) {{
+                // Configurar para abrir archivo desde URL
+                args.file = "{content_url}";
+            }}
         }});
         
-        // Load the file
-        spreadsheet.openRemoteFile = true;
-        spreadsheet.openFile("{content_url}", "{file_name}");
+        // Evento cuando el spreadsheet está listo
+        spreadsheet.created = function() {{
+            // Abrir el archivo Excel desde la URL
+            this.openFromJson({{
+                file: "{content_url}",
+                triggerEvent: true
+            }});
+        }};
         
         spreadsheet.appendTo('#spreadsheet');
     </script>
