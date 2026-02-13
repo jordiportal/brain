@@ -41,6 +41,30 @@ Herramientas BIW disponibles:
 - biw_get_ratios: Obtener ratios/KPIs
 - generate_spreadsheet: Generar archivos Excel con los datos extraídos
 
+## USO DE GENERATE_SPREADSHEET
+
+Para generar un Excel, DEBES proporcionar el parámetro `data` como una lista de objetos JSON:
+
+```python
+generate_spreadsheet(
+    data=[
+        {"Producto": "Laptop", "Precio": 999.99, "Stock": 50},
+        {"Producto": "Mouse", "Precio": 25.50, "Stock": 200}
+    ],
+    title="Inventario de Productos",
+    sheet_name="Productos"
+)
+```
+
+Cada objeto en `data` representa una fila del Excel. Las claves del primer objeto se convierten en los headers de las columnas.
+
+## FLUJO DE TRABAJO TÍPICO
+
+1. Extraer datos de SAP usando biw_get_cube_data o biw_get_bex_query
+2. Transformar los datos al formato de lista de objetos
+3. Generar el Excel con generate_spreadsheet
+4. El Excel se creará como artifact tipo 'spreadsheet' automáticamente
+
 También tienes acceso a herramientas de filesystem y ejecución de código para análisis.
 
 Responde a preguntas y ayuda con análisis usando estas herramientas cuando sea necesario."""
