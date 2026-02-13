@@ -192,12 +192,14 @@ class DesignerAgent(BaseSubAgent):
                             images.append({
                                 "url": result.get("image_url", ""),
                                 "base64": result.get("image_base64"),
-                                "mime_type": "image/png"
+                                "mime_type": "image/png",
+                                "artifact_id": result.get("artifact_id")
                             })
                         if result.get("success") and result.get("video_url"):
                             videos.append({
                                 "url": result.get("video_url"),
-                                "mime_type": "video/mp4"
+                                "mime_type": "video/mp4",
+                                "artifact_id": result.get("artifact_id")
                             })
                     
                     logger.info(f"✅ Tool {tool_name} executed successfully")
