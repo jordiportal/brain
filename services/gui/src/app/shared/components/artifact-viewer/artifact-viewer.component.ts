@@ -80,14 +80,32 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
             </iframe>
           </div>
 
-          <!-- Spreadsheet (Syncfusion) -->
+          <!-- Spreadsheet (Download/Open) -->
           <div class="spreadsheet-container" *ngIf="artifact.type === 'spreadsheet' && !loading">
-            <iframe 
-              [src]="safeViewerUrl"
-              sandbox="allow-scripts allow-same-origin allow-downloads"
-              frameborder="0"
-              title="{{ artifact.title || artifact.file_name }}">
-            </iframe>
+            <div class="spreadsheet-actions">
+              <div class="spreadsheet-icon">
+                <mat-icon>table_chart</mat-icon>
+              </div>
+              <h3>{{ artifact.title || artifact.file_name }}</h3>
+              <p class="file-info">
+                Excel • {{ formatSize(artifact.file_size) }} • 
+                {{ artifact.metadata?.rows_count || '?' }} filas × 
+                {{ artifact.metadata?.columns_count || '?' }} columnas
+              </p>
+              <div class="action-buttons">
+                <button mat-raised-button color="primary" (click)="download()">
+                  <mat-icon>download</mat-icon>
+                  Descargar Excel
+                </button>
+                <a *ngIf="contentUrl" [href]="contentUrl" target="_blank" mat-stroked-button>
+                  <mat-icon>open_in_new</mat-icon>
+                  Abrir en nueva pestaña
+                </a>
+              </div>
+              <p class="note">
+                El visor online está en desarrollo. Por ahora, descarga el archivo para editarlo.
+              </p>
+            </div>
           </div>
 
           <!-- Document/Code (Preview) -->
@@ -270,14 +288,60 @@ import { ArtifactService, Artifact } from '../../../core/services/artifact.servi
     .spreadsheet-container {
       width: 100%;
       height: 100%;
-      min-height: 600px;
+      min-height: 400px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
     }
 
-    .spreadsheet-container iframe {
-      width: 100%;
-      height: 100%;
-      min-height: 600px;
-      border: none;
+    .spreadsheet-actions {
+      text-align: center;
+      padding: 40px;
+    }
+
+    .spreadsheet-icon {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: #4caf50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+    }
+
+    .spreadsheet-icon mat-icon {
+      font-size: 40px;
+      width: 40px;
+      height: 40px;
+      color: white;
+    }
+
+    .spreadsheet-actions h3 {
+      margin: 0 0 8px 0;
+      font-size: 20px;
+      color: #333;
+    }
+
+    .file-info {
+      color: #666;
+      margin: 0 0 24px 0;
+      font-size: 14px;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .note {
+      color: #888;
+      font-size: 12px;
+      margin: 0;
+      font-style: italic;
     }
 
     .document-container {
