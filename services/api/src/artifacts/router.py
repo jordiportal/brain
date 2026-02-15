@@ -29,12 +29,26 @@ SYNCFUSION_LICENSE_KEY = "Ngo9BigBOggjHTQxAR8/V1JFaF5cXGRCf1FpRmJGdld5fUVHYVZUTX
 
 def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
     """
-    Construye un HTML viewer usando Syncfusion Spreadsheet.
+    Construye un HTML viewer usando Syncfusion Spreadsheet (vanilla JS via CDN).
+    
+    Patron oficial de Syncfusion para abrir archivos remotos:
+      1. Crear Spreadsheet con openUrl (servicio server-side de procesamiento)
+      2. Fetch del blob desde nuestra API
+      3. Convertir blob a File object
+      4. Llamar spreadsheet.open({ file }) en el evento created
+    
+    Ref: https://ej2.syncfusion.com/documentation/spreadsheet/open-save
     """
     file_name = artifact.file_name
     
-    # Construir URLs para el spreadsheet
+    # URL del contenido del artefacto
     content_url = f"/api/v1/artifacts/{artifact_id}/content"
+    
+    # Syncfusion open URL - servicio server-side que procesa el Excel y devuelve JSON
+    syncfusion_open_url = "https://document.syncfusion.com/web-services/spreadsheet-editor/api/spreadsheet/open"
+    
+    # Version CDN alineada con la version del package (32.x)
+    cdn_version = "32.2.4"
     
     html_content = f"""<!DOCTYPE html>
 <html>
@@ -43,12 +57,11 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{artifact.title or file_name}</title>
     
-    <!-- Syncfusion CSS -->
-    <link href="https://cdn.syncfusion.com/ej2/25.1.35/material.css" rel="stylesheet">
+    <!-- Syncfusion CSS - v{cdn_version} -->
+    <link href="https://cdn.syncfusion.com/ej2/{cdn_version}/material.css" rel="stylesheet">
     
-    <!-- Syncfusion Scripts -->
-    <script src="https://cdn.syncfusion.com/ej2/25.1.35/dist/ej2.min.js"></script>
-    <script src="https://cdn.syncfusion.com/ej2/25.1.35/dist/ej2-spreadsheet.min.js"></script>
+    <!-- Syncfusion Scripts - bundle completo (incluye spreadsheet) -->
+    <script src="https://cdn.syncfusion.com/ej2/{cdn_version}/dist/ej2.min.js"></script>
     
     <style>
         body {{ 
@@ -56,6 +69,7 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
             padding: 0; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f5f5f5;
+            overflow: hidden;
         }}
         #spreadsheet {{ 
             width: 100%; 
@@ -68,6 +82,22 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
             transform: translate(-50%, -50%);
             font-size: 18px;
             color: #666;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }}
+        .loading .spinner {{
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e0e0e0;
+            border-top: 3px solid #1976d2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
         }}
         .error {{
             position: absolute;
@@ -77,70 +107,68 @@ def _build_syncfusion_viewer(artifact, artifact_id: str) -> HTMLResponse:
             font-size: 16px;
             color: #d32f2f;
             text-align: center;
-            padding: 20px;
+            padding: 24px;
             background: #ffebee;
             border-radius: 8px;
+            max-width: 400px;
         }}
     </style>
 </head>
 <body>
     <div id="spreadsheet">
-        <div class="loading">Cargando Excel...</div>
+        <div class="loading">
+            <div class="spinner"></div>
+            <span>Cargando Excel...</span>
+        </div>
     </div>
     
     <script>
-        // Register Syncfusion license using fuse-lowcode pattern
+        // Registrar licencia Syncfusion
         try {{
             ej.base.registerLicense('{SYNCFUSION_LICENSE_KEY}');
-        }} catch {{
-            // Silently ignore to avoid breaking the app
+        }} catch(e) {{
+            // Silenciar para no romper la app
         }}
         
-        // Load and display spreadsheet
         document.addEventListener('DOMContentLoaded', function() {{
             var fileUrl = "{content_url}";
             var fileName = "{file_name}";
+            var openUrl = "{syncfusion_open_url}";
             
-            // Create empty spreadsheet first
+            // Crear Spreadsheet con openUrl (OBLIGATORIO para que open() funcione)
+            // Ref: https://ej2.syncfusion.com/documentation/spreadsheet/open-save
             var spreadsheet = new ej.spreadsheet.Spreadsheet({{
+                openUrl: openUrl,
                 allowOpen: true,
                 allowSave: false,
                 allowEditing: true,
                 showRibbon: true,
-                showSheetTabs: true
+                showFormulaBar: true,
+                showSheetTabs: true,
+                created: function() {{
+                    // Patron oficial: fetch blob -> new File([blob]) -> spreadsheet.open({{ file }})
+                    fetch(fileUrl)
+                        .then(function(response) {{
+                            if (!response.ok) throw new Error('HTTP ' + response.status);
+                            return response.blob();
+                        }})
+                        .then(function(blob) {{
+                            // Convertir blob a File object (requerido por Syncfusion)
+                            var file = new File([blob], fileName, {{
+                                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                            }});
+                            // Syncfusion envia el File al openUrl para procesamiento server-side
+                            spreadsheet.open({{ file: file }});
+                        }})
+                        .catch(function(err) {{
+                            console.error('Error loading spreadsheet:', err);
+                            document.getElementById('spreadsheet').innerHTML = 
+                                '<div class="error">Error al cargar el archivo: ' + err.message + '</div>';
+                        }});
+                }}
             }});
             
             spreadsheet.appendTo('#spreadsheet');
-            
-            // Load file data separately after component is mounted
-            fetch(fileUrl)
-                .then(function(response) {{
-                    if (!response.ok) throw new Error('HTTP ' + response.status);
-                    return response.blob();
-                }})
-                .then(function(blob) {{
-                    var reader = new FileReader();
-                    reader.onload = function(e) {{
-                        var data = e.target.result;
-                        try {{
-                            // Use XLSX open method with file data
-                            spreadsheet.open({{ 
-                                file: data,
-                                fileName: fileName
-                            }});
-                        }} catch(err) {{
-                            console.error('Error opening file:', err);
-                            document.getElementById('spreadsheet').innerHTML = 
-                                '<div class="error">Error al abrir el archivo Excel</div>';
-                        }}
-                    }};
-                    reader.readAsBinaryString(blob);
-                }})
-                .catch(function(err) {{
-                    console.error('Fetch error:', err);
-                    document.getElementById('spreadsheet').innerHTML = 
-                        '<div class="error">Error cargando archivo: ' + err.message + '</div>';
-                }});
         }});
     </script>
 </body>
@@ -286,11 +314,19 @@ async def get_artifact_content(artifact_id: str):
     if not mime_type:
         mime_type = artifact.mime_type or "application/octet-stream"
     
-    return FileResponse(
+    # Create response with CORS headers
+    response = FileResponse(
         path=str(file_path),
         media_type=mime_type,
         filename=artifact.file_name
     )
+    
+    # Add CORS headers manually for blob requests
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    
+    return response
 
 
 @router.get("/{artifact_id}/view", response_class=HTMLResponse)

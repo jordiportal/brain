@@ -146,7 +146,7 @@ import { SpreadsheetViewerComponent } from './spreadsheet-viewer.component';
       display: flex;
       flex-direction: column;
       width: 100%;
-      max-width: 1000px;
+      max-width: 1200px;
       max-height: 90vh;
       background: white;
       border-radius: 12px;
@@ -209,7 +209,7 @@ import { SpreadsheetViewerComponent } from './spreadsheet-viewer.component';
       align-items: center;
       justify-content: center;
       min-height: 400px;
-      max-height: 60vh;
+      max-height: 75vh;
       background: #f0f0f0;
     }
 
@@ -269,8 +269,9 @@ import { SpreadsheetViewerComponent } from './spreadsheet-viewer.component';
 
     .spreadsheet-container {
       width: 100%;
-      height: 100%;
+      height: 600px;
       min-height: 600px;
+      overflow: hidden;
     }
 
     .document-container {
@@ -347,6 +348,7 @@ export class ArtifactViewerComponent implements OnInit {
     if (!this.artifact) return;
 
     this.loading = true;
+    console.log('[ArtifactViewer] Loading artifact:', this.artifact.artifact_id, 'type:', this.artifact.type);
 
     // Para imágenes y videos, usar URL directa
     if (this.artifact.type === 'image' || this.artifact.type === 'video') {
@@ -359,10 +361,12 @@ export class ArtifactViewerComponent implements OnInit {
       this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(viewerUrl);
       this.loading = false;
     }
-    // Para spreadsheets, usar componente nativo Syncfusion (no iframe)
+    // Para spreadsheets, usar componente nativo Syncfusion
     else if (this.artifact.type === 'spreadsheet') {
+      console.log('[ArtifactViewer] Loading spreadsheet:', this.artifact.artifact_id);
       this.contentUrl = this.artifactService.getContentUrl(this.artifact.artifact_id);
       this.loading = false;
+      console.log('[ArtifactViewer] Spreadsheet viewer should render now, loading:', this.loading);
     }
     // Para otros, no hay preview directa
     else {
