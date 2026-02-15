@@ -7,13 +7,15 @@ Subagente especializado en:
 - Análisis estadístico y generación de insights
 - Creación de reportes y dashboards
 
-Patrón: LLM-Only con Tools
+Patrón: LLM con Tools en loop multi-turno.
+El agente ejecuta tools BIW, reenvía los resultados al LLM,
+y este decide si necesita más datos o puede generar el resultado final.
 """
 
 import json
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import structlog
 
@@ -22,6 +24,9 @@ from ...llm_utils import call_llm_with_tools
 
 logger = structlog.get_logger()
 
+# Máximo de iteraciones del loop para evitar bucles infinitos
+MAX_TOOL_ITERATIONS = 6
+
 
 def _read_system_prompt() -> str:
     """Lee el prompt de sistema desde fichero."""
@@ -29,48 +34,16 @@ def _read_system_prompt() -> str:
     try:
         return path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        return """Eres un Analista de Datos SAP BIW (Business Intelligence Warehouse) experto. Tu misión es ayudar con análisis de datos SAP.
-
-Herramientas BIW disponibles:
-- biw_get_cube_data: Extraer datos de InfoCubes
-- biw_get_dso_data: Extraer datos de DataStore Objects  
-- biw_get_bex_query: Ejecutar queries BEx
-- biw_get_master_data: Obtener datos maestros
-- biw_get_hierarchy: Obtener jerarquías
-- biw_get_texts: Obtener textos descriptivos
-- biw_get_ratios: Obtener ratios/KPIs
-- generate_spreadsheet: Generar archivos Excel con los datos extraídos
-
-## USO DE GENERATE_SPREADSHEET
-
-Para generar un Excel, DEBES proporcionar el parámetro `data` como una lista de objetos JSON:
-
-```python
-generate_spreadsheet(
-    data=[
-        {"Producto": "Laptop", "Precio": 999.99, "Stock": 50},
-        {"Producto": "Mouse", "Precio": 25.50, "Stock": 200}
-    ],
-    title="Inventario de Productos",
-    sheet_name="Productos"
-)
-```
-
-Cada objeto en `data` representa una fila del Excel. Las claves del primer objeto se convierten en los headers de las columnas.
-
-## FLUJO DE TRABAJO TÍPICO
-
-1. Extraer datos de SAP usando biw_get_cube_data o biw_get_bex_query
-2. Transformar los datos al formato de lista de objetos
-3. Generar el Excel con generate_spreadsheet
-4. El Excel se creará como artifact tipo 'spreadsheet' automáticamente
-
-También tienes acceso a herramientas de filesystem y ejecución de código para análisis.
-
-Responde a preguntas y ayuda con análisis usando estas herramientas cuando sea necesario."""
+        # Fallback mínimo sin ejemplos concretos
+        return (
+            "Eres un Analista de Datos SAP BIW experto. "
+            "Usa las herramientas BIW para extraer datos y generate_spreadsheet para crear Excel. "
+            "NUNCA inventes datos: usa siempre los datos reales obtenidos de las herramientas o los proporcionados por el usuario. "
+            "Adapta las columnas, título y contenido al tema que el usuario solicite."
+        )
 
 
-# Skills simplificados para SAP Analyst
+# Skills para SAP Analyst
 SAP_ANALYST_SKILLS = [
     Skill(
         id="biw_extraction",
@@ -88,13 +61,18 @@ SAP_ANALYST_SKILLS = [
 class SAPAnalystAgent(BaseSubAgent):
     """
     Subagente especializado en análisis de datos SAP BIW.
-    Usa LLM con herramientas BIW para responder consultas.
+    
+    Implementa un loop multi-turno:
+    1. El LLM decide qué tools llamar (ej: biw_get_cube_data)
+    2. Se ejecutan las tools y los resultados se reenvían al LLM
+    3. El LLM decide el siguiente paso (más tools o respuesta final)
+    4. Repite hasta que el LLM responde sin tool calls o se alcanza el límite
     """
     
     id = "sap_analyst"
     name = "SAP BIW Analyst"
     description = "Analista de datos SAP BIW: extracción BW, cubos OLAP, reportes"
-    version = "2.0.0"
+    version = "2.1.0"
     domain_tools = [
         "biw_get_cube_data",
         "biw_get_dso_data",
@@ -116,7 +94,7 @@ class SAPAnalystAgent(BaseSubAgent):
     def __init__(self):
         super().__init__()
         self.system_prompt = _read_system_prompt()
-        logger.info(f"📊 SAPAnalystAgent initialized")
+        logger.info("📊 SAPAnalystAgent initialized (v2.1.0 multi-turn)")
     
     async def execute(
         self,
@@ -127,11 +105,10 @@ class SAPAnalystAgent(BaseSubAgent):
         provider_type: Optional[str] = None,
         api_key: Optional[str] = None
     ) -> SubAgentResult:
-        """Ejecuta consulta SAP usando LLM con herramientas."""
+        """Ejecuta consulta SAP usando LLM con herramientas en loop multi-turno."""
         start_time = time.time()
         logger.info("📊 SAPAnalystAgent executing", task=task[:80])
         
-        # Validar LLM configurado
         if not llm_url or not model or not provider_type:
             return SubAgentResult(
                 success=False,
@@ -167,94 +144,145 @@ class SAPAnalystAgent(BaseSubAgent):
         api_key: Optional[str],
         start_time: float
     ) -> SubAgentResult:
-        """Ejecuta con LLM que decide qué herramientas usar."""
+        """
+        Ejecuta con LLM en loop multi-turno.
+        
+        A diferencia del flujo single-turn, aquí:
+        1. El LLM pide tools BIW → se ejecutan → resultados se reenvían al LLM
+        2. El LLM usa los datos REALES para decidir siguiente paso
+        3. Puede pedir generate_spreadsheet con datos reales (no inventados)
+        4. Loop termina cuando el LLM responde sin tool_calls o se alcanza MAX_TOOL_ITERATIONS
+        """
         
         # Obtener herramientas disponibles
         tools = self.get_tools()
+        tool_schemas = [tool.to_function_schema() for tool in tools]
         
-        # Construir mensajes
+        # Construir índice de tools para lookup rápido
+        tool_index = {}
+        for tool in tools:
+            tool_index[tool.id] = tool
+            if tool.name and tool.name != tool.id:
+                tool_index[tool.name] = tool
+        
+        # Construir mensajes iniciales
         system_content = self.system_prompt + self.get_skills_for_prompt()
         user_content = f"Tarea: {task}"
         if context:
             user_content += f"\n\nContexto adicional: {context}"
         
-        messages = [
+        messages: List[Dict] = [
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content}
         ]
         
-        # Llamar LLM con herramientas
-        response = await call_llm_with_tools(
-            messages=messages,
-            tools=[tool.to_function_schema() for tool in tools],
-            temperature=0.3,
-            provider_type=provider_type,
-            api_key=api_key,
-            llm_url=llm_url,
-            model=model
-        )
+        # Tracking
+        all_tools_used: List[str] = []
+        all_tool_results: List[Dict] = []
+        all_data_results: List[Dict] = []
+        final_content = ""
         
-        # Si no hay tool calls, retornar respuesta directa
-        if not response.tool_calls:
-            return SubAgentResult(
-                success=True,
-                response=response.content or "No se pudo generar respuesta",
-                agent_id=self.id,
-                agent_name=self.name,
-                execution_time_ms=int((time.time() - start_time) * 1000)
+        # --- Loop multi-turno ---
+        for iteration in range(MAX_TOOL_ITERATIONS):
+            logger.info(f"📊 SAP Agent iteration {iteration + 1}/{MAX_TOOL_ITERATIONS}")
+            
+            # Llamar LLM con herramientas
+            response = await call_llm_with_tools(
+                messages=messages,
+                tools=tool_schemas,
+                temperature=0.3,
+                provider_type=provider_type,
+                api_key=api_key,
+                llm_url=llm_url,
+                model=model
             )
-        
-        # Ejecutar tool calls y recolectar resultados
-        import json
-        tools_used = []
-        tool_results = []
-        data_results = []
-        
-        for tc in response.tool_calls:
-            tool_name = tc.function.get("name", "")
-            tool_params_raw = tc.function.get("arguments", {})
             
-            # Parsear argumentos si vienen como string JSON
-            if isinstance(tool_params_raw, str):
-                try:
-                    tool_params = json.loads(tool_params_raw)
-                except json.JSONDecodeError:
-                    tool_params = {}
-            else:
-                tool_params = tool_params_raw or {}
+            # Si no hay tool calls, el LLM ha terminado
+            if not response.tool_calls:
+                final_content = response.content or ""
+                logger.info("📊 SAP Agent: LLM responded without tool calls, finishing")
+                break
             
-            tools_used.append(tool_name)
+            # Guardar el content parcial si existe (algunos LLMs envían texto + tools)
+            if response.content:
+                final_content = response.content
             
-            try:
-                # Buscar y ejecutar la tool
-                tool = next((t for t in tools if t.id == tool_name or t.name == tool_name), None)
-                if tool and tool.handler:
-                    logger.info(f"🛠️ Executing BIW tool: {tool_name}", params=tool_params)
-                    result = await tool.handler(**tool_params)
-                    tool_results.append({"tool": tool_name, "result": result})
-                    
-                    # Extraer datos del resultado
-                    if isinstance(result, dict) and result.get("success"):
-                        if result.get("data"):
-                            data_results.append({
-                                "tool": tool_name,
-                                "data": result.get("data")
-                            })
-                    
-                    logger.info(f"✅ BIW tool {tool_name} executed successfully")
+            # Añadir el mensaje del asistente con tool_calls a la conversación
+            assistant_msg: Dict[str, Any] = {"role": "assistant", "content": response.content or ""}
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.get("name", ""),
+                        "arguments": tc.function.get("arguments", "{}") if isinstance(tc.function.get("arguments"), str) else json.dumps(tc.function.get("arguments", {}))
+                    }
+                }
+                for tc in response.tool_calls
+            ]
+            messages.append(assistant_msg)
+            
+            # Ejecutar cada tool call y reenviar resultados
+            for tc in response.tool_calls:
+                tool_name = tc.function.get("name", "")
+                tool_params_raw = tc.function.get("arguments", {})
+                
+                # Parsear argumentos
+                if isinstance(tool_params_raw, str):
+                    try:
+                        tool_params = json.loads(tool_params_raw)
+                    except json.JSONDecodeError:
+                        tool_params = {}
                 else:
-                    logger.warning(f"⚠️ BIW tool {tool_name} not found or no handler")
-            except Exception as e:
-                logger.error(f"❌ Error executing BIW tool {tool_name}: {e}")
-                tool_results.append({"tool": tool_name, "error": str(e)})
+                    tool_params = tool_params_raw or {}
+                
+                all_tools_used.append(tool_name)
+                
+                # Ejecutar la tool
+                result_str = ""
+                try:
+                    tool = tool_index.get(tool_name)
+                    if tool and tool.handler:
+                        logger.info(f"🛠️ Executing tool: {tool_name}", params=tool_params)
+                        result = await tool.handler(**tool_params)
+                        all_tool_results.append({"tool": tool_name, "result": result})
+                        
+                        # Extraer datos si los hay
+                        if isinstance(result, dict) and result.get("success") and result.get("data"):
+                            all_data_results.append({
+                                "tool": tool_name,
+                                "data": result["data"]
+                            })
+                        
+                        result_str = json.dumps(result, ensure_ascii=False, default=str)
+                        logger.info(f"✅ Tool {tool_name} executed successfully")
+                    else:
+                        result_str = json.dumps({"error": f"Tool '{tool_name}' not found"})
+                        logger.warning(f"⚠️ Tool {tool_name} not found")
+                except Exception as e:
+                    result_str = json.dumps({"error": str(e)})
+                    logger.error(f"❌ Error executing tool {tool_name}: {e}")
+                    all_tool_results.append({"tool": tool_name, "error": str(e)})
+                
+                # Reenviar resultado al LLM como mensaje tool
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_str
+                })
+        else:
+            # Se alcanzó el límite de iteraciones
+            logger.warning(f"📊 SAP Agent: reached max iterations ({MAX_TOOL_ITERATIONS})")
+            if not final_content:
+                final_content = f"Análisis BIW completado tras {MAX_TOOL_ITERATIONS} iteraciones. Herramientas usadas: {', '.join(all_tools_used)}"
         
         return SubAgentResult(
             success=True,
-            response=response.content or f"Análisis BIW completado. Herramientas usadas: {', '.join(tools_used)}",
+            response=final_content or f"Análisis BIW completado. Herramientas usadas: {', '.join(all_tools_used)}",
             agent_id=self.id,
             agent_name=self.name,
-            tools_used=tools_used,
-            data={"tool_results": tool_results, "data_results": data_results} if tool_results else {},
+            tools_used=all_tools_used,
+            data={"tool_results": all_tool_results, "data_results": all_data_results} if all_tool_results else {},
             execution_time_ms=int((time.time() - start_time) * 1000)
         )
 
