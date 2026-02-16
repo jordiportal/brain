@@ -388,10 +388,46 @@ def get_tool_registry() -> ToolRegistry:
 # Alias para compatibilidad hacia atrás
 ToolRegistry.register_builtin_tools = ToolRegistry.register_core_tools
 
-# Método stub para load_openapi_tools (ya no se usa en Brain 2.0)
-async def _load_openapi_tools_stub(self) -> int:
-    """Stub para compatibilidad - OpenAPI tools deshabilitadas en Brain 2.0"""
-    logger.info("OpenAPI tools disabled in Brain 2.0 - using core tools only")
-    return 0
 
-ToolRegistry.load_openapi_tools = _load_openapi_tools_stub
+async def _load_openapi_tools(self) -> int:
+    """
+    Carga herramientas OpenAPI desde las conexiones activas en BD.
+    
+    Las tools se registran con ToolType.OPENAPI y quedan disponibles
+    en el registry global. Los BIW domain tools las detectan
+    automaticamente y delegan en ellas si existen.
+    """
+    from .openapi_tools import openapi_toolkit
+    
+    try:
+        conn_count = await openapi_toolkit.load_connections_from_db()
+        if conn_count == 0:
+            logger.info("No hay conexiones OpenAPI activas en BD")
+            return 0
+        
+        all_tools = await openapi_toolkit.load_all_tools()
+        
+        # Registrar cada tool OpenAPI en el registry
+        registered = 0
+        for tool_id, oapi_tool in all_tools.items():
+            tool_def = ToolDefinition(
+                id=oapi_tool.id,
+                name=oapi_tool.name,
+                description=oapi_tool.description,
+                type=ToolType.OPENAPI,
+                parameters=oapi_tool.to_function_schema().get("parameters", {}),
+                handler=oapi_tool.execute,
+                openapi_tool=oapi_tool
+            )
+            self.register(tool_def)
+            registered += 1
+        
+        logger.info(f"✅ OpenAPI tools registradas: {registered} (de {conn_count} conexiones)")
+        return registered
+        
+    except Exception as e:
+        logger.error(f"Error cargando OpenAPI tools: {e}", exc_info=True)
+        return 0
+
+
+ToolRegistry.load_openapi_tools = _load_openapi_tools

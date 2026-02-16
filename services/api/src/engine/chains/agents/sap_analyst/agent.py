@@ -58,6 +58,10 @@ SAP_ANALYST_SKILLS = [
 ]
 
 
+# Prefijos de slug conocidos para conexiones SAP OpenAPI
+SAP_OPENAPI_SLUGS = ["sap_btp_gateway", "sap_gateway", "sap_biw", "sap_odata", "sap"]
+
+
 class SAPAnalystAgent(BaseSubAgent):
     """
     Subagente especializado en análisis de datos SAP BIW.
@@ -67,12 +71,17 @@ class SAPAnalystAgent(BaseSubAgent):
     2. Se ejecutan las tools y los resultados se reenvían al LLM
     3. El LLM decide el siguiente paso (más tools o respuesta final)
     4. Repite hasta que el LLM responde sin tool calls o se alcanza el límite
+    
+    Detección automática de tools OpenAPI SAP:
+    Si existen conexiones OpenAPI con slug SAP en el registry,
+    se agregan dinámicamente como tools disponibles para el LLM.
+    Las tools BIW domain (mocks) siguen disponibles como fallback.
     """
     
     id = "sap_analyst"
     name = "SAP BIW Analyst"
     description = "Analista de datos SAP BIW: extracción BW, cubos OLAP, reportes"
-    version = "2.1.0"
+    version = "2.2.0"
     domain_tools = [
         "biw_get_cube_data",
         "biw_get_dso_data",
@@ -94,7 +103,66 @@ class SAPAnalystAgent(BaseSubAgent):
     def __init__(self):
         super().__init__()
         self.system_prompt = _read_system_prompt()
-        logger.info("📊 SAPAnalystAgent initialized (v2.1.0 multi-turn)")
+        self._openapi_tools_detected = False
+        self._sap_openapi_tool_ids: List[str] = []
+        logger.info("📊 SAPAnalystAgent initialized (v2.2.0 multi-turn + OpenAPI)")
+    
+    def _detect_sap_openapi_tools(self) -> List[str]:
+        """
+        Detecta tools OpenAPI con prefijo SAP registradas en el tool_registry.
+        
+        Busca tools de tipo OPENAPI cuyo ID empiece con alguno de los
+        slugs SAP conocidos (sap_btp_gateway_, sap_gateway_, etc.).
+        
+        Returns:
+            Lista de IDs de tools OpenAPI SAP encontradas
+        """
+        from src.tools.tool_registry import tool_registry, ToolType
+        
+        sap_tool_ids = []
+        for tool in tool_registry.list(ToolType.OPENAPI):
+            for slug in SAP_OPENAPI_SLUGS:
+                if tool.id.startswith(slug + "_"):
+                    sap_tool_ids.append(tool.id)
+                    break
+        
+        if sap_tool_ids:
+            logger.info(
+                f"📊 SAP OpenAPI tools detected: {len(sap_tool_ids)}",
+                tools=sap_tool_ids
+            )
+        
+        return sap_tool_ids
+    
+    def get_tools(self) -> List[Any]:
+        """
+        Obtiene tools del agente, incluyendo OpenAPI SAP si están disponibles.
+        
+        Extiende el método base para agregar dinámicamente las tools OpenAPI
+        SAP registradas en el registry. Esto permite al LLM elegir entre:
+        - Tools BIW domain (mocks / fallback)
+        - Tools OpenAPI SAP reales (si hay conexión configurada)
+        - Core tools (filesystem, execution, etc.)
+        """
+        from src.tools.tool_registry import tool_registry
+        
+        # Obtener tools base (domain + core)
+        base_tools = super().get_tools()
+        base_tool_ids = {t.id for t in base_tools}
+        
+        # Detectar tools OpenAPI SAP (lazy, una vez)
+        if not self._openapi_tools_detected:
+            self._sap_openapi_tool_ids = self._detect_sap_openapi_tools()
+            self._openapi_tools_detected = True
+        
+        # Agregar tools OpenAPI SAP que no estén ya incluidas
+        for tool_id in self._sap_openapi_tool_ids:
+            if tool_id not in base_tool_ids:
+                tool = tool_registry.get(tool_id)
+                if tool:
+                    base_tools.append(tool)
+        
+        return base_tools
     
     async def execute(
         self,

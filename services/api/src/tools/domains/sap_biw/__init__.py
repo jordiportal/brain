@@ -1,13 +1,16 @@
 """
 SAP BIW Tools - Business Intelligence Warehouse integration
 
-Mock implementations for SAP BIW data extraction.
-These tools simulate SAP BW/BI data structures for demonstration purposes.
-In production, these would connect to real SAP systems via RFC/OData.
+Cada herramienta BIW sigue un patron de "delegacion con fallback":
+  1. Busca una herramienta OpenAPI real en el tool_registry
+     (conexion remota SAP via RFC/OData configurada en Tools > OpenAPI)
+  2. Si la encuentra, delega la ejecucion al endpoint real
+  3. Si no, usa la implementacion mock parametrica local
 
-Los mocks son PARAMÉTRICOS: generan datos coherentes con los parámetros
-de entrada (cube_name, characteristics, key_figures, filters, etc.)
-para que el LLM pueda usarlos de forma realista.
+Esto permite:
+  - Desarrollo/demo sin SAP real (mocks parametricos)
+  - Produccion con SAP real (OpenAPI connection activa)
+  - Transicion transparente: mismos IDs de tools, mismo flujo del agente
 """
 
 import random
@@ -16,6 +19,80 @@ from typing import Dict, Any, List, Optional
 import structlog
 
 logger = structlog.get_logger()
+
+# Prefijos de slug conocidos para conexiones SAP OpenAPI
+_SAP_SLUGS = ["sap_btp_gateway", "sap_gateway", "sap_biw", "sap_odata", "sap"]
+
+
+async def _try_openapi_delegate(biw_tool_name: str, **kwargs) -> Optional[Dict[str, Any]]:
+    """
+    Intenta delegar la ejecucion a una tool OpenAPI real registrada en el registry.
+    
+    Busca una tool OpenAPI cuyo ID coincida con el patron:
+      {sap_slug}_{biw_tool_name}  (ej: sap_btp_gateway_biw_get_cube_data)
+    o:
+      {sap_slug}_{operation_id}   donde operation_id mapea al biw_tool_name
+    
+    Args:
+        biw_tool_name: Nombre de la tool BIW (ej: "biw_get_cube_data")
+        **kwargs: Parametros a pasar a la tool OpenAPI
+    
+    Returns:
+        Resultado de la tool OpenAPI si se encontro y ejecuto exitosamente.
+        None si no hay tool OpenAPI disponible (= usar mock).
+    """
+    try:
+        from ...tool_registry import tool_registry, ToolType
+        
+        # Buscar tool OpenAPI con cualquiera de los prefijos SAP conocidos
+        for slug in _SAP_SLUGS:
+            # Patron 1: {slug}_{biw_tool_name} (ej: sap_btp_gateway_biw_get_cube_data)
+            candidate_id = f"{slug}_{biw_tool_name}"
+            tool = tool_registry.get(candidate_id)
+            
+            if tool and tool.type == ToolType.OPENAPI and tool.handler:
+                logger.info(
+                    f"📡 BIW delegating to OpenAPI: {candidate_id}",
+                    biw_tool=biw_tool_name, params=list(kwargs.keys())
+                )
+                result = await tool.handler(**kwargs)
+                
+                if isinstance(result, dict) and result.get("success"):
+                    logger.info(f"✅ OpenAPI delegation successful: {candidate_id}")
+                    return result
+                elif isinstance(result, dict) and result.get("error"):
+                    logger.warning(
+                        f"⚠️ OpenAPI tool returned error, falling back to mock: {result.get('error')}",
+                        tool=candidate_id
+                    )
+                    return None
+                else:
+                    return result
+        
+        # Patron 2: Buscar por nombre parcial en todas las tools OpenAPI
+        for tool in tool_registry.list(ToolType.OPENAPI):
+            # Buscar si el tool_id contiene el nombre BIW (ej: ..._get_cube_data)
+            # Eliminar el prefijo "biw_" para buscar mas ampliamente
+            short_name = biw_tool_name.replace("biw_", "")
+            if short_name in tool.id and tool.handler:
+                logger.info(
+                    f"📡 BIW delegating to OpenAPI (partial match): {tool.id}",
+                    biw_tool=biw_tool_name
+                )
+                result = await tool.handler(**kwargs)
+                if isinstance(result, dict) and result.get("success"):
+                    return result
+                return None
+        
+        # No se encontro ninguna tool OpenAPI
+        return None
+        
+    except ImportError:
+        # Si no se puede importar el registry (ej: test aislado), usar mock
+        return None
+    except Exception as e:
+        logger.warning(f"⚠️ Error in OpenAPI delegation for {biw_tool_name}: {e}")
+        return None
 
 
 def _seed_from(text: str) -> int:
@@ -122,29 +199,29 @@ async def biw_get_cube_data(
 ) -> Dict[str, Any]:
     """
     Extrae datos de un InfoCube (cubo OLAP) de SAP BW.
-    
-    Args:
-        cube_name: Nombre del InfoCube (ej: ZC_SALES, ZC_COSTS)
-        characteristics: Lista de características (ejes de análisis)
-        key_figures: Lista de ratios/medidas (Key Figures)
-        filters: Filtros para aplicar (ej: {"region": "Norte"})
-        drilldown: Jerarquía de drill-down (ej: ["year", "quarter", "month"])
-    
-    Returns:
-        Dict con los datos del cubo multidimensionales
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Extracting cube data: {cube_name}", 
                 chars=characteristics, kfs=key_figures, filters=filters)
     
-    # Usar drilldown como characteristics si no se especifican
+    # Intentar delegacion a OpenAPI real
+    real_result = await _try_openapi_delegate(
+        "biw_get_cube_data",
+        cube_name=cube_name, characteristics=characteristics,
+        key_figures=key_figures, filters=filters, drilldown=drilldown
+    )
+    if real_result is not None:
+        return real_result
+    
+    # Fallback: mock parametrico
     chars = characteristics or drilldown or ["region", "period"]
     kfs = key_figures or ["amount", "quantity"]
-    
     rows = _generate_mock_rows(cube_name, chars, kfs, filters, num_rows=6)
     
     return {
         "success": True,
         "cube_name": cube_name,
+        "source": "mock",
         "data": {
             "rows": rows,
             "metadata": {
@@ -165,17 +242,16 @@ async def biw_get_dso_data(
 ) -> Dict[str, Any]:
     """
     Extrae datos de un DataStore Object (DSO) de SAP BW.
-    
-    Args:
-        dso_name: Nombre del DSO (ej: ZDSO_SALES, ZDSO_CUSTOMERS)
-        fields: Campos específicos a extraer
-        filters: Filtros para aplicar
-        max_rows: Máximo número de filas
-    
-    Returns:
-        Dict con datos maestros o transaccionales del DSO
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Extracting DSO data: {dso_name}", fields=fields, filters=filters)
+    
+    real_result = await _try_openapi_delegate(
+        "biw_get_dso_data",
+        dso_name=dso_name, fields=fields, filters=filters, max_rows=max_rows
+    )
+    if real_result is not None:
+        return real_result
     
     rng = random.Random(_seed_from(dso_name))
     resolved_fields = fields or ["id", "name", "category", "value"]
@@ -222,6 +298,7 @@ async def biw_get_dso_data(
     return {
         "success": True,
         "dso_name": dso_name,
+        "source": "mock",
         "data": {
             "rows": rows,
             "metadata": {
@@ -240,16 +317,16 @@ async def biw_get_bex_query(
 ) -> Dict[str, Any]:
     """
     Ejecuta una query BEx (Business Explorer) de SAP.
-    
-    Args:
-        query_name: Nombre de la query BEx (ej: ZQ_SALES_ANALYSIS)
-        variables: Variables de la query (parámetros)
-        filters: Filtros adicionales
-    
-    Returns:
-        Dict con resultados de la query BEx
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Executing BEx query: {query_name}", variables=variables, filters=filters)
+    
+    real_result = await _try_openapi_delegate(
+        "biw_get_bex_query",
+        query_name=query_name, variables=variables, filters=filters
+    )
+    if real_result is not None:
+        return real_result
     
     rng = random.Random(_seed_from(query_name))
     
@@ -315,6 +392,7 @@ async def biw_get_bex_query(
     return {
         "success": True,
         "query_name": query_name,
+        "source": "mock",
         "data": {
             "results": rows,
             "metadata": {
@@ -334,16 +412,16 @@ async def biw_get_master_data(
 ) -> Dict[str, Any]:
     """
     Obtiene datos maestros (Master Data) de SAP BW.
-    
-    Args:
-        object_name: Nombre del objeto maestro (ej: ZCUSTOMER, ZPRODUCT)
-        attributes: Atributos específicos a obtener
-        filters: Filtros para aplicar
-    
-    Returns:
-        Dict con datos maestros y sus atributos
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Getting master data: {object_name}", attributes=attributes, filters=filters)
+    
+    real_result = await _try_openapi_delegate(
+        "biw_get_master_data",
+        object_name=object_name, attributes=attributes, filters=filters
+    )
+    if real_result is not None:
+        return real_result
     
     rng = random.Random(_seed_from(object_name))
     attrs = attributes or ["name", "city", "country", "status"]
@@ -377,6 +455,7 @@ async def biw_get_master_data(
     return {
         "success": True,
         "object_name": object_name,
+        "source": "mock",
         "data": {
             "records": records,
             "metadata": {
@@ -395,16 +474,16 @@ async def biw_get_hierarchy(
 ) -> Dict[str, Any]:
     """
     Obtiene una jerarquía (Hierarchy) de SAP BW.
-    
-    Args:
-        hierarchy_name: Nombre de la jerarquía (ej: ZH_REGION, ZH_PRODUCT)
-        level: Nivel específico de la jerarquía (opcional)
-        node: Nodo específico para obtener sub-jerarquía (opcional)
-    
-    Returns:
-        Dict con estructura de la jerarquía
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Getting hierarchy: {hierarchy_name}", level=level, node=node)
+    
+    real_result = await _try_openapi_delegate(
+        "biw_get_hierarchy",
+        hierarchy_name=hierarchy_name, level=level, node=node
+    )
+    if real_result is not None:
+        return real_result
     
     # Inferir tipo de jerarquía del nombre
     hn = hierarchy_name.lower()
@@ -463,6 +542,7 @@ async def biw_get_hierarchy(
     return {
         "success": True,
         "hierarchy_name": hierarchy_name,
+        "source": "mock",
         "data": {
             "nodes": nodes,
             "metadata": {
@@ -480,16 +560,16 @@ async def biw_get_texts(
 ) -> Dict[str, Any]:
     """
     Obtiene textos descriptivos de objetos SAP BW.
-    
-    Args:
-        object_name: Nombre del objeto (ej: ZCUSTOMER, ZPRODUCT)
-        language: Código de idioma (ES, EN, DE, etc.)
-        keys: Lista de keys específicos (opcional)
-    
-    Returns:
-        Dict con textos descriptivos
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Getting texts for: {object_name} (lang: {language})")
+    
+    real_result = await _try_openapi_delegate(
+        "biw_get_texts",
+        object_name=object_name, language=language, keys=keys
+    )
+    if real_result is not None:
+        return real_result
     
     rng = random.Random(_seed_from(object_name + language))
     
@@ -509,6 +589,7 @@ async def biw_get_texts(
         "success": True,
         "object_name": object_name,
         "language": language,
+        "source": "mock",
         "data": {
             "texts": texts,
             "metadata": {
@@ -526,16 +607,16 @@ async def biw_get_ratios(
 ) -> Dict[str, Any]:
     """
     Obtiene ratios y Key Figures calculados (Calculated KFs) de SAP BW.
-    
-    Args:
-        cube_name: Nombre del InfoCube
-        calculated_key_figures: Lista de ratios calculados específicos
-        context: Contexto para el cálculo (ej: período, comparativa)
-    
-    Returns:
-        Dict con ratios calculados
+    Delega a OpenAPI SAP si hay conexión configurada, o usa mock como fallback.
     """
     logger.info(f"📊 Getting ratios for cube: {cube_name}", ckfs=calculated_key_figures)
+    
+    real_result = await _try_openapi_delegate(
+        "biw_get_ratios",
+        cube_name=cube_name, calculated_key_figures=calculated_key_figures, context=context
+    )
+    if real_result is not None:
+        return real_result
     
     rng = random.Random(_seed_from(cube_name))
     
@@ -571,6 +652,7 @@ async def biw_get_ratios(
     return {
         "success": True,
         "cube_name": cube_name,
+        "source": "mock",
         "data": {
             "ratios": ratios,
             "metadata": {
