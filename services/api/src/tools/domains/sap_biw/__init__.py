@@ -9,6 +9,7 @@ No hay mocks ni fallbacks: si el proxy no esta disponible, se
 devuelve un error claro para que el LLM informe al usuario.
 """
 
+import time
 import httpx
 from typing import Dict, Any, List, Optional
 from urllib.parse import quote
@@ -17,14 +18,20 @@ import structlog
 
 logger = structlog.get_logger()
 
-# Cache de conexion para no consultar BD en cada tool call
+# Cache de conexion con TTL (5 min) para no consultar BD en cada tool call
 _connection_cache: Dict[str, Any] = {}
+_CACHE_TTL_SECONDS = 300
+
+
+def _invalidate_cache():
+    """Limpia el cache de conexion (fuerza re-lectura de BD)."""
+    _connection_cache.clear()
 
 
 async def _get_proxy_config() -> Dict[str, str]:
     """
     Obtiene base_url y auth_token de la conexion OpenAPI 'sap-biw' en BD.
-    Cachea el resultado en memoria para reutilizar en llamadas sucesivas.
+    Cachea el resultado en memoria con TTL de 5 minutos.
     
     Returns:
         Dict con 'base_url' y 'token'
@@ -32,7 +39,8 @@ async def _get_proxy_config() -> Dict[str, str]:
     Raises:
         ValueError si la conexion no existe o no esta activa
     """
-    if _connection_cache.get("base_url"):
+    cached_at = _connection_cache.get("_cached_at", 0)
+    if _connection_cache.get("base_url") and (time.time() - cached_at) < _CACHE_TTL_SECONDS:
         return _connection_cache
     
     try:
@@ -53,6 +61,7 @@ async def _get_proxy_config() -> Dict[str, str]:
         
         _connection_cache["base_url"] = conn.base_url.rstrip("/")
         _connection_cache["token"] = conn.auth_token or ""
+        _connection_cache["_cached_at"] = time.time()
         
         logger.info(
             "SAP BIW proxy config loaded",
@@ -113,6 +122,8 @@ async def _proxy_request(
         }
     except httpx.HTTPStatusError as e:
         body = e.response.text[:500] if e.response else ""
+        if e.response.status_code == 401:
+            _invalidate_cache()
         return {
             "success": False,
             "error": f"Error HTTP {e.response.status_code} del proxy BIW: {body}"
