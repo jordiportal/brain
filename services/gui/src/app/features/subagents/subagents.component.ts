@@ -2532,6 +2532,8 @@ export class SubagentsComponent implements OnInit {
 
   selectedAgent: Subagent | null = null;
   executeAgent = signal<Subagent | null>(null);
+  /** Session ID para memoria conversacional del subagente (misma conversación = mismo session_id) */
+  subagentSessionId = signal<string | null>(null);
   activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración, 2 = Ejecutar
 
   agentConfig: SubagentConfig = {
@@ -2783,6 +2785,7 @@ export class SubagentsComponent implements OnInit {
     this.executeTask = '';
     this.executeContext = '';
     this.messages.set([]);
+    this.subagentSessionId.set(null);
     
     // SINCRONIZAR con la configuración del agente
     if (this.agentConfig.llm_provider) {
@@ -2819,6 +2822,7 @@ export class SubagentsComponent implements OnInit {
     this.activeTabIndex = 0; // Switch back to subagents list
     this.executeAgent.set(null);
     this.messages.set([]);
+    this.subagentSessionId.set(null);
     this.executeResult.set(null);
   }
 
@@ -2858,10 +2862,18 @@ export class SubagentsComponent implements OnInit {
     };
     this.messages.update(msgs => [...msgs, userMessage]);
 
+    // Session ID para memoria: reutilizar si ya hay conversación, crear uno nuevo si no
+    let sessionId = this.subagentSessionId();
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      this.subagentSessionId.set(sessionId);
+    }
+
     // Preparar el payload según si usamos config guardada o personalizada
     let payload: any = {
       task: this.executeTask,
-      context: this.executeContext || null
+      context: this.executeContext || null,
+      session_id: sessionId
     };
     
     if (this.useSavedConfig()) {
@@ -2947,12 +2959,14 @@ export class SubagentsComponent implements OnInit {
 
   clearChat(): void {
     this.messages.set([]);
+    this.subagentSessionId.set(null);
     this.executeResult.set(null);
   }
 
   closeChat(): void {
     this.executeAgent.set(null);
     this.messages.set([]);
+    this.subagentSessionId.set(null);
     this.executeResult.set(null);
   }
 

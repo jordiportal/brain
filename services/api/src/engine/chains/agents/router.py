@@ -22,6 +22,7 @@ class SubagentExecuteRequest(BaseModel):
     """Request para ejecutar una tarea en un subagente"""
     task: str
     context: Optional[str] = None
+    session_id: Optional[str] = None
     llm_url: Optional[str] = None
     model: Optional[str] = None
     provider_type: str = "ollama"
@@ -200,6 +201,7 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
         result = await agent.execute(
             task=request.task,
             context=request.context,
+            session_id=request.session_id,
             llm_url=llm_url,
             model=model,
             provider_type=provider_type,

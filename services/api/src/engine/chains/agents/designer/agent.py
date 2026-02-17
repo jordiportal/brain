@@ -74,6 +74,7 @@ class DesignerAgent(BaseSubAgent):
         self,
         task: str,
         context: Optional[str] = None,
+        session_id: Optional[str] = None,
         llm_url: Optional[str] = None,
         model: Optional[str] = None,
         provider_type: Optional[str] = None,

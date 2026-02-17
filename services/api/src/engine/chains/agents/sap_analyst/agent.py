@@ -108,6 +108,7 @@ class SAPAnalystAgent(BaseSubAgent):
         self,
         task: str,
         context: Optional[str] = None,
+        session_id: Optional[str] = None,
         llm_url: Optional[str] = None,
         model: Optional[str] = None,
         provider_type: Optional[str] = None,
@@ -115,7 +116,7 @@ class SAPAnalystAgent(BaseSubAgent):
     ) -> SubAgentResult:
         """Ejecuta consulta SAP usando LLM con herramientas en loop multi-turno."""
         start_time = time.time()
-        logger.info("📊 SAPAnalystAgent executing", task=task[:80])
+        logger.info("📊 SAPAnalystAgent executing", task=task[:80], session_id=session_id)
         
         if not llm_url or not model or not provider_type:
             return SubAgentResult(
@@ -129,7 +130,7 @@ class SAPAnalystAgent(BaseSubAgent):
         
         try:
             return await self._execute_with_llm(
-                task, context, llm_url, model, provider_type, api_key, start_time
+                task, context, session_id, llm_url, model, provider_type, api_key, start_time
             )
         except Exception as e:
             logger.error(f"SAPAnalystAgent error: {e}", exc_info=True)
@@ -146,6 +147,7 @@ class SAPAnalystAgent(BaseSubAgent):
         self,
         task: str,
         context: Optional[str],
+        session_id: Optional[str],
         llm_url: str,
         model: str,
         provider_type: str,
@@ -158,6 +160,7 @@ class SAPAnalystAgent(BaseSubAgent):
         1. El LLM pide tools BIW → se ejecutan → resultados se reenvían al LLM
         2. El LLM usa los datos REALES para decidir siguiente paso
         3. Loop termina cuando el LLM responde sin tool_calls o MAX_TOOL_ITERATIONS
+        Si session_id está presente, se carga memoria previa y se guarda al finalizar.
         """
         
         tools = self.get_tools()
@@ -174,10 +177,12 @@ class SAPAnalystAgent(BaseSubAgent):
         if context:
             user_content += f"\n\nContexto adicional: {context}"
         
-        messages: List[Dict] = [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": user_content}
-        ]
+        messages: List[Dict] = [{"role": "system", "content": system_content}]
+        if session_id:
+            memory = self._load_memory(session_id, max_messages=self.MAX_MEMORY_MESSAGES)
+            for msg in memory:
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+        messages.append({"role": "user", "content": user_content})
         
         all_tools_used: List[str] = []
         all_tool_results: List[Dict] = []
@@ -267,9 +272,18 @@ class SAPAnalystAgent(BaseSubAgent):
             if not final_content:
                 final_content = f"Análisis BIW completado tras {MAX_TOOL_ITERATIONS} iteraciones. Herramientas usadas: {', '.join(all_tools_used)}"
         
+        response_text = final_content or f"Análisis BIW completado. Herramientas usadas: {', '.join(all_tools_used)}"
+        if session_id:
+            self._save_memory(
+                session_id,
+                user_content,
+                response_text,
+                max_messages=self.MAX_MEMORY_MESSAGES
+            )
+        
         return SubAgentResult(
             success=True,
-            response=final_content or f"Análisis BIW completado. Herramientas usadas: {', '.join(all_tools_used)}",
+            response=response_text,
             agent_id=self.id,
             agent_name=self.name,
             tools_used=all_tools_used,

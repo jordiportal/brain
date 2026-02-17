@@ -117,7 +117,8 @@ async def delegate(
     _llm_url: Optional[str] = None,
     _model: Optional[str] = None,
     _provider_type: Optional[str] = None,
-    _api_key: Optional[str] = None
+    _api_key: Optional[str] = None,
+    _session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Delega una tarea a un subagente especializado.
@@ -195,6 +196,7 @@ async def delegate(
         result = await subagent.execute(
             task=task,
             context=context,
+            session_id=_session_id,
             llm_url=llm_config["llm_url"],
             model=llm_config["model"],
             provider_type=llm_config["provider_type"],
@@ -364,6 +366,7 @@ async def _execute_child_task(
         result = await subagent.execute(
             task=task,
             context=context,
+            session_id=None,
             llm_url=llm_config["llm_url"],
             model=llm_config["model"],
             provider_type=llm_config["provider_type"],
@@ -701,7 +704,8 @@ def get_delegate_tool() -> dict:
 - designer_agent: Imágenes, vídeos cinematográficos y presentaciones
 - researcher_agent: Búsqueda web (datos actuales)
 - communication_agent: Estrategia y narrativa
-- sap_analyst: Análisis de datos SAP (FI/CO, SD, MM, PP, HR)""",
+- sap_analyst: Datos SAP BIW: ventas (VN), P&L, rentabilidad, queries, datos de negocio
+- rag_agent: Búsqueda en documentos, recuperación de información""",
         "parameters": {
             "type": "object",
             "properties": {

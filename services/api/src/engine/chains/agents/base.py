@@ -100,10 +100,14 @@ class BaseSubAgent(ABC):
     # Skills disponibles (definidos por cada subagente)
     available_skills: List[Skill] = []
     
+    # Memoria conversacional por session_id (últimos N mensajes)
+    MAX_MEMORY_MESSAGES = 10
+
     def __init__(self):
         logger.info(f"🤖 SubAgent initialized: {self.id} ({self.role})")
         self._skills_cache: Dict[str, str] = {}  # Cache de skills cargados
         self._loaded_skills: List[str] = []  # Skills cargados en la sesión actual
+        self._memory_store: Dict[str, List[dict]] = {}  # session_id -> list of {role, content}
     
     def get_skills_dir(self) -> Path:
         """Obtiene el directorio de skills del subagente."""
@@ -329,17 +333,49 @@ Sé conciso pero útil. Responde en español."""
         
         return tools
     
+    def _load_memory(self, session_id: str, max_messages: int = 10) -> List[dict]:
+        """Carga los últimos mensajes de la sesión para contexto conversacional."""
+        if not session_id or session_id not in self._memory_store:
+            return []
+        messages = self._memory_store[session_id]
+        # max_messages = pares user+assistant; devolver últimos max_messages*2
+        keep = min(len(messages), max_messages * 2)
+        return messages[-keep:] if keep else []
+    
+    def _save_memory(
+        self,
+        session_id: str,
+        user_content: str,
+        assistant_content: str,
+        max_messages: int = 10
+    ) -> None:
+        """Guarda user + assistant en la memoria de la sesión."""
+        if not session_id:
+            return
+        if session_id not in self._memory_store:
+            self._memory_store[session_id] = []
+        self._memory_store[session_id].append({"role": "user", "content": user_content})
+        self._memory_store[session_id].append({"role": "assistant", "content": assistant_content})
+        if len(self._memory_store[session_id]) > max_messages * 2:
+            self._memory_store[session_id] = self._memory_store[session_id][-max_messages * 2:]
+    
+    def clear_memory(self, session_id: str) -> None:
+        """Limpia la memoria de una sesión."""
+        if session_id in self._memory_store:
+            del self._memory_store[session_id]
+    
     @abstractmethod
     async def execute(
         self,
         task: str,
         context: Optional[str] = None,
+        session_id: Optional[str] = None,
         llm_url: Optional[str] = None,
         model: Optional[str] = None,
         provider_type: Optional[str] = None,
         api_key: Optional[str] = None
     ) -> SubAgentResult:
-        """Ejecuta una tarea."""
+        """Ejecuta una tarea. Si session_id se proporciona, se usa memoria conversacional."""
         pass
 
 
