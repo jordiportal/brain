@@ -1010,8 +1010,8 @@ export class ChainEditorComponent implements OnInit {
   // Graph data
   graphNodes: any[] = [];
   graphLinks: any[] = [];
-  center$ = new Subject<boolean>();
-  zoomToFit$ = new Subject<boolean>();
+  center$ = new Subject<any>();
+  zoomToFit$ = new Subject<{autoCenter?: boolean; force?: boolean}>();
   layoutSettings = {
     orientation: 'TB',
     marginX: 50,
@@ -1261,7 +1261,7 @@ export class ChainEditorComponent implements OnInit {
   }
 
   zoomIn(): void {
-    this.zoomToFit$.next(true);
+    this.zoomToFit$.next({ autoCenter: true, force: true });
   }
 
   zoomOut(): void {

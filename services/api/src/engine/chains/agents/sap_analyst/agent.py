@@ -1,9 +1,9 @@
 """
-SAP Analyst Agent - Análisis de datos y reportes SAP.
+SAP Analyst Agent - Análisis de datos y reportes SAP BIW.
 
 Subagente especializado en:
-- Conexión a sistemas SAP (S/4HANA, ECC, BI/BW)
-- Extracción de datos vía RFC, OData, queries
+- Conexión a SAP BIW via proxy-biw (HTTP directo)
+- Extracción de datos: catálogos, queries, dimensiones, ejecución
 - Análisis estadístico y generación de insights
 - Creación de reportes y dashboards
 
@@ -24,8 +24,7 @@ from ...llm_utils import call_llm_with_tools
 
 logger = structlog.get_logger()
 
-# Máximo de iteraciones del loop para evitar bucles infinitos
-MAX_TOOL_ITERATIONS = 6
+MAX_TOOL_ITERATIONS = 8
 
 
 def _read_system_prompt() -> str:
@@ -34,62 +33,62 @@ def _read_system_prompt() -> str:
     try:
         return path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        # Fallback mínimo sin ejemplos concretos
         return (
             "Eres un Analista de Datos SAP BIW experto. "
-            "Usa las herramientas BIW para extraer datos y generate_spreadsheet para crear Excel. "
-            "NUNCA inventes datos: usa siempre los datos reales obtenidos de las herramientas o los proporcionados por el usuario. "
-            "Adapta las columnas, título y contenido al tema que el usuario solicite."
+            "Usa las herramientas bi_* para extraer datos de SAP BIW y generate_spreadsheet para crear Excel. "
+            "NUNCA inventes datos: usa siempre los datos reales obtenidos de las herramientas."
         )
 
 
-# Skills para SAP Analyst
 SAP_ANALYST_SKILLS = [
     Skill(
-        id="biw_extraction",
-        name="Extracción BIW",
-        description="Uso de herramientas BIW para extraer datos: InfoCubes, DSOs, queries BEx"
+        id="sap_biw_analyst",
+        name="SAP BIW Analyst",
+        description="Conocimiento de dominio completo: queries KH Lloreda, dimensiones, medidas, versiones, ejemplos de uso. CARGAR SIEMPRE."
     ),
     Skill(
-        id="biw_analysis",
-        name="Análisis BIW",
-        description="Técnicas de análisis: multidimensional, tendencias, ABC, correlaciones"
-    )
+        id="biw_data_extraction",
+        name="Extracción BIW",
+        description="Técnicas de extracción: InfoCubes, DSOs, queries BEx, navegación multidimensional"
+    ),
+    Skill(
+        id="financial_analysis",
+        name="Análisis Financiero",
+        description="P&L, márgenes, ratios financieros, comparativas"
+    ),
+    Skill(
+        id="sales_analysis",
+        name="Análisis de Ventas",
+        description="Ventas por segmento, canal, marca, evolución temporal"
+    ),
 ]
-
-
-# Prefijos de slug conocidos para conexiones SAP OpenAPI
-SAP_OPENAPI_SLUGS = ["sap_btp_gateway", "sap_gateway", "sap_biw", "sap_odata", "sap"]
 
 
 class SAPAnalystAgent(BaseSubAgent):
     """
     Subagente especializado en análisis de datos SAP BIW.
     
-    Implementa un loop multi-turno:
-    1. El LLM decide qué tools llamar (ej: biw_get_cube_data)
+    Conecta directamente al proxy-biw via HTTP, leyendo la config
+    de conexión (URL + token) de la tabla openapi_connections (slug=sap-biw).
+    
+    Loop multi-turno:
+    1. El LLM decide qué tools llamar (ej: bi_execute_query)
     2. Se ejecutan las tools y los resultados se reenvían al LLM
     3. El LLM decide el siguiente paso (más tools o respuesta final)
-    4. Repite hasta que el LLM responde sin tool calls o se alcanza el límite
-    
-    Detección automática de tools OpenAPI SAP:
-    Si existen conexiones OpenAPI con slug SAP en el registry,
-    se agregan dinámicamente como tools disponibles para el LLM.
-    Las tools BIW domain (mocks) siguen disponibles como fallback.
+    4. Repite hasta respuesta final o límite de iteraciones
     """
     
     id = "sap_analyst"
     name = "SAP BIW Analyst"
-    description = "Analista de datos SAP BIW: extracción BW, cubos OLAP, reportes"
-    version = "2.2.0"
+    description = "Analista de datos SAP BIW: extracción, queries, P&L, reportes via proxy-biw"
+    version = "3.0.0"
     domain_tools = [
-        "biw_get_cube_data",
-        "biw_get_dso_data",
-        "biw_get_bex_query",
-        "biw_get_master_data",
-        "biw_get_hierarchy",
-        "biw_get_texts",
-        "biw_get_ratios",
+        "bi_list_catalogs",
+        "bi_list_queries",
+        "bi_get_metadata",
+        "bi_get_dimension_values",
+        "bi_execute_query",
+        "bw_execute_mdx",
         "generate_spreadsheet",
         "filesystem",
         "execute_code"
@@ -97,72 +96,13 @@ class SAPAnalystAgent(BaseSubAgent):
     available_skills = SAP_ANALYST_SKILLS
     
     role = "Analista de Datos SAP BIW"
-    expertise = "Experto en extracción y análisis de datos SAP BW/BI usando herramientas BIW"
-    task_requirements = "Consultas sobre datos SAP BIW: InfoCubes, DSOs, queries, análisis"
+    expertise = "Experto en extracción y análisis de datos SAP BIW usando herramientas bi_* conectadas a proxy-biw"
+    task_requirements = "Consultas sobre datos SAP BIW: queries, P&L, ventas, análisis"
     
     def __init__(self):
         super().__init__()
         self.system_prompt = _read_system_prompt()
-        self._openapi_tools_detected = False
-        self._sap_openapi_tool_ids: List[str] = []
-        logger.info("📊 SAPAnalystAgent initialized (v2.2.0 multi-turn + OpenAPI)")
-    
-    def _detect_sap_openapi_tools(self) -> List[str]:
-        """
-        Detecta tools OpenAPI con prefijo SAP registradas en el tool_registry.
-        
-        Busca tools de tipo OPENAPI cuyo ID empiece con alguno de los
-        slugs SAP conocidos (sap_btp_gateway_, sap_gateway_, etc.).
-        
-        Returns:
-            Lista de IDs de tools OpenAPI SAP encontradas
-        """
-        from src.tools.tool_registry import tool_registry, ToolType
-        
-        sap_tool_ids = []
-        for tool in tool_registry.list(ToolType.OPENAPI):
-            for slug in SAP_OPENAPI_SLUGS:
-                if tool.id.startswith(slug + "_"):
-                    sap_tool_ids.append(tool.id)
-                    break
-        
-        if sap_tool_ids:
-            logger.info(
-                f"📊 SAP OpenAPI tools detected: {len(sap_tool_ids)}",
-                tools=sap_tool_ids
-            )
-        
-        return sap_tool_ids
-    
-    def get_tools(self) -> List[Any]:
-        """
-        Obtiene tools del agente, incluyendo OpenAPI SAP si están disponibles.
-        
-        Extiende el método base para agregar dinámicamente las tools OpenAPI
-        SAP registradas en el registry. Esto permite al LLM elegir entre:
-        - Tools BIW domain (mocks / fallback)
-        - Tools OpenAPI SAP reales (si hay conexión configurada)
-        - Core tools (filesystem, execution, etc.)
-        """
-        from src.tools.tool_registry import tool_registry
-        
-        # Obtener tools base (domain + core)
-        base_tools = super().get_tools()
-        base_tool_ids = {t.id for t in base_tools}
-        
-        # Detectar tools OpenAPI SAP (lazy, una vez)
-        if not self._openapi_tools_detected:
-            self._sap_openapi_tool_ids = self._detect_sap_openapi_tools()
-            self._openapi_tools_detected = True
-        
-        # Agregar tools OpenAPI SAP que no estén ya incluidas
-        for tool_id in self._sap_openapi_tool_ids:
-            if tool_id not in base_tool_ids:
-                tool = tool_registry.get(tool_id)
-                if tool:
-                    base_tools.append(tool)
-        
-        return base_tools
+        logger.info("📊 SAPAnalystAgent initialized (v3.0.0 HTTP direct via proxy-biw)")
     
     async def execute(
         self,
@@ -215,25 +155,20 @@ class SAPAnalystAgent(BaseSubAgent):
         """
         Ejecuta con LLM en loop multi-turno.
         
-        A diferencia del flujo single-turn, aquí:
         1. El LLM pide tools BIW → se ejecutan → resultados se reenvían al LLM
         2. El LLM usa los datos REALES para decidir siguiente paso
-        3. Puede pedir generate_spreadsheet con datos reales (no inventados)
-        4. Loop termina cuando el LLM responde sin tool_calls o se alcanza MAX_TOOL_ITERATIONS
+        3. Loop termina cuando el LLM responde sin tool_calls o MAX_TOOL_ITERATIONS
         """
         
-        # Obtener herramientas disponibles
         tools = self.get_tools()
         tool_schemas = [tool.to_function_schema() for tool in tools]
         
-        # Construir índice de tools para lookup rápido
         tool_index = {}
         for tool in tools:
             tool_index[tool.id] = tool
             if tool.name and tool.name != tool.id:
                 tool_index[tool.name] = tool
         
-        # Construir mensajes iniciales
         system_content = self.system_prompt + self.get_skills_for_prompt()
         user_content = f"Tarea: {task}"
         if context:
@@ -244,17 +179,14 @@ class SAPAnalystAgent(BaseSubAgent):
             {"role": "user", "content": user_content}
         ]
         
-        # Tracking
         all_tools_used: List[str] = []
         all_tool_results: List[Dict] = []
         all_data_results: List[Dict] = []
         final_content = ""
         
-        # --- Loop multi-turno ---
         for iteration in range(MAX_TOOL_ITERATIONS):
             logger.info(f"📊 SAP Agent iteration {iteration + 1}/{MAX_TOOL_ITERATIONS}")
             
-            # Llamar LLM con herramientas
             response = await call_llm_with_tools(
                 messages=messages,
                 tools=tool_schemas,
@@ -265,17 +197,14 @@ class SAPAnalystAgent(BaseSubAgent):
                 model=model
             )
             
-            # Si no hay tool calls, el LLM ha terminado
             if not response.tool_calls:
                 final_content = response.content or ""
                 logger.info("📊 SAP Agent: LLM responded without tool calls, finishing")
                 break
             
-            # Guardar el content parcial si existe (algunos LLMs envían texto + tools)
             if response.content:
                 final_content = response.content
             
-            # Añadir el mensaje del asistente con tool_calls a la conversación
             assistant_msg: Dict[str, Any] = {"role": "assistant", "content": response.content or ""}
             assistant_msg["tool_calls"] = [
                 {
@@ -290,12 +219,10 @@ class SAPAnalystAgent(BaseSubAgent):
             ]
             messages.append(assistant_msg)
             
-            # Ejecutar cada tool call y reenviar resultados
             for tc in response.tool_calls:
                 tool_name = tc.function.get("name", "")
                 tool_params_raw = tc.function.get("arguments", {})
                 
-                # Parsear argumentos
                 if isinstance(tool_params_raw, str):
                     try:
                         tool_params = json.loads(tool_params_raw)
@@ -306,7 +233,6 @@ class SAPAnalystAgent(BaseSubAgent):
                 
                 all_tools_used.append(tool_name)
                 
-                # Ejecutar la tool
                 result_str = ""
                 try:
                     tool = tool_index.get(tool_name)
@@ -315,7 +241,6 @@ class SAPAnalystAgent(BaseSubAgent):
                         result = await tool.handler(**tool_params)
                         all_tool_results.append({"tool": tool_name, "result": result})
                         
-                        # Extraer datos si los hay
                         if isinstance(result, dict) and result.get("success") and result.get("data"):
                             all_data_results.append({
                                 "tool": tool_name,
@@ -332,14 +257,12 @@ class SAPAnalystAgent(BaseSubAgent):
                     logger.error(f"❌ Error executing tool {tool_name}: {e}")
                     all_tool_results.append({"tool": tool_name, "error": str(e)})
                 
-                # Reenviar resultado al LLM como mensaje tool
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": result_str
                 })
         else:
-            # Se alcanzó el límite de iteraciones
             logger.warning(f"📊 SAP Agent: reached max iterations ({MAX_TOOL_ITERATIONS})")
             if not final_content:
                 final_content = f"Análisis BIW completado tras {MAX_TOOL_ITERATIONS} iteraciones. Herramientas usadas: {', '.join(all_tools_used)}"
@@ -355,5 +278,4 @@ class SAPAnalystAgent(BaseSubAgent):
         )
 
 
-# Instancia para registro
 sap_analyst = SAPAnalystAgent()
