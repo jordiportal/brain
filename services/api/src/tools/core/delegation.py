@@ -7,10 +7,14 @@ a subagentes especializados por dominio:
 - researcher_agent: Búsqueda e investigación web
 - communication_agent: Estrategia y comunicación
 - sap_analyst: Análisis de datos SAP S/4HANA, ECC y BI
+
+Soporta delegación secuencial (delegate) y paralela (parallel_delegate).
 """
 
+import asyncio
 import time
-from typing import Dict, Any, Optional, Literal
+import uuid
+from typing import Dict, Any, Optional, List, Literal
 
 import structlog
 
@@ -322,6 +326,291 @@ async def consult_team_member(
         }
 
 
+async def _execute_child_task(
+    subagent,
+    task: str,
+    context: Optional[str],
+    llm_config: Dict[str, Optional[str]],
+    parent_execution_id: str
+) -> Dict[str, Any]:
+    """
+    Ejecuta una tarea de subagente como ejecución hija.
+    
+    Cada ejecución hija tiene su propio execution_id vinculado al padre
+    para trazabilidad completa del árbol de ejecución.
+    
+    Args:
+        subagent: Instancia del subagente
+        task: Tarea a ejecutar
+        context: Contexto opcional
+        llm_config: Configuración LLM resuelta
+        parent_execution_id: ID de la ejecución padre
+    
+    Returns:
+        Dict con resultado + metadatos de ejecución hija
+    """
+    child_execution_id = str(uuid.uuid4())
+    start_time = time.time()
+    
+    logger.info(
+        "🔀 Child execution started",
+        child_id=child_execution_id[:8],
+        parent_id=parent_execution_id[:8],
+        agent=subagent.id,
+        task=task[:80]
+    )
+    
+    try:
+        result = await subagent.execute(
+            task=task,
+            context=context,
+            llm_url=llm_config["llm_url"],
+            model=llm_config["model"],
+            provider_type=llm_config["provider_type"],
+            api_key=llm_config["api_key"]
+        )
+        
+        execution_time = int((time.time() - start_time) * 1000)
+        
+        logger.info(
+            "✅ Child execution completed",
+            child_id=child_execution_id[:8],
+            agent=subagent.id,
+            success=result.success,
+            execution_time_ms=execution_time
+        )
+        
+        result_dict = result.to_dict()
+        result_dict["_child_execution_id"] = child_execution_id
+        result_dict["_parent_execution_id"] = parent_execution_id
+        result_dict["execution_time_ms"] = execution_time
+        return result_dict
+        
+    except Exception as e:
+        execution_time = int((time.time() - start_time) * 1000)
+        logger.error(
+            f"❌ Child execution failed: {e}",
+            child_id=child_execution_id[:8],
+            agent=subagent.id,
+            exc_info=True
+        )
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "agent_id": subagent.id,
+            "agent_name": subagent.name,
+            "_child_execution_id": child_execution_id,
+            "_parent_execution_id": parent_execution_id,
+            "execution_time_ms": execution_time
+        }
+
+
+async def parallel_delegate(
+    tasks: List[Dict[str, Any]],
+    _llm_url: Optional[str] = None,
+    _model: Optional[str] = None,
+    _provider_type: Optional[str] = None,
+    _api_key: Optional[str] = None,
+    _execution_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Delega múltiples tareas a subagentes en paralelo.
+    
+    Lanza ejecuciones hijas concurrentes, cada una con su propio
+    execution_id vinculado al padre. Ideal para tareas independientes
+    que pueden ejecutarse simultáneamente.
+    
+    Args:
+        tasks: Lista de tareas. Cada una es un dict con:
+            - agent: ID del subagente (obligatorio)
+            - task: Descripción de la tarea (obligatorio)
+            - context: Contexto adicional (opcional)
+        _llm_url: URL del LLM (inyectada por el sistema)
+        _model: Modelo LLM (inyectado por el sistema)
+        _provider_type: Tipo de proveedor (inyectado por el sistema)
+        _api_key: API key (inyectada por el sistema)
+        _execution_id: ID de la ejecución padre (inyectado por el sistema)
+    
+    Returns:
+        Dict con:
+        - success: bool (True si al menos uno tuvo éxito)
+        - results: Lista de resultados por subagente
+        - summary: Resumen de ejecución
+        - child_execution_ids: IDs de ejecuciones hijas
+        - total_execution_time_ms: Tiempo total (wall clock)
+    
+    Examples:
+        result = await parallel_delegate(tasks=[
+            {"agent": "researcher_agent", "task": "Investiga tendencias IA 2025"},
+            {"agent": "designer_agent", "task": "Genera imagen de robot futurista"}
+        ])
+    """
+    start_time = time.time()
+    parent_id = _execution_id or str(uuid.uuid4())
+    
+    logger.info(
+        "🔀 Parallel delegation started",
+        parent_id=parent_id[:8],
+        num_tasks=len(tasks),
+        agents=[t.get("agent") for t in tasks]
+    )
+    
+    # Validar tareas
+    if not tasks or not isinstance(tasks, list):
+        return {
+            "success": False,
+            "error": "Se requiere una lista de tareas con al menos un elemento",
+            "results": []
+        }
+    
+    if len(tasks) > 5:
+        return {
+            "success": False,
+            "error": "Máximo 5 tareas en paralelo para evitar sobrecarga",
+            "results": []
+        }
+    
+    # Importar aquí para evitar circular imports
+    from src.engine.chains.agents import subagent_registry, register_all_subagents
+    
+    if not subagent_registry.is_initialized():
+        register_all_subagents()
+    
+    # Validar que todos los agentes existen antes de lanzar
+    validated_tasks = []
+    errors = []
+    
+    for i, task_def in enumerate(tasks):
+        agent_id = task_def.get("agent")
+        task_text = task_def.get("task")
+        context = task_def.get("context")
+        
+        if not agent_id or not task_text:
+            errors.append({
+                "index": i,
+                "error": "Cada tarea necesita 'agent' y 'task'",
+                "task_def": task_def
+            })
+            continue
+        
+        subagent = subagent_registry.get(agent_id)
+        if not subagent:
+            available = subagent_registry.list_ids()
+            errors.append({
+                "index": i,
+                "error": f"Subagente '{agent_id}' no encontrado",
+                "available_agents": available
+            })
+            continue
+        
+        validated_tasks.append({
+            "subagent": subagent,
+            "task": task_text,
+            "context": context,
+            "agent_id": agent_id
+        })
+    
+    if not validated_tasks:
+        return {
+            "success": False,
+            "error": "Ninguna tarea válida para ejecutar",
+            "validation_errors": errors,
+            "results": []
+        }
+    
+    # Resolver configuración LLM para cada subagente y crear coroutines
+    coroutines = []
+    for vt in validated_tasks:
+        try:
+            llm_config = await _get_subagent_llm_config(
+                vt["agent_id"], _llm_url, _model, _provider_type, _api_key
+            )
+            coroutines.append(
+                _execute_child_task(
+                    subagent=vt["subagent"],
+                    task=vt["task"],
+                    context=vt["context"],
+                    llm_config=llm_config,
+                    parent_execution_id=parent_id
+                )
+            )
+        except Exception as e:
+            logger.error(f"Error resolving LLM config for {vt['agent_id']}: {e}")
+            errors.append({
+                "agent_id": vt["agent_id"],
+                "error": f"Error configuración LLM: {str(e)}"
+            })
+    
+    if not coroutines:
+        return {
+            "success": False,
+            "error": "No se pudo preparar ninguna ejecución",
+            "validation_errors": errors,
+            "results": []
+        }
+    
+    # Ejecutar todas las tareas en paralelo
+    results = await asyncio.gather(*coroutines, return_exceptions=True)
+    
+    total_time = int((time.time() - start_time) * 1000)
+    
+    # Procesar resultados
+    processed_results = []
+    child_ids = []
+    successes = 0
+    failures = 0
+    
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            processed_results.append({
+                "success": False,
+                "agent_id": validated_tasks[i]["agent_id"],
+                "error": str(result),
+                "error_type": type(result).__name__
+            })
+            failures += 1
+        else:
+            processed_results.append(result)
+            child_id = result.get("_child_execution_id")
+            if child_id:
+                child_ids.append(child_id)
+            if result.get("success"):
+                successes += 1
+            else:
+                failures += 1
+    
+    # Agregar errores de validación como resultados fallidos
+    for err in errors:
+        processed_results.append({
+            "success": False,
+            **err
+        })
+        failures += 1
+    
+    logger.info(
+        "🔀 Parallel delegation completed",
+        parent_id=parent_id[:8],
+        successes=successes,
+        failures=failures,
+        total_time_ms=total_time,
+        child_ids=[cid[:8] for cid in child_ids]
+    )
+    
+    return {
+        "success": successes > 0,
+        "results": processed_results,
+        "child_execution_ids": child_ids,
+        "summary": {
+            "total_tasks": len(tasks),
+            "successes": successes,
+            "failures": failures,
+            "total_execution_time_ms": total_time,
+            "agents_used": [vt["agent_id"] for vt in validated_tasks]
+        }
+    }
+
+
 async def get_agent_info(agent: str) -> Dict[str, Any]:
     """
     Obtiene información sobre un subagente, incluyendo su rol, expertise y qué datos necesita.
@@ -464,6 +753,56 @@ Usa think/reflect/plan para sintetizar las propuestas.""",
             "required": ["agent", "task"]
         },
         "handler": consult_team_member
+    }
+
+
+def get_parallel_delegate_tool() -> dict:
+    """Tool parallel_delegate con enum dinámico."""
+    return {
+        "id": "parallel_delegate",
+        "name": "parallel_delegate",
+        "description": """Delega múltiples tareas a subagentes en PARALELO (ejecución concurrente).
+
+Usa cuando necesites ejecutar tareas INDEPENDIENTES simultáneamente para ahorrar tiempo.
+Cada subagente se ejecuta como ejecución hija con su propio contexto aislado.
+
+Ejemplos de uso:
+- Investigar un tema CON researcher_agent Y generar imagen CON designer_agent al mismo tiempo
+- Consultar datos SAP Y buscar en web simultáneamente
+
+NO usar cuando una tarea dependa del resultado de otra (usar delegate secuencial).""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "description": "Lista de tareas a ejecutar en paralelo (máximo 5)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "agent": {
+                                "type": "string",
+                                "enum": _get_agent_ids(),
+                                "description": "ID del subagente"
+                            },
+                            "task": {
+                                "type": "string",
+                                "description": "Tarea para el subagente"
+                            },
+                            "context": {
+                                "type": "string",
+                                "description": "Contexto adicional (opcional)"
+                            }
+                        },
+                        "required": ["agent", "task"]
+                    },
+                    "minItems": 1,
+                    "maxItems": 5
+                }
+            },
+            "required": ["tasks"]
+        },
+        "handler": parallel_delegate
     }
 
 

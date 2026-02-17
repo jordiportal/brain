@@ -7,6 +7,7 @@ Cada handler encapsula la lógica específica de una tool o grupo de tools.
 from .base import ToolHandler, ToolResult
 from .finish import FinishHandler
 from .delegate import DelegateHandler
+from .parallel_delegate import ParallelDelegateHandler
 from .reasoning import ReasoningHandler
 from .consult_team import ConsultTeamMemberHandler
 
@@ -18,6 +19,7 @@ from .consult_team import ConsultTeamMemberHandler
 HANDLER_REGISTRY = {
     "finish": FinishHandler,
     "delegate": DelegateHandler,
+    "parallel_delegate": ParallelDelegateHandler,
     "consult_team_member": ConsultTeamMemberHandler,
     # generate_slides removido - usar delegate(agent="slides_agent", ...)
     "think": ReasoningHandler,
@@ -44,6 +46,7 @@ __all__ = [
     "ToolResult",
     "FinishHandler",
     "DelegateHandler",
+    "ParallelDelegateHandler",
     "ConsultTeamMemberHandler",
     "ReasoningHandler",
     "get_handler",

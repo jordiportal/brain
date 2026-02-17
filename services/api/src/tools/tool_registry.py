@@ -142,7 +142,7 @@ class ToolRegistry:
         "web_search", "web_fetch",
         "think", "reflect", "plan", "finish",
         "calculate",
-        "get_agent_info", "delegate"
+        "get_agent_info", "delegate", "parallel_delegate"
     ]
 
     def get_tools_for_team(self) -> List[Dict[str, Any]]:
@@ -359,7 +359,7 @@ class ToolRegistry:
             "Web": ["web_search", "web_fetch"],
             "Reasoning": ["think", "reflect", "plan", "finish"],
             "Utils": ["calculate"],
-            "Delegation": ["get_agent_info", "delegate"]
+            "Delegation": ["get_agent_info", "delegate", "parallel_delegate"]
         }
         
         for category, tool_ids in categories.items():

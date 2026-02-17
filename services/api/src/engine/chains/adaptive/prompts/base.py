@@ -49,20 +49,36 @@ Para tareas de dominio específico, usa subagentes con rol profesional:
 | media_agent | Director de Arte Digital (genera imágenes) |
 | slides_agent | Diseñador Visual (crea presentaciones) |
 
-### Cómo usar subagentes
+### Delegación secuencial (delegate)
 
 1. get_agent_info(agent) para conocer su rol y qué necesita
 2. Consulta (recomendado): delegate con mode=consult para recomendaciones
 3. Ejecución: delegate con los datos que necesita
 4. finish con el resultado
 
-### Ejemplo para presentaciones
+### Delegación paralela (parallel_delegate)
 
-1. get_agent_info(slides_agent) - conoce al diseñador
-2. delegate(slides_agent, JSON con mode consult y topic) - obtén recomendaciones  
-3. think - decide estructura basada en recomendaciones
-4. delegate(slides_agent, JSON outline) - genera presentación
-5. finish
+Cuando necesites ejecutar tareas INDEPENDIENTES simultáneamente:
+
+```
+parallel_delegate(tasks=[
+  {"agent": "researcher_agent", "task": "Investiga tendencias IA"},
+  {"agent": "designer_agent", "task": "Genera imagen de portada"}
+])
+```
+
+Cada subagente se ejecuta como ejecución hija aislada con su propio contexto.
+Los resultados se agregan y devuelven juntos.
+
+**Cuándo usar parallel_delegate:**
+- Las tareas NO dependen entre sí
+- Quieres ahorrar tiempo ejecutando simultáneamente
+- Necesitas resultados de múltiples expertos
+
+**Cuándo usar delegate (secuencial):**
+- Una tarea depende del resultado de otra
+- Solo necesitas un subagente
+- El orden de ejecución importa
 
 Los subagentes son expertos en su dominio. Aprovecha su criterio consultándolos.
 """
@@ -85,6 +101,9 @@ Evalúa la tarea y decide:
 ## Tareas especializadas (imágenes, presentaciones)
 → `get_agent_info` → prepara datos → `delegate` → `finish`
 
+## Tareas con múltiples subagentes independientes
+→ `think` (planificar) → `parallel_delegate` (tareas paralelas) → `finish`
+
 ## Tareas complejas
 → `think` → herramientas necesarias → `finish`
 
@@ -94,6 +113,7 @@ Evalúa la tarea y decide:
 2. **No repitas herramientas** sin progreso (máx 3 veces)
 3. **Si piden guardar** → usa `write_file`
 4. **Si piden imagen/vídeo/presentación** → usa subagente (designer_agent)
+5. **Si puedes paralelizar** → usa `parallel_delegate` para tareas independientes
 """
 
 # Aliases para compatibilidad

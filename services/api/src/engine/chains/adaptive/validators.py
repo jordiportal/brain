@@ -27,7 +27,7 @@ VALID_TOOL_NAMES: Set[str] = {
     # Utils
     "calculate",
     # Delegation
-    "get_agent_info", "delegate",
+    "get_agent_info", "delegate", "parallel_delegate",
     # Team (consulta a miembros sin ejecutar)
     "consult_team_member",
 }

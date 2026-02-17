@@ -50,11 +50,13 @@ from .utils import (
 
 from .delegation import (
     delegate,
+    parallel_delegate,
     get_agent_info,
     consult_team_member,
     get_available_subagents_description,
     get_agent_info_tool,
     get_delegate_tool,
+    get_parallel_delegate_tool,
     get_consult_team_member_tool
 )
 
@@ -67,7 +69,8 @@ from .slides import (
 # Delegation tools (se resuelven en registro para enum dinámico)
 DELEGATION_TOOLS = {
     "get_agent_info": get_agent_info_tool,
-    "delegate": get_delegate_tool
+    "delegate": get_delegate_tool,
+    "parallel_delegate": get_parallel_delegate_tool
 }
 
 # Team-only tools
@@ -115,6 +118,7 @@ __all__ = [
     "calculate",
     # Delegation
     "delegate",
+    "parallel_delegate",
     "get_agent_info",
     "get_available_subagents_description",
     # Slides

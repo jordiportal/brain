@@ -143,6 +143,7 @@ class ExecutionStep(BaseModel):
 class ExecutionState(BaseModel):
     """Estado actual de una ejecución"""
     execution_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    parent_execution_id: Optional[str] = None  # Para ejecuciones hijas (parallel_delegate)
     chain_id: str
     chain_name: str
     status: ExecutionStatus = ExecutionStatus.PENDING
@@ -157,6 +158,7 @@ class ExecutionState(BaseModel):
     
     # Trace
     steps: list[ExecutionStep] = Field(default_factory=list)
+    child_execution_ids: list[str] = Field(default_factory=list)  # IDs de ejecuciones hijas
     
     # Timestamps
     started_at: Optional[datetime] = None

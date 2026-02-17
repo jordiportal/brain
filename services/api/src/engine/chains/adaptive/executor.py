@@ -53,6 +53,7 @@ class AdaptiveExecutor:
         "reflect": "🔍 Reflexionando",
         "plan": "📋 Planificando",
         "delegate": "🤖 Delegando a subagente",
+        "parallel_delegate": "🔀 Delegando en paralelo",
         "consult_team_member": "👥 Consultando miembro del equipo",
         "finish": "✅ Finalizando",
         # generate_slides movido a slides_agent - usar delegate
