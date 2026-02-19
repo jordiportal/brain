@@ -874,10 +874,10 @@ export class ChainsComponent implements OnInit {
             icon: this.getStepIconName(s.node_name),
             status: 'completed' as const,
             content: '',
+            type: 'generic',
             data: s.output_data,
             startTime: new Date(s.started_at),
             endTime: new Date(s.completed_at),
-            expanded: false
           };
           step.content = this.buildStepContent(step);
           if (!step.content && s.output_data?.response) step.content = s.output_data.response;

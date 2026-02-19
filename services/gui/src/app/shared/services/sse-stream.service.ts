@@ -1,15 +1,12 @@
 import { Injectable, WritableSignal } from '@angular/core';
-import { ChatMessage, IntermediateStep, ImageData, VideoData } from '../components/chat';
+import { ChatMessage, IntermediateStep, ImageData, VideoData, StepType } from '../components/chat';
 
 export interface SseStreamConfig {
   url: string;
   payload: any;
   messages: WritableSignal<ChatMessage[]>;
-  /** node_ids que deben tratarse como respuesta final (tokens acumulados en content) */
   finalResponseNodeIds?: string[];
-  /** Callback opcional para mapear node_name a icono de Material */
   getStepIcon?: (nodeName: string) => string;
-  /** Callback cuando se recibe un step content enriquecido (node_end con data) */
   buildStepContent?: (step: IntermediateStep) => string;
 }
 
@@ -24,12 +21,20 @@ export interface SseStreamResult {
 
 const DEFAULT_FINAL_NODE_IDS = ['synthesizer', 'adaptive_agent'];
 
+function classifyStep(nodeId: string, nodeName: string, data: any): StepType | 'iteration' {
+  if (/^iteration_\d+/.test(nodeId) || /iteration/i.test(nodeName)) return 'iteration';
+  if (data?.agent_type || data?.session_id) return 'subtask';
+  if (data?.tool) return 'tool';
+  const n = (nodeName || '').toLowerCase();
+  if (n.includes('pensando') || n.includes('think') || n.includes('reflexion') || n.includes('reflect')) return 'thinking';
+  return 'generic';
+}
+
 function defaultStepIcon(nodeName: string): string {
   const n = (nodeName || '').toLowerCase();
-  if (n.includes('iteration') || n.includes('iteraci')) return 'loop';
   if (n.includes('planificador') || n.includes('planner') || n.includes('plan')) return 'assignment';
   if (n.includes('pensando') || n.includes('think') || n.includes('reflexion') || n.includes('reflect')) return 'psychology';
-  if (n.includes('delegando') || n.includes('delegate')) return 'bolt';
+  if (n.includes('delegando') || n.includes('delegate')) return 'account_tree';
   if (n.includes('sintetiz') || n.includes('synthes') || n.includes('respuesta final')) return 'auto_awesome';
   if (n.includes('sap')) return 'storage';
   if (n.includes('rag') || n.includes('búsqueda') || n.includes('search') || n.includes('busca')) return 'search';
@@ -58,10 +63,6 @@ function defaultBuildStepContent(step: IntermediateStep): string {
 @Injectable({ providedIn: 'root' })
 export class SseStreamService {
 
-  /**
-   * Ejecuta un POST SSE y actualiza el signal de mensajes en tiempo real.
-   * Retorna cuando el stream se cierra.
-   */
   async stream(config: SseStreamConfig): Promise<SseStreamResult> {
     const finalNodeIds = new Set(config.finalResponseNodeIds ?? DEFAULT_FINAL_NODE_IDS);
     const getIcon = config.getStepIcon ?? defaultStepIcon;
@@ -88,12 +89,16 @@ export class SseStreamService {
     const decoder = new TextDecoder();
     let finalContent = '';
     let tokens = 0;
+    let currentIteration = 0;
+    let maxIterations = 0;
     const intermediateSteps: IntermediateStep[] = [];
     const activeSteps = new Map<string, IntermediateStep>();
+    const subtaskBySessionId = new Map<string, IntermediateStep>();
     let currentStepId: string | null = null;
     let stepContentBuffer = '';
     const images: ImageData[] = [];
     const videos: VideoData[] = [];
+    const iterationNodeIds = new Set<string>();
 
     const assistantMessage: ChatMessage = {
       role: 'assistant',
@@ -116,7 +121,9 @@ export class SseStreamService {
           tokens,
           isStreaming: streaming,
           images: [...images],
-          videos: [...videos]
+          videos: [...videos],
+          currentIteration: currentIteration || undefined,
+          maxIterations: maxIterations || undefined
         };
         return updated;
       });
@@ -142,19 +149,54 @@ export class SseStreamService {
               case 'node_start': {
                 const stepId = data.node_id || `step-${Date.now()}`;
                 const nodeName = data.node_name || 'Procesando';
-                intermediateSteps.forEach(s => s.expanded = false);
+                const stepClass = classifyStep(stepId, nodeName, data.data);
+
+                if (stepClass === 'iteration') {
+                  iterationNodeIds.add(stepId);
+                  const match = nodeName.match(/(\d+)\s*\/\s*(\d+)/);
+                  if (match) {
+                    currentIteration = parseInt(match[1], 10);
+                    maxIterations = parseInt(match[2], 10);
+                  } else if (data.data?.iteration) {
+                    currentIteration = data.data.iteration;
+                  }
+                  updateMessage();
+                  break;
+                }
+
+                const type: StepType = stepClass as StepType;
                 const newStep: IntermediateStep = {
                   id: stepId,
                   name: nodeName,
                   icon: getIcon(nodeName),
                   status: 'running',
                   content: '',
+                  type,
                   data: data.data,
                   startTime: new Date(),
-                  expanded: true
+                  ...(type === 'subtask' ? {
+                    sessionId: data.data?.session_id,
+                    parentId: data.data?.parent_id,
+                    agentType: data.data?.agent_type,
+                    children: [],
+                    toolCount: 0
+                  } : {})
                 };
-                intermediateSteps.push(newStep);
+
+                const parentSessionId = data.data?.parent_id;
+                if (parentSessionId && subtaskBySessionId.has(parentSessionId)) {
+                  const parent = subtaskBySessionId.get(parentSessionId)!;
+                  parent.children = parent.children || [];
+                  parent.children.push(newStep);
+                  parent.toolCount = parent.children.length;
+                } else {
+                  intermediateSteps.push(newStep);
+                }
+
                 activeSteps.set(stepId, newStep);
+                if (type === 'subtask' && newStep.sessionId) {
+                  subtaskBySessionId.set(newStep.sessionId, newStep);
+                }
                 currentStepId = stepId;
                 stepContentBuffer = '';
                 updateMessage();
@@ -163,6 +205,7 @@ export class SseStreamService {
               case 'token': {
                 if (!data.content) break;
                 const isFinal = finalNodeIds.has(data.node_id) || !data.node_id;
+                if (iterationNodeIds.has(data.node_id)) break;
                 if (isFinal) {
                   finalContent += data.content;
                 } else if (currentStepId && activeSteps.has(currentStepId)) {
@@ -174,6 +217,10 @@ export class SseStreamService {
               }
               case 'node_end': {
                 const stepId = data.node_id;
+                if (iterationNodeIds.has(stepId)) {
+                  iterationNodeIds.delete(stepId);
+                  break;
+                }
                 if (stepId && activeSteps.has(stepId)) {
                   const step = activeSteps.get(stepId)!;
                   step.status = 'completed';
@@ -183,11 +230,6 @@ export class SseStreamService {
                     step.content = buildContent(step);
                   }
                   if (data.data?.tokens) tokens = data.data.tokens;
-                  const idx = intermediateSteps.findIndex(s => s.id === stepId);
-                  if (idx >= 0) {
-                    intermediateSteps[idx] = { ...step };
-                    activeSteps.set(stepId, intermediateSteps[idx]);
-                  }
                 }
                 currentStepId = null;
                 updateMessage();
@@ -221,6 +263,8 @@ export class SseStreamService {
               case 'response_complete': {
                 if (data.content) finalContent = data.content;
                 if (data.data?.iterations) tokens = data.data.iterations;
+                currentIteration = 0;
+                maxIterations = 0;
                 break;
               }
               case 'error': {

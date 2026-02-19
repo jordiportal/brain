@@ -18,38 +18,18 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatExpansionModule } from '@angular/material/expansion';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { 
   ChatMessage, 
   ChatFeatures, 
-  ChatLLMConfig,
   IntermediateStep,
   ImageData,
   VideoData
 } from './chat-message.interface';
 import { MarkdownPipe } from './markdown.pipe';
 
-/**
- * ChatComponent - Componente de chat unificado y reutilizable.
- * 
- * Features:
- * - Mensajes con avatares
- * - Pasos intermedios desplegables (para chains)
- * - Imágenes y vídeos generados
- * - Soporte para presentaciones HTML
- * - Streaming indicator
- * - Configuración de LLM (opcional)
- * - Limpieza de chat
- * 
- * Usado por:
- * - TestingComponent (chat simple)
- * - ChainsComponent (con pasos intermedios)
- * - SubagentsComponent (con historial)
- */
 @Component({
   selector: 'app-chat',
   standalone: true,
@@ -61,15 +41,12 @@ import { MarkdownPipe } from './markdown.pipe';
     MatIconModule,
     MatInputModule,
     MatFormFieldModule,
-    MatExpansionModule,
     MatProgressSpinnerModule,
-    MatChipsModule,
     MatTooltipModule,
     MarkdownPipe
   ],
   template: `
     <div class="chat-container" #chatContainer>
-      <!-- Mensajes -->
       <div class="messages-area">
         @if (messages().length === 0) {
           <div class="empty-chat">
@@ -84,7 +61,6 @@ import { MarkdownPipe } from './markdown.pipe';
               <mat-icon>{{ msg.role === 'user' ? 'person' : 'smart_toy' }}</mat-icon>
             </div>
             <div class="message-content">
-              <!-- Header con role y timestamp -->
               @if (features.timestamps && msg.timestamp) {
                 <div class="message-header">
                   <span class="message-role">{{ msg.role === 'user' ? 'Tú' : 'Asistente' }}</span>
@@ -95,90 +71,121 @@ import { MarkdownPipe } from './markdown.pipe';
               @if (msg.role === 'user') {
                 <div class="message-text">{{ msg.content }}</div>
               } @else {
-                <!-- Pasos intermedios (para chains) -->
+
+                <!-- Pasos intermedios (inline) -->
                 @if (features.intermediateSteps && msg.intermediateSteps && msg.intermediateSteps.length > 0) {
-                  <mat-accordion class="steps-accordion" multi>
-                    @for (step of msg.intermediateSteps; track step.id) {
-                      <mat-expansion-panel 
-                        [expanded]="step.expanded"
-                        [class.step-running]="step.status === 'running'"
-                        [class.step-completed]="step.status === 'completed'"
-                        [class.step-failed]="step.status === 'failed'">
-                        <mat-expansion-panel-header>
-                          <mat-panel-title>
-                            <div class="step-header">
-                              @if (step.status === 'running') {
-                                <mat-spinner diameter="16"></mat-spinner>
-                              } @else {
-                                <mat-icon [class]="'step-icon-' + step.status">{{ step.icon }}</mat-icon>
+                  <div class="steps-container">
+                    <button class="steps-toggle" (click)="toggleAllSteps($index)">
+                      <mat-icon class="toggle-icon">{{ isMessageExpanded($index) ? 'unfold_less' : 'unfold_more' }}</mat-icon>
+                      <span>{{ msg.intermediateSteps.length }} {{ msg.intermediateSteps.length === 1 ? 'paso' : 'pasos' }}</span>
+                      @if (!msg.isStreaming && msg.intermediateSteps.length > 0) {
+                        <span class="steps-total-time">{{ totalDuration(msg) }}</span>
+                      }
+                    </button>
+
+                    @if (isMessageExpanded($index)) {
+                      <div class="steps-list">
+                        @for (step of msg.intermediateSteps; track step.id) {
+                          @if (step.type === 'subtask') {
+                            <!-- SubTask block -->
+                            <div class="subtask-block" [class.subtask-running]="step.status === 'running'"
+                                 [class.subtask-completed]="step.status === 'completed'"
+                                 [class.subtask-failed]="step.status === 'failed'">
+                              <div class="subtask-header" (click)="toggleStep(step.id)">
+                                @if (step.status === 'running') {
+                                  <mat-spinner diameter="14"></mat-spinner>
+                                } @else {
+                                  <mat-icon class="subtask-icon" [class]="'si-' + step.status">account_tree</mat-icon>
+                                }
+                                @if (step.agentType) {
+                                  <span class="subtask-agent">{{ step.agentType }}</span>
+                                }
+                                <span class="subtask-name">{{ step.name }}</span>
+                                @if (step.toolCount) {
+                                  <span class="step-badge">{{ step.toolCount }} tools</span>
+                                }
+                                @if (step.status === 'completed' && step.endTime && step.startTime) {
+                                  <span class="step-dur">{{ getDuration(step.startTime, step.endTime) }}</span>
+                                }
+                                @if (step.status === 'running') {
+                                  <span class="step-running-text">En progreso...</span>
+                                }
+                              </div>
+
+                              <!-- Children anidados -->
+                              @if (isStepExpanded(step.id) && step.children && step.children.length > 0) {
+                                <div class="subtask-children">
+                                  @for (child of step.children; track child.id) {
+                                    <div class="inline-step" [class]="'is-' + child.status"
+                                         (click)="toggleStep(child.id); $event.stopPropagation()">
+                                      <span class="step-indicator">
+                                        @if (child.status === 'running') {
+                                          <mat-spinner diameter="12"></mat-spinner>
+                                        } @else {
+                                          <mat-icon [class]="'si-' + child.status">{{ child.icon }}</mat-icon>
+                                        }
+                                      </span>
+                                      <span class="step-label">{{ child.name }}</span>
+                                      @if (child.status === 'completed' && child.endTime && child.startTime) {
+                                        <span class="step-dur">{{ getDuration(child.startTime, child.endTime) }}</span>
+                                      }
+                                      @if (child.status === 'running') {
+                                        <span class="step-running-text">En progreso...</span>
+                                      }
+                                    </div>
+                                    @if (isStepExpanded(child.id) && child.content) {
+                                      <div class="step-detail" [innerHTML]="child.content | markdown"></div>
+                                    }
+                                  }
+                                </div>
                               }
-                              <span class="step-name">{{ step.name }}</span>
+
+                              <!-- Contenido del subtask -->
+                              @if (isStepExpanded(step.id) && step.content && (!step.children || step.children.length === 0)) {
+                                <div class="step-detail" [innerHTML]="step.content | markdown"></div>
+                              }
                             </div>
-                          </mat-panel-title>
-                          <mat-panel-description>
-                            @if (step.status === 'completed' && step.endTime && step.startTime) {
-                              <span class="step-duration">
-                                {{ getDuration(step.startTime, step.endTime) }}
+                          } @else {
+                            <!-- InlineStep (tool, thinking, generic) -->
+                            <div class="inline-step" [class]="'is-' + step.status"
+                                 (click)="toggleStep(step.id)">
+                              <span class="step-indicator">
+                                @if (step.status === 'running') {
+                                  <mat-spinner diameter="12"></mat-spinner>
+                                } @else {
+                                  <mat-icon [class]="'si-' + step.status">{{ step.icon }}</mat-icon>
+                                }
                               </span>
-                            }
-                            @if (step.status === 'running') {
-                              <span class="step-running-label">En progreso...</span>
-                            }
-                          </mat-panel-description>
-                        </mat-expansion-panel-header>
-                        
-                        <div class="step-content">
-                          @if (step.content) {
-                            <div class="step-conversation">
-                              <div class="step-text" [innerHTML]="step.content | markdown"></div>
+                              <span class="step-label">{{ step.name }}</span>
+                              @if (step.status === 'completed' && step.endTime && step.startTime) {
+                                <span class="step-dur">{{ getDuration(step.startTime, step.endTime) }}</span>
+                              }
+                              @if (step.status === 'running') {
+                                <span class="step-running-text">En progreso...</span>
+                              }
                             </div>
+                            @if (isStepExpanded(step.id) && step.content) {
+                              <div class="step-detail" [innerHTML]="step.content | markdown"></div>
+                            }
                           }
-                          
-                          <!-- Presentación HTML -->
-                          @if (features.presentations && step.data?.html) {
-                            <div class="presentation-viewer">
-                              <button mat-stroked-button color="primary" (click)="openPresentation(step.data.html)">
-                                <mat-icon>slideshow</mat-icon>
-                                Ver presentación
-                              </button>
-                            </div>
-                          }
-
-                          <!-- Datos avanzados -->
-                          @if (hasAdvancedData(step)) {
-                            <details class="step-data-details">
-                              <summary>Datos avanzados</summary>
-                              <pre class="step-data">{{ getAdvancedData(step) | json }}</pre>
-                            </details>
-                          }
-                        </div>
-                      </mat-expansion-panel>
-                    }
-                  </mat-accordion>
-                }
-
-                <!-- Respuesta final -->
-                @if (msg.content) {
-                  <div class="final-response">
-                    @if (features.intermediateSteps) {
-                      <div class="response-label">
-                        <mat-icon>auto_awesome</mat-icon>
-                        Respuesta Final
-                      </div>
-                    }
-                    
-                    <div class="markdown-content" [innerHTML]="msg.content | markdown"></div>
-
-                    <!-- Presentación en respuesta final -->
-                    @if (features.presentations && getPresentationHtml(msg)) {
-                      <div class="presentation-viewer">
-                        <button mat-stroked-button color="primary" (click)="openPresentation(getPresentationHtml(msg)!)">
-                          <mat-icon>slideshow</mat-icon>
-                          Ver presentación
-                        </button>
+                        }
                       </div>
                     }
                   </div>
+                }
+
+                <!-- Respuesta del assistant -->
+                @if (msg.content) {
+                  <div class="markdown-content" [innerHTML]="msg.content | markdown"></div>
+
+                  @if (features.presentations && getPresentationHtml(msg)) {
+                    <div class="presentation-viewer">
+                      <button mat-stroked-button color="primary" (click)="openPresentation(getPresentationHtml(msg)!)">
+                        <mat-icon>slideshow</mat-icon>
+                        Ver presentación
+                      </button>
+                    </div>
+                  }
                 }
 
                 <!-- Imágenes generadas -->
@@ -202,30 +209,25 @@ import { MarkdownPipe } from './markdown.pipe';
                       <video 
                         [src]="sanitizeVideoUrl(video)"
                         class="generated-video"
-                        controls
-                        autoplay
-                        loop
-                        muted
-                      >
+                        controls autoplay loop muted>
                         Tu navegador no soporta vídeos HTML5.
                       </video>
                       @if (video.duration || video.resolution) {
                         <div class="video-info">
-                          @if (video.duration) {
-                            <span>{{ video.duration }}s</span>
-                          }
-                          @if (video.resolution) {
-                            <span>{{ video.resolution }}</span>
-                          }
+                          @if (video.duration) { <span>{{ video.duration }}s</span> }
+                          @if (video.resolution) { <span>{{ video.resolution }}</span> }
                         </div>
                       }
                     }
                   </div>
                 }
 
-                <!-- Indicador de streaming -->
+                <!-- Streaming cursor + iteration badge -->
                 @if (features.streaming && msg.isStreaming) {
                   <span class="cursor-blink">▊</span>
+                  @if (msg.currentIteration) {
+                    <span class="iteration-badge">{{ msg.currentIteration }}/{{ msg.maxIterations }}</span>
+                  }
                 }
 
                 <!-- Tokens -->
@@ -258,7 +260,7 @@ import { MarkdownPipe } from './markdown.pipe';
         }
       </div>
 
-      <!-- Área de input -->
+      <!-- Input area -->
       <div class="input-area">
         <mat-form-field appearance="outline" class="message-input">
           <textarea matInput 
@@ -280,7 +282,6 @@ import { MarkdownPipe } from './markdown.pipe';
         </button>
       </div>
 
-      <!-- Botón de limpiar -->
       @if (features.clearButton && messages().length > 0) {
         <div class="chat-actions">
           <button mat-button color="warn" (click)="clearChat()">
@@ -327,7 +328,7 @@ import { MarkdownPipe } from './markdown.pipe';
       margin-bottom: 16px;
     }
 
-    /* Mensajes */
+    /* Messages */
     .message {
       display: flex;
       gap: 12px;
@@ -393,123 +394,219 @@ import { MarkdownPipe } from './markdown.pipe';
       line-height: 1.6;
     }
 
-    /* Pasos intermedios */
-    .steps-accordion {
-      margin-bottom: 16px;
+    /* ===== Steps container ===== */
+    .steps-container {
+      margin-bottom: 12px;
     }
 
-    .steps-accordion mat-expansion-panel {
-      margin-bottom: 8px !important;
-      border-radius: 8px !important;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
-    }
-
-    .steps-accordion mat-expansion-panel.step-running {
-      border-left: 3px solid #2196f3;
-      background: linear-gradient(90deg, rgba(33, 150, 243, 0.05) 0%, transparent 100%);
-    }
-
-    .steps-accordion mat-expansion-panel.step-completed {
-      border-left: 3px solid #4caf50;
-    }
-
-    .steps-accordion mat-expansion-panel.step-failed {
-      border-left: 3px solid #f44336;
-    }
-
-    .step-header {
-      display: flex;
+    .steps-toggle {
+      display: inline-flex;
       align-items: center;
-      gap: 10px;
-    }
-
-    .step-icon-completed { color: #4caf50; }
-    .step-icon-failed { color: #f44336; }
-    .step-icon-running { color: #2196f3; }
-
-    .step-name {
-      font-weight: 500;
-      font-size: 14px;
-    }
-
-    .step-duration {
+      gap: 4px;
+      background: none;
+      border: none;
+      cursor: pointer;
       font-size: 12px;
       color: #888;
-      background: #f5f5f5;
-      padding: 2px 8px;
-      border-radius: 10px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background 0.15s;
     }
 
-    .step-running-label {
-      font-size: 12px;
+    .steps-toggle:hover {
+      background: #f0f0f0;
+    }
+
+    .toggle-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+
+    .steps-total-time {
+      margin-left: 4px;
+      padding: 1px 6px;
+      background: #f0f0f0;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+
+    .steps-list {
+      padding: 4px 0 4px 4px;
+    }
+
+    /* ===== Inline step (tool / thinking / generic) ===== */
+    .inline-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 3px 8px;
+      font-size: 13px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.15s;
+      user-select: none;
+    }
+
+    .inline-step:hover {
+      background: #f5f5f5;
+    }
+
+    .step-indicator {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .step-indicator mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+
+    .si-completed { color: #4caf50; }
+    .si-failed { color: #f44336; }
+    .si-running { color: #2196f3; }
+
+    .step-label {
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .is-completed .step-label { color: #666; }
+    .is-failed .step-label { color: #d32f2f; }
+    .is-running .step-label { color: #1565c0; }
+
+    .step-dur {
+      flex-shrink: 0;
+      font-size: 11px;
+      color: #999;
+      padding: 1px 6px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+
+    .step-running-text {
+      flex-shrink: 0;
+      font-size: 11px;
       color: #2196f3;
       font-style: italic;
     }
 
-    .step-content {
-      padding: 8px 0;
+    .step-badge {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: #666;
+      padding: 1px 5px;
+      background: #e8e8e8;
+      border-radius: 6px;
     }
 
-    .step-conversation {
-      margin-bottom: 12px;
-      padding: 12px;
-      background: #f8f9fa;
-      border-radius: 8px;
-      border-left: 3px solid #667eea;
-    }
-
-    .step-text {
+    .step-detail {
+      padding: 6px 12px 6px 32px;
       font-size: 13px;
-      line-height: 1.6;
+      line-height: 1.5;
+      background: #f8f9fa;
+      border-radius: 4px;
+      margin: 2px 0 6px;
+      border-left: 2px solid #ddd;
       color: #444;
     }
 
-    .presentation-viewer {
-      margin: 12px 0;
+    .step-detail ::ng-deep {
+      p { margin: 0 0 8px; }
+      p:last-child { margin-bottom: 0; }
+      pre {
+        background: #1a1a2e;
+        color: #e0e0e0;
+        padding: 8px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 12px;
+      }
+      code {
+        background: rgba(0,0,0,0.07);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
     }
 
-    .step-data-details {
-      margin-top: 12px;
-    }
-
-    .step-data-details summary {
+    /* ===== SubTask block ===== */
+    .subtask-block {
+      margin: 4px 0;
+      padding: 6px 10px;
+      border-left: 3px solid #667eea;
+      border-radius: 4px;
+      background: rgba(102, 126, 234, 0.03);
       cursor: pointer;
-      font-size: 12px;
-      color: #666;
-      padding: 4px 0;
+      transition: background 0.15s;
     }
 
-    .step-data {
-      background: #1a1a2e;
-      color: #a0f0a0;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 11px;
-      overflow-x: auto;
-      max-height: 200px;
-      margin-top: 8px;
+    .subtask-block:hover {
+      background: rgba(102, 126, 234, 0.07);
     }
 
-    /* Respuesta final */
-    .final-response {
-      background: #f8f9fa;
-      border-radius: 12px;
-      padding: 16px;
-      border: 1px solid #e0e0e0;
-    }
+    .subtask-running { border-left-color: #2196f3; background: rgba(33, 150, 243, 0.04); }
+    .subtask-completed { border-left-color: #4caf50; }
+    .subtask-failed { border-left-color: #f44336; }
 
-    .response-label {
+    .subtask-header {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #667eea;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-size: 13px;
     }
 
+    .subtask-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+
+    .subtask-agent {
+      font-weight: 600;
+      font-size: 12px;
+      color: #667eea;
+      padding: 1px 6px;
+      background: rgba(102, 126, 234, 0.1);
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .subtask-name {
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #555;
+    }
+
+    .subtask-children {
+      padding: 4px 0 2px 8px;
+      border-left: 1px dashed #ddd;
+      margin-left: 7px;
+      margin-top: 4px;
+    }
+
+    /* ===== Iteration badge ===== */
+    .iteration-badge {
+      display: inline-block;
+      font-size: 11px;
+      color: #999;
+      background: #f0f0f0;
+      padding: 1px 6px;
+      border-radius: 8px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    /* ===== Markdown content ===== */
     .markdown-content {
       line-height: 1.6;
     }
@@ -550,7 +647,12 @@ import { MarkdownPipe } from './markdown.pipe';
       }
     }
 
-    /* Imágenes y vídeos */
+    /* ===== Presentation ===== */
+    .presentation-viewer {
+      margin: 12px 0;
+    }
+
+    /* ===== Images & videos ===== */
     .generated-images {
       margin-top: 16px;
       display: flex;
@@ -587,7 +689,7 @@ import { MarkdownPipe } from './markdown.pipe';
       margin-top: 4px;
     }
 
-    /* Cursor y tokens */
+    /* ===== Cursor & tokens ===== */
     .cursor-blink {
       animation: blink 1s infinite;
       color: #667eea;
@@ -607,7 +709,7 @@ import { MarkdownPipe } from './markdown.pipe';
       text-align: right;
     }
 
-    /* Typing indicator */
+    /* ===== Typing indicator ===== */
     .typing-indicator {
       display: flex;
       gap: 4px;
@@ -639,7 +741,7 @@ import { MarkdownPipe } from './markdown.pipe';
       margin-top: 8px;
     }
 
-    /* Input area */
+    /* ===== Input area ===== */
     .input-area {
       display: flex;
       gap: 12px;
@@ -658,7 +760,6 @@ import { MarkdownPipe } from './markdown.pipe';
       resize: none;
     }
 
-    /* Actions */
     .chat-actions {
       display: flex;
       justify-content: flex-end;
@@ -672,7 +773,6 @@ import { MarkdownPipe } from './markdown.pipe';
 export class ChatComponent {
   @ViewChild('chatContainer') chatContainer!: ElementRef;
 
-  // Inputs
   @Input() messages: Signal<ChatMessage[]> = signal([]);
   @Input() features: ChatFeatures = {
     intermediateSteps: false,
@@ -690,19 +790,56 @@ export class ChatComponent {
   @Input() emptyMessage = 'Envía un mensaje para comenzar';
   @Input() currentStepName: Signal<string | null> = signal(null);
 
-  // Outputs
   @Output() messageSent = new EventEmitter<string>();
   @Output() chatCleared = new EventEmitter<void>();
   @Output() presentationOpened = new EventEmitter<string>();
 
-  // Internal state
   newMessageText = '';
+
+  private expandedMessages = new Set<number>();
+  private expandedSteps = new Set<string>();
 
   constructor(private sanitizer: DomSanitizer) {}
 
+  // --- Expansion state ---
+
+  isMessageExpanded(index: number): boolean {
+    const msgs = this.messages();
+    const msg = msgs[index];
+    if (msg?.isStreaming) return true;
+    if (this.expandedMessages.has(index)) return true;
+    if (!msg?.isStreaming && msg?.intermediateSteps?.length && !this.expandedMessages.has(-index - 1)) {
+      return false;
+    }
+    return false;
+  }
+
+  toggleAllSteps(index: number): void {
+    if (this.isMessageExpanded(index)) {
+      this.expandedMessages.delete(index);
+      this.expandedMessages.add(-index - 1);
+    } else {
+      this.expandedMessages.add(index);
+      this.expandedMessages.delete(-index - 1);
+    }
+  }
+
+  isStepExpanded(stepId: string): boolean {
+    return this.expandedSteps.has(stepId);
+  }
+
+  toggleStep(stepId: string): void {
+    if (this.expandedSteps.has(stepId)) {
+      this.expandedSteps.delete(stepId);
+    } else {
+      this.expandedSteps.add(stepId);
+    }
+  }
+
+  // --- Helpers ---
+
   sendMessage(): void {
     if (!this.newMessageText.trim() || this.isLoading()) return;
-    
     const message = this.newMessageText.trim();
     this.newMessageText = '';
     this.messageSent.emit(message);
@@ -710,6 +847,8 @@ export class ChatComponent {
   }
 
   clearChat(): void {
+    this.expandedMessages.clear();
+    this.expandedSteps.clear();
     this.chatCleared.emit();
   }
 
@@ -734,27 +873,29 @@ export class ChatComponent {
     return `${(ms / 1000).toFixed(1)}s`;
   }
 
+  totalDuration(msg: ChatMessage): string {
+    const steps = msg.intermediateSteps || [];
+    if (steps.length === 0) return '';
+    const first = steps[0]?.startTime;
+    const last = steps[steps.length - 1]?.endTime;
+    if (!first || !last) return '';
+    return this.getDuration(first, last);
+  }
+
   hasStreamingMessage(): boolean {
     const msgs = this.messages();
     return msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant' && msgs[msgs.length - 1].isStreaming === true;
   }
 
-  // Safe URL sanitization
   sanitizeImageUrl(img: ImageData): SafeUrl {
-    if (img.url) {
-      return this.sanitizer.bypassSecurityTrustUrl(img.url);
-    } else if (img.base64) {
-      return this.sanitizer.bypassSecurityTrustUrl(`data:${img.mimeType || 'image/png'};base64,${img.base64}`);
-    }
+    if (img.url) return this.sanitizer.bypassSecurityTrustUrl(img.url);
+    if (img.base64) return this.sanitizer.bypassSecurityTrustUrl(`data:${img.mimeType || 'image/png'};base64,${img.base64}`);
     return '' as SafeUrl;
   }
 
   sanitizeVideoUrl(video: VideoData): SafeUrl {
-    if (video.url) {
-      return this.sanitizer.bypassSecurityTrustUrl(video.url);
-    } else if (video.base64) {
-      return this.sanitizer.bypassSecurityTrustUrl(`data:${video.mimeType || 'video/mp4'};base64,${video.base64}`);
-    }
+    if (video.url) return this.sanitizer.bypassSecurityTrustUrl(video.url);
+    if (video.base64) return this.sanitizer.bypassSecurityTrustUrl(`data:${video.mimeType || 'video/mp4'};base64,${video.base64}`);
     return '' as SafeUrl;
   }
 
@@ -768,18 +909,6 @@ export class ChatComponent {
       if (step.data?.html) return step.data.html;
     }
     return null;
-  }
-
-  hasAdvancedData(step: IntermediateStep): boolean {
-    if (!step.data) return false;
-    const keys = Object.keys(step.data);
-    return keys.length > 0 && !(keys.length === 1 && keys[0] === 'html');
-  }
-
-  getAdvancedData(step: IntermediateStep): any {
-    if (!step.data) return null;
-    const { html, ...rest } = step.data;
-    return rest;
   }
 
   getStepIcon(stepName: string): string {

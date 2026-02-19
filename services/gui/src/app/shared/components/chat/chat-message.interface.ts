@@ -8,9 +8,16 @@
  * - SubagentsComponent
  */
 
+export type StepType = 'tool' | 'subtask' | 'thinking' | 'generic';
+
 /**
- * Paso intermedio con contenido streaming
- * Usado en ChainsComponent para mostrar el progreso de ejecución
+ * Paso intermedio con contenido streaming.
+ * 
+ * `type` determina la visualización:
+ * - tool: línea inline compacta (icono + nombre + duración)
+ * - subtask: bloque con borde, resumen de subagente y children anidados
+ * - thinking: línea discreta para reflexiones del LLM
+ * - generic: fallback, misma visualización que tool
  */
 export interface IntermediateStep {
   id: string;
@@ -18,10 +25,20 @@ export interface IntermediateStep {
   icon: string;
   status: 'running' | 'completed' | 'failed';
   content: string;
+  type: StepType;
   data?: any;
   startTime: Date;
   endTime?: Date;
-  expanded: boolean;
+  /** Para subtasks: ID de sesión hija */
+  sessionId?: string;
+  /** Para subtasks: ID de sesión padre */
+  parentId?: string;
+  /** Para subtasks: tipo de subagente (sap_analyst, etc.) */
+  agentType?: string;
+  /** Para subtasks: pasos anidados del subagente */
+  children?: IntermediateStep[];
+  /** Para subtasks: número de tool calls */
+  toolCount?: number;
 }
 
 /**
@@ -65,6 +82,10 @@ export interface ChatMessage {
   isStreaming?: boolean;
   images?: ImageData[];
   videos?: VideoData[];
+  /** Iteración actual del executor (para badge discreto durante streaming) */
+  currentIteration?: number;
+  /** Total de iteraciones máximas */
+  maxIterations?: number;
 }
 
 /**
@@ -76,7 +97,7 @@ export interface ChatMessage {
  * - subagents: history=true, images=true
  */
 export interface ChatFeatures {
-  /** Mostrar pasos intermedios desplegables (accordion) */
+  /** Mostrar pasos intermedios inline */
   intermediateSteps: boolean;
   /** Mostrar imágenes generadas */
   images: boolean;
