@@ -31,7 +31,7 @@ import { AuthService } from '../../core/services/auth.service';
             <mat-icon class="brain-icon">psychology</mat-icon>
             <h1>Brain</h1>
           </div>
-          <p class="subtitle">Sistema de Gestión de Cadenas de Pensamiento</p>
+          <p class="subtitle">Sistema de Gestión de Asistentes IA</p>
         </mat-card-header>
         
         <mat-card-content>

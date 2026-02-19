@@ -31,6 +31,32 @@ class ChainDetailResponse(BaseModel):
     chain: dict
 
 
+class ChainCreateRequest(BaseModel):
+    """Request para crear un nuevo asistente"""
+    id: str
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+    temperature: float = 0.5
+    max_iterations: int = 15
+    use_memory: bool = True
+
+
+class ChainFullUpdateRequest(BaseModel):
+    """Request para actualización completa de un asistente (con versionado)"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    system_prompt: Optional[str] = None
+    tools: Optional[List[str]] = None
+    agents: Optional[List[str]] = None
+    skills: Optional[List[Dict[str, Any]]] = None
+    temperature: Optional[float] = None
+    max_iterations: Optional[int] = None
+    use_memory: Optional[bool] = None
+    change_reason: Optional[str] = None
+
+
 @router.get("", response_model=ChainListResponse)
 async def list_chains():
     """Listar todas las cadenas disponibles"""
@@ -52,6 +78,162 @@ async def list_chains():
             for c in chains
         ]
     )
+
+
+@router.post("")
+async def create_chain(request: ChainCreateRequest):
+    """Crear un nuevo asistente basado en el motor adaptativo"""
+    if chain_registry.exists(request.id):
+        raise HTTPException(status_code=409, detail=f"Ya existe un asistente con ID: {request.id}")
+
+    from .models import ChainDefinition, ChainConfig, NodeDefinition, NodeType
+    from .chains import get_builder
+
+    definition = ChainDefinition(
+        id=request.id,
+        name=request.name,
+        description=request.description,
+        type="agent",
+        version="1.0.0",
+        nodes=[
+            NodeDefinition(
+                id="adaptive_agent",
+                type=NodeType.LLM,
+                name="Adaptive Agent",
+                system_prompt=None,
+                temperature=request.temperature
+            )
+        ],
+        config=ChainConfig(
+            temperature=request.temperature,
+            use_memory=request.use_memory,
+            max_memory_messages=10,
+            max_iterations=request.max_iterations,
+            system_prompt=request.system_prompt or ""
+        )
+    )
+
+    chain_registry.register(
+        chain_id=request.id,
+        definition=definition,
+        builder=get_builder("adaptive")
+    )
+
+    from ..db.repositories.chains import ChainRepository
+    await ChainRepository.upsert(
+        slug=request.id,
+        name=request.name,
+        chain_type="agent",
+        description=request.description,
+        version="1.0.0",
+        config=definition.config.model_dump(),
+        prompts={"system": request.system_prompt} if request.system_prompt else {}
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Asistente '{request.name}' creado",
+        "chain": {
+            "id": request.id,
+            "name": request.name,
+            "description": request.description,
+            "type": "agent",
+            "version": "1.0.0"
+        }
+    }
+
+
+@router.delete("/{chain_id}")
+async def delete_chain(chain_id: str):
+    """Eliminar un asistente"""
+
+    if not chain_registry.exists(chain_id):
+        raise HTTPException(status_code=404, detail=f"Asistente no encontrado: {chain_id}")
+
+    chain_registry.unregister(chain_id)
+
+    from ..db.repositories.chains import ChainRepository
+    await ChainRepository.delete(chain_id)
+
+    return {"status": "ok", "message": f"Asistente '{chain_id}' eliminado"}
+
+
+@router.put("/{chain_id}/full")
+async def full_update_chain(chain_id: str, request: ChainFullUpdateRequest):
+    """Actualización completa de un asistente con versionado automático"""
+    if not chain_registry.exists(chain_id):
+        raise HTTPException(status_code=404, detail=f"Asistente no encontrado: {chain_id}")
+
+    from ..db.repositories.chains import ChainRepository
+
+    chain = await ChainRepository.get_by_slug(chain_id)
+    current_config = (chain.config if chain else {}) or {}
+    current_prompts = (chain.prompts if chain else {}) or {}
+
+    data: Dict[str, Any] = {}
+    if request.change_reason:
+        data["change_reason"] = request.change_reason
+
+    if request.name is not None:
+        data["name"] = request.name
+    if request.description is not None:
+        data["description"] = request.description
+    if request.version is not None:
+        data["version"] = request.version
+
+    if request.system_prompt is not None:
+        current_prompts["system"] = request.system_prompt
+        data["prompts"] = current_prompts
+
+    if request.tools is not None:
+        data["tools"] = request.tools
+    if request.agents is not None:
+        current_config["agents"] = request.agents
+    if request.skills is not None:
+        current_config["skills"] = request.skills
+    if request.temperature is not None:
+        current_config["temperature"] = request.temperature
+    if request.max_iterations is not None:
+        current_config["max_iterations"] = request.max_iterations
+    if request.use_memory is not None:
+        current_config["use_memory"] = request.use_memory
+
+    if any(k in request.model_fields_set for k in ("agents", "skills", "temperature", "max_iterations", "use_memory")):
+        data["config"] = current_config
+
+    success = await ChainRepository.full_update(chain_id, data)
+    if not success:
+        raise HTTPException(status_code=500, detail="Error actualizando asistente")
+
+    # Actualizar system_prompt en la definición in-memory del registry
+    if request.system_prompt is not None:
+        defn = chain_registry.get(chain_id)
+        if defn and defn.config:
+            defn.config.system_prompt = request.system_prompt
+
+    return {"status": "ok", "version": request.version}
+
+
+@router.get("/{chain_id}/versions")
+async def list_chain_versions(chain_id: str):
+    """Listar versiones de un asistente"""
+    from ..db.repositories.chains import ChainRepository
+    versions = await ChainRepository.get_versions(chain_id)
+    return {
+        "chain_id": chain_id,
+        "versions": [v.model_dump(mode="json") for v in versions],
+        "total": len(versions),
+    }
+
+
+@router.post("/{chain_id}/restore/{version_number}")
+async def restore_chain_version(chain_id: str, version_number: int):
+    """Restaurar una versión de un asistente"""
+    from ..db.repositories.chains import ChainRepository
+    success = await ChainRepository.restore_version(chain_id, version_number)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Asistente o versión no encontrada")
+    return {"status": "restored", "chain_id": chain_id, "version_restored": version_number}
 
 
 @router.get("/{chain_id}")
@@ -259,22 +441,20 @@ async def update_chain_llm_config(chain_id: str, request: ChainLLMConfigRequest)
 
 @router.put("/{chain_id}/prompt")
 async def update_chain_prompt(chain_id: str, request: ChainPromptUpdateRequest):
-    """Actualizar el system prompt de una cadena (fichero para adaptive/team, BD para otras)"""
+    """Actualizar el system prompt de una cadena (todo en BD)"""
     chain = chain_registry.get(chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
 
-    if chain_id in ("adaptive", "team"):
-        from .prompt_files import write_prompt
-        success = write_prompt(chain_id, request.system_prompt)
-    else:
-        from ..db.repositories.chains import ChainRepository
-        success = await ChainRepository.update_system_prompt(
-            slug=chain_id,
-            system_prompt=request.system_prompt
-        )
+    from ..db.repositories.chains import ChainRepository
+    success = await ChainRepository.update_system_prompt(
+        slug=chain_id,
+        system_prompt=request.system_prompt
+    )
 
     if success:
+        if chain.config:
+            chain.config.system_prompt = request.system_prompt
         return {
             "status": "ok",
             "message": f"System prompt actualizado para {chain_id}"
@@ -369,14 +549,11 @@ async def get_chain_details(chain_id: str):
     except Exception:
         pass
 
-    # System prompt: desde fichero (adaptive, team) o BD (otras cadenas)
-    from .prompt_files import read_prompt
-    if chain_id in ("adaptive", "team"):
-        system_prompt = read_prompt(chain_id)
-    else:
-        system_prompt = ""
-        if db_chain and getattr(db_chain, "prompts", None) and isinstance(db_chain.prompts, dict) and db_chain.prompts.get("system"):
-            system_prompt = db_chain.prompts.get("system", "")
+    system_prompt = ""
+    if db_chain and getattr(db_chain, "prompts", None) and isinstance(db_chain.prompts, dict):
+        system_prompt = db_chain.prompts.get("system", "")
+    if not system_prompt and chain and chain.config:
+        system_prompt = chain.config.system_prompt or ""
 
     return {
         "chain": {
@@ -403,7 +580,11 @@ async def get_chain_details(chain_id: str):
         "system_prompt": system_prompt,
         "tools": tools_info,
         "subagents": subagents_info,
-        "llm_provider": llm_provider
+        "llm_provider": llm_provider,
+        "chain_tools": (db_chain.tools if db_chain else None) or [],
+        "chain_agents": (db_chain.config or {}).get("agents", []) if db_chain else [],
+        "chain_skills": (db_chain.config or {}).get("skills", []) if db_chain else [],
+        "chain_version": db_chain.version if db_chain else chain.version,
     }
 
 

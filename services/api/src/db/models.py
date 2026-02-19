@@ -219,3 +219,17 @@ class AgentVersion(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ChainVersion(BaseModel):
+    """Snapshot of a chain/assistant at a point in time."""
+    id: int = 0
+    brain_chain_id: int
+    version_number: int
+    snapshot: Dict[str, Any]
+    changed_by: Optional[str] = None
+    change_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

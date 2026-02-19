@@ -14,7 +14,7 @@ from src.config import get_settings
 from src.db import get_db
 from src.llm.router import router as llm_router
 from src.engine.router import router as chains_router
-from src.engine.chains import register_all_chains
+from src.engine.chains import get_builder
 from src.rag.router import router as rag_router
 from src.tools.router import router as tools_router
 from src.tools.tool_registry import tool_registry
@@ -61,9 +61,45 @@ async def lifespan(app: FastAPI):
     await db.connect()
     logger.info("Conexión a PostgreSQL establecida")
     
-    # Registrar cadenas predefinidas
-    register_all_chains()
-    logger.info("Cadenas predefinidas registradas")
+    # Cargar TODOS los asistentes desde BD
+    try:
+        from src.engine.registry import chain_registry
+        from src.engine.models import ChainDefinition, ChainConfig, NodeDefinition, NodeType
+        from src.db.repositories.chains import ChainRepository
+
+        db_chains = await ChainRepository.get_all()
+        loaded = 0
+        for dbc in db_chains:
+            if not dbc.slug:
+                continue
+            try:
+                cfg = dbc.config or {}
+                prompts = dbc.prompts or {}
+                raw_prompt = prompts.get("system", "")
+                system_prompt = raw_prompt if isinstance(raw_prompt, str) else str(raw_prompt)
+
+                config_dict = {k: v for k, v in cfg.items() if k in ChainConfig.model_fields}
+                config_dict["system_prompt"] = system_prompt
+
+                definition = ChainDefinition(
+                    id=dbc.slug,
+                    name=dbc.name or dbc.slug,
+                    description=dbc.description or "",
+                    type=dbc.type or "agent",
+                    version=dbc.version or "1.0.0",
+                    nodes=[NodeDefinition(id="adaptive_agent", type=NodeType.LLM, name="Adaptive Agent", temperature=cfg.get("temperature", 0.5))],
+                    config=ChainConfig(**config_dict)
+                )
+
+                builder = get_builder(dbc.handler_type or dbc.slug)
+                chain_registry.register(chain_id=dbc.slug, definition=definition, builder=builder)
+                loaded += 1
+            except Exception as e:
+                logger.warning(f"Error cargando asistente '{dbc.slug}': {e}")
+
+        logger.info(f"Asistentes cargados desde BD: {loaded}")
+    except Exception as e:
+        logger.warning(f"No se pudieron cargar asistentes desde BD: {e}")
 
     # Cargar herramientas built-in (core tools)
     tool_registry.register_builtin_tools()

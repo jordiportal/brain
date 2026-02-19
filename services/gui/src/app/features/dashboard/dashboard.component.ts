@@ -33,7 +33,7 @@ import { StrapiService } from '../../core/services/config.service';
             </div>
             <div class="stat-info">
               <span class="stat-value">{{ stats().chains }}</span>
-              <span class="stat-label">Cadenas Activas</span>
+              <span class="stat-label">Asistentes Activos</span>
             </div>
           </mat-card-content>
         </mat-card>
@@ -81,7 +81,7 @@ import { StrapiService } from '../../core/services/config.service';
         <div class="actions-grid">
           <mat-card class="action-card" routerLink="/chains">
             <mat-icon>add_circle</mat-icon>
-            <span>Nueva Cadena</span>
+            <span>Nuevo Asistente</span>
           </mat-card>
           <mat-card class="action-card" routerLink="/settings">
             <mat-icon>settings</mat-icon>

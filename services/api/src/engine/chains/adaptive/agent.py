@@ -1,11 +1,8 @@
 """
 Brain 2.0 Adaptive Agent - Builder Principal
 
-Este archivo contiene:
-- Definición de la cadena (ChainDefinition)
-- Builder principal (build_adaptive_agent)
-- Registro en el chain_registry
-
+Este archivo contiene el builder principal (build_adaptive_agent).
+La definición (prompt, tools, config) se carga de BD al iniciar.
 El flujo de ejecución se delega al AdaptiveExecutor.
 """
 
@@ -14,14 +11,10 @@ from typing import AsyncGenerator, Optional
 import structlog
 
 from ...models import (
-    ChainDefinition,
     ChainConfig,
-    NodeDefinition,
-    NodeType,
     StreamEvent
 )
-from ...registry import chain_registry
-from ...reasoning import detect_complexity, get_reasoning_config, ComplexityLevel
+from ...reasoning import detect_complexity, get_reasoning_config
 from ....tools import tool_registry
 
 from .validators import is_continue_command
@@ -30,34 +23,6 @@ from .events import StreamEmitter, BrainEmitter
 
 
 logger = structlog.get_logger()
-
-
-# ============================================
-# Chain Definition
-# ============================================
-
-# System prompt: único origen es la BD (GUI). Sin duplicidad en código.
-ADAPTIVE_AGENT_DEFINITION = ChainDefinition(
-    id="adaptive",
-    name="Brain 2.0 Adaptive Agent",
-    description="Agente inteligente con razonamiento adaptativo y 17 core tools",
-    type="agent",
-    version="2.1.0",  # Nueva versión refactorizada
-    nodes=[
-        NodeDefinition(
-            id="adaptive_agent",
-            type=NodeType.LLM,
-            name="Adaptive Agent",
-            system_prompt=None,  # Se lee de BD
-            temperature=0.5
-        )
-    ],
-    config=ChainConfig(
-        temperature=0.5,
-        use_memory=True,
-        max_memory_messages=10
-    )
-)
 
 
 # ============================================
@@ -144,16 +109,15 @@ async def build_adaptive_agent(
     
     # ========== FASE 2: PREPARAR MENSAJES Y TOOLS ==========
     
-    # System prompt: desde fichero (prompts/system_prompt.txt)
-    from ...prompt_files import read_prompt
-    system_prompt = read_prompt("adaptive")
+    system_prompt = config.system_prompt or ""
+    if not system_prompt:
+        logger.warning("⚠️ No system prompt in config, using empty")
 
-    # Registrar y obtener tools (solo las del adaptive; consult_team_member es solo para Team)
     tool_registry.register_core_tools()
     tools = tool_registry.get_tools_for_llm(tool_registry.ADAPTIVE_TOOL_IDS)
 
     logger.info(f"📦 {len(tools)} core tools loaded")
-    logger.info(f"📝 Using system prompt from BD" if system_prompt else "📝 No system prompt in BD")
+    logger.info(f"📝 System prompt: {len(system_prompt)} chars")
     
     # Construir mensajes
     messages = [{"role": "system", "content": system_prompt}]
@@ -266,17 +230,3 @@ async def build_adaptive_agent(
             "videos": executor.videos   # Vídeos generados durante ejecución
         }
     }
-
-
-# ============================================
-# Registro del Agente
-# ============================================
-
-def register_adaptive_agent():
-    """Registra el Adaptive Agent en el registry."""
-    chain_registry.register(
-        chain_id="adaptive",
-        definition=ADAPTIVE_AGENT_DEFINITION,
-        builder=build_adaptive_agent
-    )
-    logger.info("✅ Brain 2.0 Adaptive Agent registered (v2.1.0 refactored)")

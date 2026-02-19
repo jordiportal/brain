@@ -68,9 +68,9 @@ async def build_team_coordinator(
     complexity = detect_complexity(query)
     reasoning_config = get_reasoning_config(complexity.level)
 
-    # System prompt: desde fichero (prompts/system_prompt.txt)
-    from ...prompt_files import read_prompt
-    system_prompt = read_prompt("team")
+    system_prompt = config.system_prompt or ""
+    if not system_prompt:
+        logger.warning("⚠️ No system prompt in config for team")
 
     # Mensajes: system prompt coordinador + memoria + query
     messages = [{"role": "system", "content": system_prompt}]

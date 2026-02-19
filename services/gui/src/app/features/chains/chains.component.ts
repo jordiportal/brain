@@ -80,18 +80,91 @@ interface ExecutionStep {
     <div class="chains-page">
       <div class="page-header">
         <div>
-          <h1>Cadenas de Pensamiento</h1>
-          <p class="subtitle">Motor de ejecución de cadenas con LangGraph</p>
+          <h1>Asistentes</h1>
+          <p class="subtitle">Motor de ejecución de asistentes con LangGraph</p>
+        </div>
+        <div class="header-actions">
+          <button mat-stroked-button (click)="showCreateForm = !showCreateForm">
+            <mat-icon>add</mat-icon>
+            Nuevo Asistente
+          </button>
+          <button mat-raised-button color="primary" (click)="loadChains()" [disabled]="loading()">
+            @if (loading()) {
+              <mat-spinner diameter="20"></mat-spinner>
+            } @else {
+              <mat-icon>refresh</mat-icon>
+            }
+            Actualizar
+          </button>
         </div>
       </div>
 
+      <!-- Formulario de creación inline -->
+      @if (showCreateForm) {
+        <mat-card class="create-form-card">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>add_circle</mat-icon>
+            <mat-card-title>Nuevo Asistente</mat-card-title>
+            <mat-card-subtitle>Crea un nuevo asistente basado en el motor adaptativo</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="create-form-grid">
+              <mat-form-field appearance="outline">
+                <mat-label>ID (slug)</mat-label>
+                <input matInput [(ngModel)]="newChain.id" placeholder="mi_asistente">
+                <mat-hint>Identificador único, sin espacios</mat-hint>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Nombre</mat-label>
+                <input matInput [(ngModel)]="newChain.name" placeholder="Mi Asistente">
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="full-span">
+                <mat-label>Descripción</mat-label>
+                <input matInput [(ngModel)]="newChain.description" placeholder="Breve descripción del asistente...">
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="full-span">
+                <mat-label>System Prompt</mat-label>
+                <textarea matInput [(ngModel)]="newChain.system_prompt" rows="4"
+                          placeholder="Instrucciones del sistema para el asistente..."></textarea>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Temperatura</mat-label>
+                <input matInput type="number" step="0.1" min="0" max="2" [(ngModel)]="newChain.temperature">
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Max Iteraciones</mat-label>
+                <input matInput type="number" min="5" max="50" [(ngModel)]="newChain.max_iterations">
+              </mat-form-field>
+            </div>
+          </mat-card-content>
+          <mat-card-actions align="end">
+            <button mat-button (click)="showCreateForm = false">Cancelar</button>
+            <button mat-raised-button color="primary" 
+                    [disabled]="!newChain.id || !newChain.name || creatingChain()"
+                    (click)="createNewChain()">
+              @if (creatingChain()) {
+                <mat-spinner diameter="20"></mat-spinner>
+              } @else {
+                <mat-icon>check</mat-icon>
+              }
+              Crear Asistente
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      }
+
       <mat-tab-group>
-        <!-- Tab de Cadenas Predefinidas -->
-        <mat-tab label="Cadenas del Motor">
+        <!-- Tab: Lista de Asistentes -->
+        <mat-tab label="Asistentes">
           @if (loading()) {
             <div class="loading-container">
               <mat-spinner diameter="48"></mat-spinner>
-              <p>Cargando cadenas...</p>
+              <p>Cargando asistentes...</p>
             </div>
           } @else {
             <div class="chains-grid">
@@ -135,6 +208,12 @@ interface ExecutionStep {
                   </mat-card-content>
 
                   <mat-card-actions align="end">
+                    @if (!isProtectedChain(chain.id)) {
+                      <button mat-icon-button color="warn" matTooltip="Eliminar asistente"
+                              (click)="confirmDelete(chain); $event.stopPropagation()">
+                        <mat-icon>delete</mat-icon>
+                      </button>
+                    }
                     <button mat-button (click)="openEditor(chain)">
                       <mat-icon>edit</mat-icon>
                       Editar
@@ -148,8 +227,8 @@ interface ExecutionStep {
               } @empty {
                 <div class="empty-state">
                   <mat-icon>account_tree</mat-icon>
-                  <h3>No hay cadenas en el motor</h3>
-                  <p>Verifica que la API esté activa</p>
+                  <h3>No hay asistentes en el motor</h3>
+                  <p>Crea un nuevo asistente o verifica que la API esté activa</p>
                 </div>
               }
             </div>
@@ -157,7 +236,7 @@ interface ExecutionStep {
         </mat-tab>
 
         <!-- Tab de Editor -->
-        <mat-tab label="Editor de Cadena" [disabled]="!editingChainId()">
+        <mat-tab label="Editor de Asistente" [disabled]="!editingChainId()">
           @if (editingChainId()) {
             <app-chain-editor 
               [chainId]="editingChainId()!"
@@ -168,7 +247,7 @@ interface ExecutionStep {
         </mat-tab>
 
         <!-- Tab de Ejecución -->
-        <mat-tab label="Ejecutar Cadena" [disabled]="!selectedChain()">
+        <mat-tab label="Ejecutar Asistente" [disabled]="!selectedChain()">
           @if (selectedChain()) {
             <div class="execution-panel">
               <div class="execution-header">
@@ -228,7 +307,7 @@ interface ExecutionStep {
                     [features]="chatFeatures"
                     [isLoading]="isExecuting"
                     [placeholder]="'Escribe tu mensaje...'"
-                    [emptyMessage]="'Selecciona una cadena y envía un mensaje para comenzar'"
+                    [emptyMessage]="'Selecciona un asistente y envía un mensaje para comenzar'"
                     [currentStepName]="currentStepName"
                     (messageSent)="onChatMessageSent($event)"
                     (presentationOpened)="openPresentation($event)">
@@ -280,6 +359,12 @@ interface ExecutionStep {
       margin-bottom: 24px;
     }
 
+    .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
     h1 {
       margin: 0;
       font-size: 28px;
@@ -290,6 +375,34 @@ interface ExecutionStep {
     .subtitle {
       color: #666;
       margin: 4px 0 0;
+    }
+
+    .create-form-card {
+      margin-bottom: 24px;
+      border-radius: 12px;
+      border: 2px solid #667eea;
+    }
+
+    .create-form-card mat-card-avatar {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+    }
+
+    .create-form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding-top: 16px;
+    }
+
+    .create-form-grid .full-span {
+      grid-column: 1 / -1;
     }
 
     .loading-container {
@@ -616,9 +729,14 @@ export class ChainsComponent implements OnInit {
 
   engineChains = signal<EngineChain[]>([]);
   loading = signal(true);
+  creatingChain = signal(false);
   
   selectedChain = signal<EngineChain | null>(null);
   editingChainId = signal<string | null>(null);
+
+  showCreateForm = false;
+  newChain = { id: '', name: '', description: '', system_prompt: '', temperature: 0.5, max_iterations: 15 };
+  protectedChains = new Set<string>();
   messages = signal<ChatMessage[]>([]);
   isExecuting = signal(false);
   currentStep = signal<ExecutionStep | null>(null);
@@ -676,7 +794,7 @@ export class ChainsComponent implements OnInit {
   
   loadLlmProviders(): void {
     // Solo cargar la lista de proveedores disponibles
-    // El proveedor específico se carga cuando se selecciona una cadena
+    // El proveedor específico se carga cuando se selecciona un asistente
     this.strapiService.getLlmProviders().subscribe({
       next: (providers) => {
         this.llmProviders.set(providers);
@@ -741,7 +859,58 @@ export class ChainsComponent implements OnInit {
       error: (err) => {
         console.error('Error loading chains:', err);
         this.loading.set(false);
-        this.snackBar.open('Error al cargar cadenas', 'Cerrar', { duration: 3000 });
+        this.snackBar.open('Error al cargar asistentes', 'Cerrar', { duration: 3000 });
+      }
+    });
+  }
+
+  isProtectedChain(chainId: string): boolean {
+    return this.protectedChains.has(chainId);
+  }
+
+  createNewChain(): void {
+    if (!this.newChain.id || !this.newChain.name) return;
+    this.creatingChain.set(true);
+
+    this.apiService.createChain(this.newChain).subscribe({
+      next: () => {
+        this.snackBar.open(`Asistente "${this.newChain.name}" creado`, 'Cerrar', { duration: 3000 });
+        this.showCreateForm = false;
+        this.newChain = { id: '', name: '', description: '', system_prompt: '', temperature: 0.5, max_iterations: 15 };
+        this.creatingChain.set(false);
+        this.loadChains();
+      },
+      error: (err) => {
+        console.error('Error creating chain:', err);
+        const msg = err.error?.detail || 'Error al crear el asistente';
+        this.snackBar.open(msg, 'Cerrar', { duration: 5000 });
+        this.creatingChain.set(false);
+      }
+    });
+  }
+
+  confirmDelete(chain: EngineChain): void {
+    if (confirm(`¿Eliminar el asistente "${chain.name}"? Esta acción no se puede deshacer.`)) {
+      this.deleteChain(chain.id);
+    }
+  }
+
+  deleteChain(chainId: string): void {
+    this.apiService.deleteChain(chainId).subscribe({
+      next: () => {
+        this.snackBar.open('Asistente eliminado', 'Cerrar', { duration: 2000 });
+        if (this.selectedChain()?.id === chainId) {
+          this.selectedChain.set(null);
+        }
+        if (this.editingChainId() === chainId) {
+          this.editingChainId.set(null);
+        }
+        this.loadChains();
+      },
+      error: (err) => {
+        console.error('Error deleting chain:', err);
+        const msg = err.error?.detail || 'Error al eliminar el asistente';
+        this.snackBar.open(msg, 'Cerrar', { duration: 5000 });
       }
     });
   }
@@ -764,7 +933,7 @@ export class ChainsComponent implements OnInit {
 
   onChainSaved(): void {
     this.loadChains();
-    this.snackBar.open('Cadena guardada', 'Cerrar', { duration: 2000 });
+    this.snackBar.open('Asistente guardado', 'Cerrar', { duration: 2000 });
   }
 
   openExecuteDialog(chain: EngineChain): void {
@@ -772,7 +941,7 @@ export class ChainsComponent implements OnInit {
     this.messages.set([]);
     this.useMemory = chain.config.use_memory;
     
-    // Cargar proveedor LLM de la cadena
+    // Cargar proveedor LLM del asistente
     this.loadChainLlmProvider(chain.id);
     
     setTimeout(() => {
@@ -783,7 +952,7 @@ export class ChainsComponent implements OnInit {
   }
   
   loadChainLlmProvider(chainId: string): void {
-    // Obtener detalles de la cadena con su proveedor asociado
+    // Obtener detalles del asistente con su proveedor asociado
     this.http.get<any>(`${environment.apiUrl}/chains/${chainId}/details`).subscribe({
       next: (response) => {
         const provider = response.llm_provider;
@@ -799,7 +968,7 @@ export class ChainsComponent implements OnInit {
         }
       },
       error: (err) => {
-        console.error('Error cargando proveedor de la cadena:', err);
+        console.error('Error cargando proveedor del asistente:', err);
       }
     });
   }

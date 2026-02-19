@@ -87,6 +87,14 @@ export class ApiService {
     return this.http.delete(`${this.API_URL}/chains/${chainId}/memory/${sessionId}`);
   }
 
+  createChain(data: { id: string; name: string; description?: string; system_prompt?: string; temperature?: number; max_iterations?: number; use_memory?: boolean }): Observable<any> {
+    return this.http.post(`${this.API_URL}/chains`, data);
+  }
+
+  deleteChain(chainId: string): Observable<any> {
+    return this.http.delete(`${this.API_URL}/chains/${chainId}`);
+  }
+
   // ===========================================
   // LLM Provider
   // ===========================================

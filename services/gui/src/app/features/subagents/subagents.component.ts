@@ -183,7 +183,7 @@ interface TestRunResult {
     <div class="subagents-page">
       <div class="page-header">
         <div>
-          <h1>Subagentes Especializados</h1>
+          <h1>Agentes Especializados</h1>
           <p class="subtitle">Agentes de dominio para tareas específicas</p>
         </div>
         <div class="header-actions">
@@ -203,14 +203,14 @@ interface TestRunResult {
       </div>
 
       <mat-tab-group [(selectedIndex)]="activeTabIndex" animationDuration="300ms">
-        <!-- Tab: Lista de Subagentes -->
-        <mat-tab label="Subagentes">
+        <!-- Tab: Lista de Agentes -->
+        <mat-tab label="Agentes">
           <div class="tab-content-wrapper">
-            <!-- Grid de Subagentes -->
+            <!-- Grid de Agentes -->
             @if (loading()) {
               <div class="loading-container">
                 <mat-spinner diameter="48"></mat-spinner>
-                <p>Cargando subagentes...</p>
+                <p>Cargando agentes...</p>
               </div>
             } @else {
               <div class="subagents-grid">
@@ -284,8 +284,8 @@ interface TestRunResult {
                 } @empty {
                   <div class="empty-state">
                     <mat-icon>smart_toy</mat-icon>
-                    <h3>No hay subagentes registrados</h3>
-                    <p>Los subagentes se registran automáticamente al iniciar la API</p>
+                    <h3>No hay agentes registrados</h3>
+                    <p>Los agentes se registran automáticamente al iniciar la API</p>
                     <button mat-raised-button color="primary" (click)="loadSubagents()">
                       <mat-icon>refresh</mat-icon>
                       Recargar
@@ -296,7 +296,7 @@ interface TestRunResult {
             }
           </div>
 
-          <!-- Panel de Chat con Subagente -->
+          <!-- Panel de Chat con Agente -->
           @if (executeAgent()) {
             <mat-card class="chat-panel" style="margin-top: 24px;">
               <mat-card-header>
@@ -491,7 +491,7 @@ interface TestRunResult {
                     <div class="empty-skills">
                       <mat-icon>school</mat-icon>
                       <h3>Sin skills especializados</h3>
-                      <p>Este subagente no tiene skills configurados</p>
+                      <p>Este agente no tiene skills configurados</p>
                     </div>
                   } @else {
                     <div class="skills-header">
@@ -577,7 +577,7 @@ interface TestRunResult {
                     <div class="empty-tests">
                       <mat-icon>science</mat-icon>
                       <h3>Sin tests definidos</h3>
-                      <p>Este subagente no tiene tests configurados</p>
+                      <p>Este agente no tiene tests configurados</p>
                     </div>
                   } @else {
                     <div class="tests-layout">
@@ -771,10 +771,10 @@ interface TestRunResult {
                   } @else {
                     <div class="config-form">
                       <mat-slide-toggle [(ngModel)]="agentConfig.enabled" color="primary">
-                        Subagente habilitado
+                        Agente habilitado
                       </mat-slide-toggle>
 
-                      <!-- Configuración de LLM - común a todos los subagentes -->
+                      <!-- Configuración de LLM - común a todos los agentes -->
                       <div class="config-section">
                         <div class="config-section-header">
                           <mat-icon>smart_toy</mat-icon>
@@ -869,7 +869,7 @@ interface TestRunResult {
                         <mat-form-field appearance="outline" class="full-width">
                           <mat-label>Instrucciones del sistema</mat-label>
                           <textarea matInput [(ngModel)]="selectedAgent.system_prompt" rows="8"
-                                    placeholder="Instrucciones que definen el comportamiento del subagente..."></textarea>
+                                    placeholder="Instrucciones que definen el comportamiento del agente..."></textarea>
                           <mat-hint>Se guarda con el agente (versión automática al guardar)</mat-hint>
                         </mat-form-field>
                       </div>
@@ -992,7 +992,7 @@ interface TestRunResult {
                   } @else {
                     <div class="empty-test">
                       <mat-icon>health_and_safety</mat-icon>
-                      <p>Ejecuta un test para ver el estado del subagente</p>
+                      <p>Ejecuta un test para ver el estado del agente</p>
                       <button mat-raised-button color="primary" (click)="testAgent(selectedAgent.id)">
                         <mat-icon>play_arrow</mat-icon>
                         Ejecutar Test
@@ -1032,7 +1032,7 @@ interface TestRunResult {
                     [(ngModel)]="useSavedConfig" 
                     color="primary"
                     class="config-toggle">
-                    Usar configuración guardada del subagente
+                    Usar configuración guardada del agente
                   </mat-slide-toggle>
                 </div>
                 
@@ -2851,9 +2851,9 @@ export class SubagentsComponent implements OnInit {
   selectedAgent: Subagent | null = null;
   isNewAgent = signal(false);
   executeAgent = signal<Subagent | null>(null);
-  /** Session ID para memoria conversacional del subagente (misma conversación = mismo session_id) */
+  /** Session ID para memoria conversacional del agente (misma conversación = mismo session_id) */
   subagentSessionId = signal<string | null>(null);
-  activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración, 2 = Ejecutar
+  activeTabIndex = 0; // 0 = Agentes, 1 = Configuración, 2 = Ejecutar
   availableToolsList = signal<{ id: string; name: string; description: string }[]>([]);
   agentVersions = signal<{ id: number; version_number: number; created_at: string; change_reason?: string }[]>([]);
   loadingVersions = signal(false);
@@ -2899,7 +2899,7 @@ export class SubagentsComponent implements OnInit {
   executeProviderId: string | number | null = null;
   executeModel = '';
   
-  // Toggle: usar config guardada del subagente vs personalizar
+  // Toggle: usar config guardada del agente vs personalizar
   useSavedConfig = signal(true); // Por defecto usar la config guardada
   
   // Computed signal para obtener el proveedor actual de la config
@@ -2985,7 +2985,7 @@ export class SubagentsComponent implements OnInit {
         },
         error: (err) => {
           console.error('Error loading subagents:', err);
-          this.snackBar.open('Error cargando subagentes', 'Cerrar', { duration: 3000 });
+          this.snackBar.open('Error cargando agentes', 'Cerrar', { duration: 3000 });
           this.loading.set(false);
         }
       });
@@ -3472,7 +3472,7 @@ export class SubagentsComponent implements OnInit {
         content: result.error!,
         timestamp: new Date()
       }]);
-      this.snackBar.open('Error ejecutando subagente', 'Cerrar', { duration: 3000 });
+      this.snackBar.open('Error ejecutando agente', 'Cerrar', { duration: 3000 });
     }
   }
 

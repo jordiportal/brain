@@ -15,7 +15,7 @@ export type StepType = 'tool' | 'subtask' | 'thinking' | 'generic';
  * 
  * `type` determina la visualización:
  * - tool: línea inline compacta (icono + nombre + duración)
- * - subtask: bloque con borde, resumen de subagente y children anidados
+ * - subtask: bloque con borde, resumen de agente y children anidados
  * - thinking: línea discreta para reflexiones del LLM
  * - generic: fallback, misma visualización que tool
  */
@@ -33,9 +33,9 @@ export interface IntermediateStep {
   sessionId?: string;
   /** Para subtasks: ID de sesión padre */
   parentId?: string;
-  /** Para subtasks: tipo de subagente (sap_analyst, etc.) */
+  /** Para subtasks: tipo de agente (sap_analyst, etc.) */
   agentType?: string;
-  /** Para subtasks: pasos anidados del subagente */
+  /** Para subtasks: pasos anidados del agente */
   children?: IntermediateStep[];
   /** Para subtasks: número de tool calls */
   toolCount?: number;
