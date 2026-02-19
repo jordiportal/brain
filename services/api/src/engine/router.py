@@ -555,6 +555,12 @@ async def get_chain_details(chain_id: str):
     if not system_prompt and chain and chain.config:
         system_prompt = chain.config.system_prompt or ""
 
+    db_config = (db_chain.config if db_chain else None) or {}
+    default_llm = {
+        "provider_id": db_config.get("default_llm_provider_id"),
+        "model": db_config.get("default_llm_model"),
+    }
+
     return {
         "chain": {
             "id": chain.id,
@@ -581,9 +587,10 @@ async def get_chain_details(chain_id: str):
         "tools": tools_info,
         "subagents": subagents_info,
         "llm_provider": llm_provider,
+        "default_llm": default_llm,
         "chain_tools": (db_chain.tools if db_chain else None) or [],
-        "chain_agents": (db_chain.config or {}).get("agents", []) if db_chain else [],
-        "chain_skills": (db_chain.config or {}).get("skills", []) if db_chain else [],
+        "chain_agents": db_config.get("agents", []),
+        "chain_skills": db_config.get("skills", []),
         "chain_version": db_chain.version if db_chain else chain.version,
     }
 

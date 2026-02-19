@@ -509,9 +509,17 @@ export class ChainEditorComponent implements OnInit {
           this.selectedProviderId = res.llm_provider.id;
           this.selectedModel = res.llm_provider.defaultModel || '';
         }
-        if (res.default_llm) {
+        if (res.default_llm?.provider_id) {
           this.selectedProviderId = res.default_llm.provider_id;
-          this.selectedModel = res.default_llm.model || '';
+        }
+        if (res.default_llm?.model) {
+          this.selectedModel = res.default_llm.model;
+        }
+
+        // Reload models for the resolved provider
+        if (this.selectedProviderId) {
+          const p = this.llmProviders().find(pr => pr.id === this.selectedProviderId);
+          if (p) this.loadModelsForProvider(p);
         }
 
         this.loading.set(false);

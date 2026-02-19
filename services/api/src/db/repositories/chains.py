@@ -164,29 +164,30 @@ class ChainRepository:
         db = get_db()
         
         try:
-            # Obtener la cadena actual o crear config base
             chain = await ChainRepository.get_by_slug(slug)
-            current_config = (chain.config if chain else {}) or {}
+            if not chain:
+                return False
+
+            current_config = (chain.config or {}).copy()
             current_config["default_llm_provider_id"] = provider_id
             current_config["default_llm_model"] = model
-            
-            if chain:
-                # Update existing
-                query = """
-                    UPDATE brain_chains 
-                    SET config = $1::jsonb, updated_at = NOW()
-                    WHERE slug = $2
-                """
-                await db.execute(query, json.dumps(current_config), slug)
-            else:
-                # Create new chain with minimal info
-                await ChainRepository.upsert(
-                    slug=slug,
-                    name=slug.replace("_", " ").title(),
-                    chain_type="agent",
-                    config=current_config
+
+            await db.execute(
+                "UPDATE brain_chains SET config = $1::jsonb, updated_at = NOW() WHERE slug = $2",
+                json.dumps(current_config), slug
+            )
+
+            # Sync link table (read path uses this JOIN)
+            await db.execute(
+                "DELETE FROM brain_chains_llm_provider_lnk WHERE brain_chain_id = $1",
+                chain.id
+            )
+            if provider_id:
+                await db.execute(
+                    "INSERT INTO brain_chains_llm_provider_lnk (brain_chain_id, llm_provider_id) VALUES ($1, $2)",
+                    chain.id, provider_id
                 )
-            
+
             logger.info(f"Updated LLM config for chain {slug}: provider_id={provider_id}, model={model}")
             return True
             
