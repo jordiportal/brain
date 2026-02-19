@@ -48,7 +48,7 @@ async def list_subagents():
     """Lista todos los subagentes registrados"""
     # Asegurar que los subagentes estén registrados
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agents = subagent_registry.list()
     
@@ -74,7 +74,7 @@ async def list_subagents():
 async def get_subagent(agent_id: str):
     """Obtiene detalles de un subagente específico"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -115,7 +115,7 @@ async def get_subagent(agent_id: str):
 async def get_subagent_tools(agent_id: str):
     """Obtiene las herramientas de un subagente"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -157,7 +157,7 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
     3. Provider por defecto del sistema
     """
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -230,7 +230,7 @@ async def test_subagent(agent_id: str):
     Verifica que el subagente está correctamente configurado y sus tools funcionan.
     """
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -274,7 +274,7 @@ async def test_subagent(agent_id: str):
 async def get_subagent_config(agent_id: str):
     """Obtiene la configuración actual de un subagente desde PostgreSQL"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -302,7 +302,7 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
     from src.db.repositories import SubagentConfigRepository
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -367,7 +367,7 @@ async def update_subagent_config(agent_id: str, config: SubagentConfigUpdate):
 async def get_subagent_skills(agent_id: str):
     """Obtiene los skills disponibles de un subagente"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -389,7 +389,7 @@ async def get_subagent_skills(agent_id: str):
 async def get_skill_content(agent_id: str, skill_id: str):
     """Obtiene el contenido de un skill específico"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -432,7 +432,7 @@ class SkillContentUpdate(BaseModel):
 async def update_skill_content(agent_id: str, skill_id: str, update: SkillContentUpdate):
     """Actualiza el contenido de un skill"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -500,7 +500,7 @@ class TestResultUpdate(BaseModel):
 async def get_subagent_tests(agent_id: str):
     """Obtiene los tests definidos para un subagente"""
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -542,7 +542,7 @@ async def run_subagent_test(
     import time
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -614,7 +614,7 @@ async def update_test_result(agent_id: str, test_id: str, update: TestResultUpda
     from datetime import datetime
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     agent = subagent_registry.get(agent_id)
     if not agent:
@@ -739,18 +739,18 @@ def _save_test_result(agent_id: str, test_id: str, result: Dict[str, Any]) -> No
 # ============================================
 
 def _get_agent_icon(agent_id: str) -> str:
-    """Retorna el icono para un subagente"""
-    icons = {
+    """Retorna el icono para un subagente (primero del registro, fallback estatico)."""
+    agent = subagent_registry.get(agent_id)
+    if agent and getattr(agent, "icon", None):
+        return agent.icon
+    fallback = {
         "designer_agent": "palette",
         "researcher_agent": "search",
         "communication_agent": "campaign",
         "rag_agent": "menu_book",
-        "sap_agent": "business",
         "sap_analyst": "analytics",
-        "mail_agent": "email",
-        "office_agent": "description"
     }
-    return icons.get(agent_id, "smart_toy")
+    return fallback.get(agent_id, "smart_toy")
 
 
 async def _get_agent_config(agent_id: str) -> Dict[str, Any]:

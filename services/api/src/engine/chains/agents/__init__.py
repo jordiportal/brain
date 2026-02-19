@@ -1,38 +1,57 @@
 """
-Brain 2.0 Subagentes por Rol Profesional (v3.0.0)
+Brain Subagentes — cargados desde BD (tabla agent_definitions).
 
-Subagentes invocables via delegate desde Adaptive Agent o Team.
-
-Estructura: designer (imágenes+presentaciones), researcher (web), strategist (comunicación), rag (documentos).
+Al arrancar se hace seed si la tabla esta vacia y se registran
+todos los agentes habilitados en el SubAgentRegistry.
 """
 
-from .base import BaseSubAgent, SubAgentResult, SubAgentRegistry, subagent_registry
-from .designer import DesignerAgent
-from .researcher import ResearcherAgent
-from .communication import CommunicationAgent
-from .sap_analyst import SAPAnalystAgent
-from .rag import RagAgent
+import structlog
+
+from .base import BaseSubAgent, SubAgentResult, Skill, SubAgentRegistry, subagent_registry
+
+logger = structlog.get_logger(__name__)
 
 
-def register_all_subagents():
-    """Registra todos los subagentes en el registry."""
-    if not subagent_registry.is_initialized():
-        subagent_registry.register(DesignerAgent())
-        subagent_registry.register(ResearcherAgent())
-        subagent_registry.register(CommunicationAgent())
-        subagent_registry.register(SAPAnalystAgent())
-        subagent_registry.register(RagAgent())
+async def register_all_subagents() -> None:
+    """Carga agentes desde BD y los registra. Seed si tabla vacia."""
+    if subagent_registry.is_initialized():
+        return
+
+    from src.db.repositories.agent_definitions import AgentDefinitionRepository
+    from .seed import seed_default_agents
+
+    try:
+        await seed_default_agents()
+
+        definitions = await AgentDefinitionRepository.get_all_enabled()
+        for defn in definitions:
+            agent = BaseSubAgent.from_definition(defn)
+            subagent_registry.register(agent)
+
+        logger.info("Subagents loaded from DB", count=len(definitions))
+    except Exception as e:
+        logger.error(f"Failed to load subagents from DB: {e}", exc_info=True)
+
+
+async def reload_subagents() -> int:
+    """Hot-reload: recarga todos los agentes desde BD sin restart."""
+    from src.db.repositories.agent_definitions import AgentDefinitionRepository
+
+    subagent_registry.clear()
+    definitions = await AgentDefinitionRepository.get_all_enabled()
+    for defn in definitions:
+        agent = BaseSubAgent.from_definition(defn)
+        subagent_registry.register(agent)
+    logger.info("Subagents reloaded from DB", count=len(definitions))
+    return len(definitions)
 
 
 __all__ = [
     "BaseSubAgent",
     "SubAgentResult",
+    "Skill",
     "SubAgentRegistry",
     "subagent_registry",
-    "DesignerAgent",
-    "ResearcherAgent",
-    "CommunicationAgent",
-    "SAPAnalystAgent",
-    "RagAgent",
-    "register_all_subagents"
+    "register_all_subagents",
+    "reload_subagents",
 ]

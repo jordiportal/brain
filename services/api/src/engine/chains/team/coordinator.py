@@ -46,7 +46,7 @@ async def build_team_coordinator(
 
     # Asegurar subagentes y tools registradas
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     tool_registry.register_core_tools()
     tools = tool_registry.get_tools_for_team()
 

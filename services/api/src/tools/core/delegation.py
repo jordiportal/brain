@@ -172,7 +172,7 @@ async def delegate(
     
     # Asegurar que los subagentes estén registrados
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     # Obtener el subagente
     subagent = subagent_registry.get(agent)
@@ -282,7 +282,7 @@ async def delegate(
         }
 
 
-def get_available_subagents_description() -> str:
+async def get_available_subagents_description() -> str:
     """
     Genera descripción de subagentes disponibles para inyectar en prompts.
     
@@ -292,12 +292,12 @@ def get_available_subagents_description() -> str:
     from src.engine.chains.agents import subagent_registry, register_all_subagents
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     return subagent_registry.get_description()
 
 
-def get_subagent_ids() -> list:
+async def get_subagent_ids() -> list:
     """
     Obtiene lista de IDs de subagentes disponibles.
     
@@ -307,7 +307,7 @@ def get_subagent_ids() -> list:
     from src.engine.chains.agents import subagent_registry, register_all_subagents
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     return subagent_registry.list_ids()
 
@@ -339,7 +339,7 @@ async def consult_team_member(
     from src.engine.chains.agents import subagent_registry, register_all_subagents
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     subagent = subagent_registry.get(agent)
     if not subagent:
@@ -533,7 +533,7 @@ async def parallel_delegate(
     from src.engine.chains.agents import subagent_registry, register_all_subagents
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     # Validar que todos los agentes existen antes de lanzar
     validated_tasks = []
@@ -687,7 +687,7 @@ async def get_agent_info(agent: str) -> Dict[str, Any]:
     from src.engine.chains.agents import subagent_registry, register_all_subagents
     
     if not subagent_registry.is_initialized():
-        register_all_subagents()
+        await register_all_subagents()
     
     subagent = subagent_registry.get(agent)
     
@@ -716,12 +716,13 @@ async def get_agent_info(agent: str) -> Dict[str, Any]:
 # ============================================
 
 def _get_agent_ids() -> list:
-    """Obtiene IDs de subagentes registrados (enum dinámico)."""
+    """Obtiene IDs de subagentes registrados (enum dinámico).
+    Sync helper - relies on registry being initialized at startup."""
     try:
-        from src.engine.chains.agents import subagent_registry, register_all_subagents
-        if not subagent_registry.is_initialized():
-            register_all_subagents()
-        return subagent_registry.list_ids()
+        from src.engine.chains.agents import subagent_registry
+        if subagent_registry.is_initialized():
+            return subagent_registry.list_ids()
+        return ["designer_agent", "researcher_agent", "communication_agent"]
     except Exception:
         return ["designer_agent", "researcher_agent", "communication_agent"]
 
@@ -751,16 +752,17 @@ Usa ANTES de delegar para saber qué espera cada subagente.""",
 
 def get_delegate_tool() -> dict:
     """Tool delegate con enum dinámico."""
+    from src.engine.chains.agents.base import subagent_registry
+
+    agent_lines = []
+    for a in subagent_registry.list():
+        agent_lines.append(f"- {a.id}: {a.description}")
+    agents_desc = "\n".join(agent_lines) if agent_lines else "No hay subagentes configurados."
+
     return {
         "id": "delegate",
         "name": "delegate",
-        "description": """Delega una tarea a un subagente. Usa get_agent_info primero si no conoces el formato.
-
-- designer_agent: Imágenes, vídeos cinematográficos y presentaciones
-- researcher_agent: Búsqueda web (datos actuales)
-- communication_agent: Estrategia y narrativa
-- sap_analyst: Datos SAP BIW: ventas (VN), P&L, rentabilidad, queries, datos de negocio
-- rag_agent: Búsqueda en documentos, recuperación de información""",
+        "description": f"Delega una tarea a un subagente. Usa get_agent_info primero si no conoces el formato.\n\n{agents_desc}",
         "parameters": {
             "type": "object",
             "properties": {

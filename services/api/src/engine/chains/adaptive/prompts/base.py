@@ -36,55 +36,20 @@ TOOLS_SECTION = """
 """
 
 # ============================================
-# Sección de Subagentes (simplificada)
+# Sección de Subagentes (dinámica desde registry)
 # ============================================
 
-SUBAGENTS_SECTION = """
-## Subagentes Especializados
-
-Para tareas de dominio específico, usa subagentes con rol profesional:
-
-| Agente | Rol |
-|--------|-----|
-| designer_agent | Director de Arte Digital (imágenes, vídeos, presentaciones) |
-| researcher_agent | Investigador (búsqueda web, datos actuales) |
-| communication_agent | Estrategia y narrativa |
-| sap_analyst | Analista SAP BIW: ventas (VN), P&L, rentabilidad, queries, datos de negocio KH Lloreda |
-| rag_agent | Recuperación de información (documentos, búsqueda semántica) |
-
-### Delegación secuencial (delegate)
-
-1. get_agent_info(agent) para conocer su rol y qué necesita
-2. Consulta (recomendado): delegate con mode=consult para recomendaciones
-3. Ejecución: delegate con los datos que necesita
-4. finish con el resultado
-
-### Delegación paralela (parallel_delegate)
-
-Cuando necesites ejecutar tareas INDEPENDIENTES simultáneamente:
-
-```
-parallel_delegate(tasks=[
-  {"agent": "researcher_agent", "task": "Investiga tendencias IA"},
-  {"agent": "designer_agent", "task": "Genera imagen de portada"}
-])
-```
-
-Cada subagente se ejecuta como ejecución hija aislada con su propio contexto.
-Los resultados se agregan y devuelven juntos.
-
-**Cuándo usar parallel_delegate:**
-- Las tareas NO dependen entre sí
-- Quieres ahorrar tiempo ejecutando simultáneamente
-- Necesitas resultados de múltiples expertos
-
-**Cuándo usar delegate (secuencial):**
-- Una tarea depende del resultado de otra
-- Solo necesitas un subagente
-- El orden de ejecución importa
-
-Los subagentes son expertos en su dominio. Aprovecha su criterio consultándolos.
-"""
+def get_subagents_section() -> str:
+    from src.engine.chains.agents.base import subagent_registry
+    agents = subagent_registry.list()
+    if not agents:
+        return ""
+    lines = ["## SUBAGENTES DISPONIBLES\n\nPuedes delegar tareas a estos especialistas usando `delegate(agent, task, context)`:\n"]
+    for a in agents:
+        lines.append(f"- **{a.id}**: {a.description}")
+        if a.expertise:
+            lines.append(f"  Expertise: {a.expertise}")
+    return "\n".join(lines)
 
 # ============================================
 # Workflow (único - el LLM decide)

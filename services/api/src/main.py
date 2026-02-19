@@ -23,6 +23,7 @@ from src.mcp.client import mcp_client
 from src.browser.service import browser_service
 from src.browser.router import router as browser_router
 from src.engine.chains.agents.router import router as subagents_router
+from src.engine.chains.agents.definitions_router import router as agent_definitions_router
 from src.openai_compat.router import router as openai_compat_router
 from src.config_router import router as config_router
 from src.auth_router import router as auth_router
@@ -71,7 +72,7 @@ async def lifespan(app: FastAPI):
     # Registrar subagentes especializados
     try:
         from src.engine.chains.agents import register_all_subagents
-        register_all_subagents()
+        await register_all_subagents()
         logger.info("Subagentes especializados registrados")
     except Exception as e:
         logger.warning(f"No se pudieron registrar subagentes: {e}")
@@ -143,6 +144,7 @@ app.include_router(tools_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(browser_router, prefix="/api/v1")
 app.include_router(subagents_router, prefix="/api/v1")
+app.include_router(agent_definitions_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(workspace_router, prefix="/api/v1")

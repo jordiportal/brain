@@ -9,7 +9,7 @@ from datetime import datetime
 
 from .base import (
     TOOLS_SECTION,
-    SUBAGENTS_SECTION,
+    get_subagents_section,
     WORKFLOW,
     WORKFLOW_SIMPLE,
     WORKFLOW_MODERATE,
@@ -51,7 +51,7 @@ def get_system_prompt(provider_type: str) -> str:
     
     return base_prompt.format(
         tools_section=TOOLS_SECTION,
-        subagents_section=SUBAGENTS_SECTION,
+        subagents_section=get_subagents_section(),
         workflow_instructions="{workflow_instructions}",
     ) + _date_context()
 
@@ -75,6 +75,6 @@ __all__ = [
     "get_system_prompt",
     "get_workflow",
     "TOOLS_SECTION",
-    "SUBAGENTS_SECTION",
+    "get_subagents_section",
     "WORKFLOW",
 ]

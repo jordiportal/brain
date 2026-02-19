@@ -321,7 +321,7 @@ async def get_chain_details(chain_id: str):
     subagents_info = []
     try:
         if not subagent_registry.is_initialized():
-            register_all_subagents()
+            await register_all_subagents()
         
         # Mapeo de iconos por agente
         agent_icons = {

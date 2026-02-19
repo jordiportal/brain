@@ -181,3 +181,41 @@ class SubagentConfig(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class AgentDefinition(BaseModel):
+    """Full agent definition stored in DB (prompt, tools, skills, metadata)."""
+    id: int = 0
+    agent_id: str
+    name: str
+    description: Optional[str] = None
+    role: Optional[str] = None
+    expertise: Optional[str] = None
+    task_requirements: Optional[str] = None
+    system_prompt: str
+    domain_tools: List[str] = []
+    core_tools_enabled: bool = True
+    skills: List[Dict[str, Any]] = []
+    is_enabled: bool = True
+    version: str = "1.0.0"
+    icon: Optional[str] = None
+    settings: Dict[str, Any] = {}
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AgentVersion(BaseModel):
+    """Snapshot of an agent definition at a point in time."""
+    id: int = 0
+    agent_definition_id: int
+    version_number: int
+    snapshot: Dict[str, Any]
+    changed_by: Optional[str] = None
+    change_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
