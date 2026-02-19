@@ -27,6 +27,7 @@ import { environment } from '../../../environments/environment';
 // Chat unificado
 import { ChatComponent, ChatMessage } from '../../shared/components/chat';
 import { LlmSelectorComponent, LlmSelectionService } from '../../shared/components/llm-selector';
+import { SseStreamService } from '../../shared/services/sse-stream.service';
 
 interface Skill {
   id: string;
@@ -2596,6 +2597,7 @@ export class SubagentsComponent implements OnInit {
   private snackBar = inject(MatSnackBar);
   private sanitizer = inject(DomSanitizer);
   private llmSelectionService = inject(LlmSelectionService);
+  private sseStream = inject(SseStreamService);
 
   subagents = signal<Subagent[]>([]);
   agentTools = signal<SubagentTool[]>([]);
@@ -2617,11 +2619,11 @@ export class SubagentsComponent implements OnInit {
   // Chat unificado
   messages = signal<ChatMessage[]>([]);
   chatFeatures = {
-    intermediateSteps: false,
+    intermediateSteps: true,
     images: true,
     videos: true,
     presentations: false,
-    streaming: false,  // No streaming por ahora en subagentes
+    streaming: true,
     tokens: true,
     timestamps: true,
     clearButton: true,
@@ -3106,7 +3108,7 @@ export class SubagentsComponent implements OnInit {
     };
   }
 
-  executeSubagent(): void {
+  async executeSubagent(): Promise<void> {
     const agent = this.executeAgent();
     if (!agent || !this.executeTask.trim()) {
       this.snackBar.open('Ingresa una tarea', 'Cerrar', { duration: 3000 });
@@ -3115,7 +3117,6 @@ export class SubagentsComponent implements OnInit {
 
     this.executing.set(true);
 
-    // Agregar mensaje del usuario
     const userMessage: ChatMessage = {
       role: 'user',
       content: this.executeTask,
@@ -3123,37 +3124,28 @@ export class SubagentsComponent implements OnInit {
     };
     this.messages.update(msgs => [...msgs, userMessage]);
 
-    // Session ID para memoria: reutilizar si ya hay conversación, crear uno nuevo si no
     let sessionId = this.subagentSessionId();
     if (!sessionId) {
       sessionId = crypto.randomUUID();
       this.subagentSessionId.set(sessionId);
     }
 
-    // Preparar el payload según si usamos config guardada o personalizada
     let payload: any = {
       task: this.executeTask,
       context: this.executeContext || null,
       session_id: sessionId
     };
-    
-    if (this.useSavedConfig()) {
-      // Usar configuración guardada del subagente (backend la resolverá desde la BD)
-      console.log('Ejecutando con configuración guardada del subagente');
-      // No enviamos llm_url, model, provider_type - el backend los obtiene de subagent_configs
-    } else {
-      // Usar configuración personalizada seleccionada
+
+    if (!this.useSavedConfig()) {
       const llmConfig = this.llmSelectionService.buildExecutionConfig(
         this.executeProviderId,
         this.executeModel
       );
-      
       if (!llmConfig) {
         this.executing.set(false);
         this.snackBar.open('Selecciona un proveedor LLM válido', 'Cerrar', { duration: 3000 });
         return;
       }
-      
       payload = {
         ...payload,
         llm_url: llmConfig.provider_url,
@@ -3163,47 +3155,21 @@ export class SubagentsComponent implements OnInit {
       };
     }
 
-    this.http.post<ExecuteResult>(`${environment.apiUrl}/subagents/${agent.id}/execute`, payload).subscribe({
-      next: (result) => {
-        this.executing.set(false);
-        
-        // Construir mensaje del asistente con el resultado
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: result.result.response,
-          timestamp: new Date(),
-          tokens: result.result.execution_time_ms,
-          images: result.result.images?.map((img: any) => ({
-            url: img.url,
-            base64: img.base64,
-            mimeType: img.mime_type || 'image/png',
-            altText: 'Generated image'
-          })) || []
-        };
-        
-        this.messages.update(msgs => [...msgs, assistantMessage]);
-        this.executeResult.set(result);
-        
-        if (result.result.success) {
-          this.snackBar.open('Ejecución completada', 'Cerrar', { duration: 3000 });
-        } else {
-          this.snackBar.open('Error en la ejecución', 'Cerrar', { duration: 3000 });
-        }
-      },
-      error: (err) => {
-        this.executing.set(false);
-        
-        // Agregar mensaje de error
-        const errorMessage: ChatMessage = {
-          role: 'assistant',
-          content: 'Error ejecutando el subagente. Por favor, intenta de nuevo.',
-          timestamp: new Date()
-        };
-        this.messages.update(msgs => [...msgs, errorMessage]);
-        
-        this.snackBar.open('Error ejecutando subagente', 'Cerrar', { duration: 3000 });
-      }
+    const result = await this.sseStream.stream({
+      url: `${environment.apiUrl}/subagents/${agent.id}/execute/stream`,
+      payload,
+      messages: this.messages,
     });
+
+    this.executing.set(false);
+    if (result.error) {
+      this.messages.update(msgs => [...msgs, {
+        role: 'assistant' as const,
+        content: result.error!,
+        timestamp: new Date()
+      }]);
+      this.snackBar.open('Error ejecutando subagente', 'Cerrar', { duration: 3000 });
+    }
   }
 
   // Handler para mensajes del ChatComponent

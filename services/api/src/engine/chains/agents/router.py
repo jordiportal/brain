@@ -6,8 +6,14 @@ La configuración de cada subagente (incluyendo LLM provider/modelo) se persiste
 en la tabla subagent_configs de PostgreSQL.
 """
 
+import json
+import time
+import uuid
+from datetime import datetime
 from typing import Optional, Dict, Any, List
+
 from fastapi import APIRouter, HTTPException, Body
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import structlog
 
@@ -220,6 +226,127 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
             status_code=500,
             detail=f"Error ejecutando subagente: {str(e)}"
         )
+
+
+@router.post("/{agent_id}/execute/stream")
+async def execute_subagent_stream(agent_id: str, request: SubagentExecuteRequest):
+    """
+    Ejecuta un subagente con streaming SSE de eventos.
+    Emite node_start, token, node_end, image, video, response_complete.
+    """
+    if not subagent_registry.is_initialized():
+        await register_all_subagents()
+
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Subagente no encontrado: {agent_id}")
+
+    config = await _get_agent_config(agent_id)
+
+    llm_url = request.llm_url
+    model = request.model
+    provider_type = request.provider_type
+    api_key = request.api_key
+
+    if not llm_url and config.get("llm_provider"):
+        provider_info = await _resolve_llm_provider(config["llm_provider"])
+        if provider_info:
+            llm_url = provider_info.get("base_url")
+            model = config.get("llm_model") or provider_info.get("default_model")
+            provider_type = provider_info.get("type", "ollama")
+            api_key = provider_info.get("api_key")
+
+    if not llm_url or not model:
+        raise HTTPException(status_code=400, detail="No LLM configured for this agent")
+
+    session_id = request.session_id
+    exec_id = session_id or str(uuid.uuid4())
+
+    async def event_generator():
+        from src.engine.chains.adaptive.executor import (
+            run_session_loop_stream,
+            AgentContext,
+        )
+
+        now = datetime.now()
+        date_ctx = (
+            f"\n\n## FECHA ACTUAL\n"
+            f"Hoy es {now.strftime('%A %d de %B de %Y')} ({now.strftime('%Y-%m-%d')}). "
+            f"Mes: {now.strftime('%Y%m')}. Ano: {now.year}.\n"
+        )
+        messages = [
+            {"role": "system", "content": agent.system_prompt + date_ctx + agent.get_skills_for_prompt()}
+        ]
+
+        if session_id:
+            for msg in agent._load_memory(session_id, max_messages=agent.MAX_MEMORY_MESSAGES):
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+
+        user_content = f"Tarea: {request.task}"
+        if request.context:
+            user_content += f"\n\nContexto adicional: {request.context}"
+        messages.append({"role": "user", "content": user_content})
+
+        tools_llm = [t.to_function_schema() for t in agent.get_tools()]
+
+        agent_context = AgentContext(
+            session_id=session_id,
+            parent_id=None,
+            agent_type=agent.id,
+            max_iterations=12,
+        )
+
+        final_content = ""
+        try:
+            async for event in run_session_loop_stream(
+                execution_id=exec_id,
+                messages=messages,
+                tools=tools_llm,
+                llm_url=llm_url,
+                model=model,
+                provider_type=provider_type,
+                api_key=api_key,
+                agent_context=agent_context,
+                emit_brain_events=False,
+            ):
+                event_data = {
+                    "event_type": event.event_type,
+                    "execution_id": event.execution_id,
+                    "timestamp": event.timestamp.isoformat(),
+                    "node_id": event.node_id,
+                    "node_name": event.node_name,
+                    "content": event.content,
+                    "data": event.data,
+                }
+                yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+                if event.event_type == "response_complete" and event.content:
+                    final_content = event.content
+
+            if session_id and final_content:
+                agent._save_memory(
+                    session_id, user_content, final_content,
+                    max_messages=agent.MAX_MEMORY_MESSAGES,
+                )
+
+        except Exception as e:
+            logger.error(f"Stream error for {agent_id}: {e}", exc_info=True)
+            error_event = {
+                "event_type": "error",
+                "execution_id": exec_id,
+                "data": {"error": str(e)},
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{agent_id}/test")
@@ -611,8 +738,6 @@ async def run_subagent_test(
 @router.put("/{agent_id}/tests/{test_id}/result")
 async def update_test_result(agent_id: str, test_id: str, update: TestResultUpdate):
     """Guarda el resultado de validación manual de un test"""
-    from datetime import datetime
-    
     if not subagent_registry.is_initialized():
         await register_all_subagents()
     

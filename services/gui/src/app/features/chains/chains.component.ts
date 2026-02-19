@@ -28,7 +28,8 @@ import { ArtifactSidebarComponent } from '../../shared/components/artifact-sideb
 import { environment } from '../../../environments/environment';
 
 // Chat unificado
-import { ChatComponent, ChatMessage, IntermediateStep, ImageData as ChatImageData, VideoData as ChatVideoData } from '../../shared/components/chat';
+import { ChatComponent, ChatMessage, IntermediateStep } from '../../shared/components/chat';
+import { SseStreamService } from '../../shared/services/sse-stream.service';
 
 interface EngineChain {
   id: string;
@@ -608,6 +609,7 @@ export class ChainsComponent implements OnInit {
   private strapiService = inject(StrapiService);
   private snackBar = inject(MatSnackBar);
   private sanitizer = inject(DomSanitizer);
+  private sseStream = inject(SseStreamService);
 
   @ViewChild(MatTabGroup) tabGroup!: MatTabGroup;
   @ViewChild('messagesContainer') messagesContainer!: ElementRef;
@@ -620,7 +622,7 @@ export class ChainsComponent implements OnInit {
   messages = signal<ChatMessage[]>([]);
   isExecuting = signal(false);
   currentStep = signal<ExecutionStep | null>(null);
-  currentAssistantMessage = signal<ChatMessage | null>(null);
+  // currentAssistantMessage ya no se usa con el streaming unificado
   
   userInput = '';
   useStreaming = true;
@@ -657,8 +659,7 @@ export class ChainsComponent implements OnInit {
 
   currentStepName = signal<string | null>(null);
 
-  // Map para rastrear pasos intermedios activos
-  private activeSteps = new Map<string, IntermediateStep>();
+  // activeSteps gestionado por SseStreamService
 
   ngOnInit(): void {
     this.loadChains();
@@ -813,8 +814,6 @@ export class ChainsComponent implements OnInit {
     this.userInput = '';
     this.isExecuting.set(true);
     this.currentStep.set(null);
-    this.activeSteps.clear();
-
     try {
       if (this.useStreaming) {
         await this.executeWithStreaming(chain.id, userMessage);
@@ -828,7 +827,6 @@ export class ChainsComponent implements OnInit {
       this.isExecuting.set(false);
       this.currentStep.set(null);
       this.currentStepName.set(null);
-      this.currentAssistantMessage.set(null);
     }
   }
 
@@ -841,189 +839,19 @@ export class ChainsComponent implements OnInit {
   private async executeWithStreaming(chainId: string, message: string): Promise<void> {
     const sessionId = this.useMemory ? this.sessionId : undefined;
     const url = `${environment.apiUrl}/chains/${chainId}/invoke/stream${sessionId ? `?session_id=${sessionId}` : ''}`;
-    
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+
+    await this.sseStream.stream({
+      url,
+      payload: {
         input: { message },
         llm_provider_url: this.selectedProvider?.baseUrl || environment.ollamaDefaultUrl,
         llm_provider_type: this.selectedProvider?.type || 'ollama',
         api_key: this.selectedProvider?.apiKey,
         model: this.llmModel
-      })
+      },
+      messages: this.messages,
+      finalResponseNodeIds: ['synthesizer', 'adaptive_agent'],
     });
-
-    if (!response.ok) throw new Error('Stream request failed');
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('No reader available');
-
-    const decoder = new TextDecoder();
-    let finalContent = '';
-    let tokens = 0;
-    const intermediateSteps: IntermediateStep[] = [];
-    let currentStepId: string | null = null;
-    let stepContentBuffer: string = '';
-
-    // Crear mensaje de asistente inicial
-    const assistantMessage: ChatMessage = {
-      role: 'assistant',
-      content: '',
-      intermediateSteps: [],
-      isStreaming: true,
-      images: []
-    };
-    
-    this.messages.update(msgs => [...msgs, assistantMessage]);
-    this.currentAssistantMessage.set(assistantMessage);
-
-    let buffer = '';  // Buffer para acumular datos parciales
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      buffer += chunk;
-      
-      // Procesar solo líneas completas (terminan en \n\n para SSE)
-      const parts = buffer.split('\n\n');
-      // Guardar la última parte incompleta en el buffer
-      buffer = parts.pop() || '';
-      
-      for (const part of parts) {
-        const lines = part.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-            
-            if (data.event_type === 'node_start') {
-              // Nuevo paso iniciado
-              const stepId = data.node_id || `step-${Date.now()}`;
-              const nodeName = data.node_name || 'Procesando';
-              
-              // Plegar todos los pasos anteriores
-              intermediateSteps.forEach(step => {
-                step.expanded = false;
-              });
-              
-              const newStep: IntermediateStep = {
-                id: stepId,
-                name: nodeName,
-                icon: this.getStepIconName(nodeName),
-                status: 'running',
-                content: '',
-                data: data.data,
-                startTime: new Date(),
-                expanded: true  // El nuevo paso inicia desplegado
-              };
-              
-              intermediateSteps.push(newStep);
-              this.activeSteps.set(stepId, newStep);
-              currentStepId = stepId;
-              stepContentBuffer = '';
-              
-              this.currentStep.set(data);
-              this.currentStepName.set(nodeName);
-              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
-              this.scrollToBottom();
-              
-            } else if (data.event_type === 'token' && data.content) {
-              // Token recibido
-              const isFinalResponse = data.node_id === 'synthesizer' || data.node_id === 'adaptive_agent' || !data.node_id;
-              if (isFinalResponse) {
-                finalContent += data.content;
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
-              } else if (currentStepId && this.activeSteps.has(currentStepId)) {
-                // Token de paso intermedio (tool, subagente, conversación interna)
-                stepContentBuffer += data.content;
-                const step = this.activeSteps.get(currentStepId)!;
-                step.content = stepContentBuffer;
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
-              }
-              this.scrollToBottom();
-              
-            } else if (data.event_type === 'node_end') {
-              // Paso completado
-              const stepId = data.node_id;
-              if (stepId && this.activeSteps.has(stepId)) {
-                const step = this.activeSteps.get(stepId)!;
-                step.status = 'completed';
-                step.endTime = new Date();
-                // Se mantiene desplegado hasta que empiece el siguiente paso
-                
-                // Agregar datos finales del paso - construir contenido rico para conversación/pensamiento
-                if (data.data) {
-                  step.data = { ...step.data, ...data.data };
-                  step.content = this.buildStepContent(step);
-                }
-                
-                if (data.data?.tokens) tokens = data.data.tokens;
-                
-                // Forzar actualización: reemplazar el step en el array
-                const stepIndex = intermediateSteps.findIndex(s => s.id === stepId);
-                if (stepIndex >= 0) {
-                  intermediateSteps[stepIndex] = { ...step };
-                  this.activeSteps.set(stepId, intermediateSteps[stepIndex]);
-                }
-              }
-              
-              currentStepId = null;
-              this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
-              
-            } else if (data.event_type === 'image') {
-              // Imagen generada - añadir al array de imágenes
-              if (data.data) {
-                const imageData: ChatImageData = {
-                  url: data.data.image_url,
-                  base64: data.data.image_data,
-                  mimeType: data.data.mime_type || 'image/png',
-                  altText: data.data.alt_text || 'Generated image'
-                };
-                assistantMessage.images = assistantMessage.images || [];
-                assistantMessage.images.push(imageData);
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
-              }
-              
-            } else if (data.event_type === 'video') {
-              // Vídeo generado - añadir al array de vídeos
-              if (data.data) {
-                const videoData: ChatVideoData = {
-                  url: data.data.video_url,
-                  base64: data.data.video_data,
-                  mimeType: data.data.mime_type || 'video/mp4',
-                  duration: data.data.duration_seconds,
-                  resolution: data.data.resolution
-                };
-                assistantMessage.videos = assistantMessage.videos || [];
-                assistantMessage.videos.push(videoData);
-                this.updateAssistantMessage(finalContent, intermediateSteps, tokens, true, assistantMessage.images, assistantMessage.videos);
-              }
-              
-            } else if (data.event_type === 'end') {
-              // NO sobrescribir finalContent - ya está acumulado de los tokens
-              // if (data.data?.output?.response) {
-              //   finalContent = data.data.output.response;
-              // }
-            } else if (data.event_type === 'error') {
-              if (currentStepId && this.activeSteps.has(currentStepId)) {
-                const step = this.activeSteps.get(currentStepId)!;
-                step.status = 'failed';
-                step.content = data.data?.error || 'Error desconocido';
-              }
-            }
-          } catch (e) {
-            // Ignorar errores de parseo (chunks parciales)
-          }
-        }
-      }
-    }
-    }
-
-    // Finalizar mensaje - pasar explícitamente las imágenes y vídeos acumulados
-    this.updateAssistantMessage(finalContent, intermediateSteps, tokens, false, assistantMessage.images, assistantMessage.videos);
     this.scrollToBottom();
   }
 
@@ -1068,34 +896,6 @@ export class ChainsComponent implements OnInit {
         console.error('Invoke error:', err);
         this.snackBar.open('Error en la ejecución', 'Cerrar', { duration: 3000 });
       }
-    });
-  }
-
-  private updateAssistantMessage(
-    content: string, 
-    steps: IntermediateStep[], 
-    tokens: number,
-    isStreaming: boolean,
-    images?: ChatImageData[],
-    videos?: ChatVideoData[]
-  ): void {
-    this.messages.update(msgs => {
-      const newMsgs = [...msgs];
-      const lastMsg = newMsgs[newMsgs.length - 1];
-      
-      if (lastMsg?.role === 'assistant') {
-        newMsgs[newMsgs.length - 1] = {
-          ...lastMsg,
-          content,
-          intermediateSteps: [...steps],
-          tokens,
-          isStreaming,
-          images: images || lastMsg.images || [],
-          videos: videos || lastMsg.videos || []
-        };
-      }
-      
-      return newMsgs;
     });
   }
 

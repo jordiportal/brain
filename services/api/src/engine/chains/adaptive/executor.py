@@ -689,3 +689,107 @@ async def run_session_loop(
         iteration=executor.iteration,
         execution_complete=executor.execution_complete,
     )
+
+
+async def run_session_loop_stream(
+    execution_id: str,
+    messages: list[dict],
+    tools: list[dict],
+    llm_url: str,
+    model: str,
+    provider_type: str,
+    api_key: Optional[str],
+    agent_context: Optional[AgentContext] = None,
+    *,
+    reasoning_config: Optional[ReasoningConfig] = None,
+    chain_config: Optional[ChainConfig] = None,
+    complexity: Optional[ComplexityAnalysis] = None,
+    emit_brain_events: bool = False,
+) -> AsyncGenerator[StreamEvent, None]:
+    """
+    Igual que run_session_loop pero yield-ea cada StreamEvent al caller
+    para que pueda reenviarlo por SSE. Al finalizar emite un evento
+    'response_complete' con el resultado.
+    """
+    max_iter = (agent_context.max_iterations if agent_context else None) or 12
+    _reasoning = reasoning_config or ReasoningConfig(
+        mode=ReasoningMode.STANDARD,
+        max_iterations=max_iter,
+        temperature=0.3,
+        description="Subagent loop",
+    )
+    _chain = chain_config or ChainConfig(max_iterations=max_iter, ask_before_continue=False)
+    _complexity = complexity or ComplexityAnalysis(
+        level=ComplexityLevel.NORMAL,
+        is_trivial=False,
+        explanation="subagent",
+    )
+    executor = AdaptiveExecutor(
+        execution_id=execution_id,
+        llm_url=llm_url,
+        model=model,
+        provider_type=provider_type,
+        api_key=api_key,
+        complexity=_complexity,
+        reasoning_config=_reasoning,
+        chain_config=_chain,
+        emit_brain_events=emit_brain_events,
+        is_continue_request=False,
+        agent_context=agent_context,
+    )
+    async for event in executor.execute(messages, tools):
+        yield event
+
+    if not executor.final_answer and executor.tool_results:
+        logger.info("Subagent stream: no final answer; asking LLM for summary")
+        yield StreamEvent(
+            event_type="node_start",
+            execution_id=execution_id,
+            node_id="summary_pass",
+            node_name="Generando resumen",
+        )
+        summary_prompt = (
+            "Los datos o resultados de las herramientas ya están en el contexto anterior. "
+            "Escribe un resumen breve (2-5 frases) para el usuario en español: qué se ha obtenido y las cifras o conclusiones principales. "
+            "Responde solo con el texto del resumen, sin invocar ninguna herramienta."
+        )
+        messages.append({"role": "user", "content": summary_prompt})
+        try:
+            response = await call_llm_with_tools(
+                llm_url=llm_url,
+                model=model,
+                messages=messages,
+                tools=[],
+                temperature=0.3,
+                provider_type=provider_type,
+                api_key=api_key,
+            )
+            if response and response.content:
+                executor.final_answer = executor._extract_answer(response.content) or response.content.strip()
+                yield StreamEvent(
+                    event_type="token",
+                    execution_id=execution_id,
+                    node_id="adaptive_agent",
+                    content=executor.final_answer,
+                )
+        except Exception as e:
+            logger.warning("Summary pass failed: %s", e)
+        yield StreamEvent(
+            event_type="node_end",
+            execution_id=execution_id,
+            node_id="summary_pass",
+        )
+
+    yield StreamEvent(
+        event_type="response_complete",
+        execution_id=execution_id,
+        node_id="adaptive_agent",
+        content=executor.final_answer or "",
+        data={
+            "iterations": executor.iteration,
+            "tools_used": [tr["tool"] for tr in executor.tool_results],
+            "images": list(executor.images),
+            "videos": list(executor.videos),
+            "success": True,
+        },
+    )
