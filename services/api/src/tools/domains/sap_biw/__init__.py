@@ -108,7 +108,10 @@ async def _proxy_request(
                 resp = await client.post(url, headers=headers, json=json_body)
             
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if isinstance(data, list):
+                return {"data": data, "count": len(data)}
+            return data
             
     except httpx.ConnectError:
         return {

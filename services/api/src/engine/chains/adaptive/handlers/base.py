@@ -159,10 +159,16 @@ class DefaultHandler(ToolHandler):
         }
         return names.get(tool_name, f"🔧 {tool_name}")
     
-    async def process_result(self, result: dict, args: dict) -> ToolResult:
-        """Procesamiento por defecto."""
+    async def process_result(self, result: Any, args: dict) -> ToolResult:
+        """Procesamiento por defecto (acepta dict, list, o cualquier tipo)."""
+        if isinstance(result, dict):
+            return ToolResult(
+                success=result.get("success", True),
+                data=result,
+                message_content=str(result)[:16000],
+            )
         return ToolResult(
-            success=result.get("success", True),
-            data=result,
-            message_content=str(result)[:16000]
+            success=True,
+            data={"raw": result},
+            message_content=str(result)[:16000],
         )

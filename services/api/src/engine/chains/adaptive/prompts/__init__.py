@@ -5,6 +5,8 @@ Cada proveedor tiene características diferentes y responde mejor
 a estilos de prompt específicos.
 """
 
+from datetime import datetime
+
 from .base import (
     TOOLS_SECTION,
     SUBAGENTS_SECTION,
@@ -17,6 +19,14 @@ from .ollama import PROMPT_OLLAMA
 from .openai import PROMPT_OPENAI
 from .anthropic import PROMPT_ANTHROPIC
 from .google import PROMPT_GOOGLE
+
+
+def _date_context() -> str:
+    now = datetime.now()
+    return (
+        f"\n\nFecha actual del sistema: {now.strftime('%A %d de %B de %Y')} "
+        f"({now.strftime('%Y-%m-%d')}). Mes: {now.strftime('%Y%m')}. Año: {now.year}.\n"
+    )
 
 
 def get_system_prompt(provider_type: str) -> str:
@@ -34,17 +44,16 @@ def get_system_prompt(provider_type: str) -> str:
         "openai": PROMPT_OPENAI,
         "anthropic": PROMPT_ANTHROPIC,
         "google": PROMPT_GOOGLE,
-        "openrouter": PROMPT_OPENAI,  # OpenRouter usa formato similar a OpenAI
+        "openrouter": PROMPT_OPENAI,
     }
     
     base_prompt = prompts.get(provider_type, PROMPT_OPENAI)
     
-    # Insertar secciones comunes
     return base_prompt.format(
         tools_section=TOOLS_SECTION,
         subagents_section=SUBAGENTS_SECTION,
-        workflow_instructions="{workflow_instructions}"  # Mantener placeholder
-    )
+        workflow_instructions="{workflow_instructions}",
+    ) + _date_context()
 
 
 def get_workflow(complexity: str = "normal") -> str:

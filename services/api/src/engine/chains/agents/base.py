@@ -11,7 +11,7 @@ Sistema de Skills:
 - Los skills no sobrecargan el prompt base, se cargan bajo demanda
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -364,7 +364,6 @@ Sé conciso pero útil. Responde en español."""
         if session_id in self._memory_store:
             del self._memory_store[session_id]
     
-    @abstractmethod
     async def execute(
         self,
         task: str,
@@ -375,8 +374,88 @@ Sé conciso pero útil. Responde en español."""
         provider_type: Optional[str] = None,
         api_key: Optional[str] = None
     ) -> SubAgentResult:
-        """Ejecuta una tarea. Si session_id se proporciona, se usa memoria conversacional."""
-        pass
+        """
+        Ejecuta una tarea usando el mismo bucle compartido que el agente principal.
+        Wrapper que construye mensajes y tools y llama a run_session_loop.
+        Si session_id se proporciona, se usa memoria conversacional.
+        """
+        import time
+        import uuid
+        from src.engine.chains.adaptive.executor import (
+            run_session_loop,
+            AgentContext,
+        )
+        start_time = time.time()
+        exec_id = session_id or str(uuid.uuid4())
+        agent_context = AgentContext(
+            session_id=session_id,
+            parent_id=None,
+            agent_type=self.id,
+            max_iterations=12,
+        )
+        now = datetime.now()
+        date_ctx = (
+            f"\n\n## FECHA ACTUAL\n"
+            f"Hoy es {now.strftime('%A %d de %B de %Y')} (fecha del sistema: {now.strftime('%Y-%m-%d')}). "
+            f"Mes actual: {now.strftime('%Y%m')}. Año actual: {now.year}.\n"
+        )
+        messages = [{"role": "system", "content": self.system_prompt + date_ctx + (self.get_skills_for_prompt() or "")}]
+        if session_id:
+            memory = self._load_memory(session_id, max_messages=self.MAX_MEMORY_MESSAGES)
+            for msg in memory:
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+        user_content = f"Tarea: {task}"
+        if context:
+            user_content += f"\n\nContexto adicional: {context}"
+        messages.append({"role": "user", "content": user_content})
+        tools_llm = [t.to_function_schema() for t in self.get_tools()]
+        if not llm_url or not model or not provider_type:
+            return SubAgentResult(
+                success=False,
+                response="Configuración LLM no disponible.",
+                agent_id=self.id,
+                agent_name=self.name,
+                error="LLM_NOT_CONFIGURED",
+                execution_time_ms=0,
+            )
+        try:
+            result = await run_session_loop(
+                execution_id=exec_id,
+                messages=messages,
+                tools=tools_llm,
+                llm_url=llm_url,
+                model=model,
+                provider_type=provider_type,
+                api_key=api_key,
+                agent_context=agent_context,
+                emit_brain_events=False,
+            )
+            response_text = result.final_answer or ""
+            if not response_text and result.tool_results:
+                response_text = f"Completado en {result.iteration} iteraciones. Herramientas: {', '.join(tr['tool'] for tr in result.tool_results)}"
+            if session_id and response_text:
+                self._save_memory(session_id, user_content, response_text, max_messages=self.MAX_MEMORY_MESSAGES)
+            return SubAgentResult(
+                success=True,
+                response=response_text,
+                agent_id=self.id,
+                agent_name=self.name,
+                tools_used=[tr["tool"] for tr in result.tool_results],
+                images=result.images,
+                videos=result.videos,
+                data={"tool_results": result.tool_results} if result.tool_results else {},
+                execution_time_ms=int((time.time() - start_time) * 1000),
+            )
+        except Exception as e:
+            logger.error(f"SubAgent execute error: {e}", agent_id=self.id, exc_info=True)
+            return SubAgentResult(
+                success=False,
+                response=str(e),
+                agent_id=self.id,
+                agent_name=self.name,
+                error=str(e),
+                execution_time_ms=int((time.time() - start_time) * 1000),
+            )
 
 
 class SubAgentRegistry:

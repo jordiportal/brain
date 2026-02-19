@@ -192,28 +192,83 @@ async def delegate(
             agent, _llm_url, _model, _provider_type, _api_key
         )
         
-        # Ejecutar el subagente con su configuración específica
-        result = await subagent.execute(
-            task=task,
-            context=context,
-            session_id=_session_id,
+        # Mismo bucle que el agente principal (run_session_loop), no subagente.execute()
+        from src.engine.chains.adaptive.executor import (
+            run_session_loop,
+            AgentContext,
+            SessionLoopResult,
+        )
+        from src.engine.chains.agents.base import SubAgentResult
+        
+        child_session_id = f"{_session_id or 'root'}-{agent}-{uuid.uuid4().hex[:8]}"
+        agent_context = AgentContext(
+            session_id=child_session_id,
+            parent_id=_session_id,
+            agent_type=agent,
+            max_iterations=12,
+        )
+        
+        # Mensajes iniciales: system del subagente + memoria opcional + user (task + context)
+        system_content = subagent.system_prompt + (subagent.get_skills_for_prompt() or "")
+        messages = [{"role": "system", "content": system_content}]
+        if _session_id:
+            memory = subagent._load_memory(_session_id, max_messages=getattr(subagent, "MAX_MEMORY_MESSAGES", 10))
+            for msg in memory:
+                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+        user_content = f"Tarea: {task}"
+        if context:
+            user_content += f"\n\nContexto adicional: {context}"
+        messages.append({"role": "user", "content": user_content})
+        
+        # Tools del subagente en formato LLM (sin delegate)
+        subagent_tools = subagent.get_tools()
+        tools_llm = [t.to_function_schema() for t in subagent_tools]
+        
+        loop_result: SessionLoopResult = await run_session_loop(
+            execution_id=child_session_id,
+            messages=messages,
+            tools=tools_llm,
             llm_url=llm_config["llm_url"],
             model=llm_config["model"],
             provider_type=llm_config["provider_type"],
-            api_key=llm_config["api_key"]
+            api_key=llm_config["api_key"],
+            agent_context=agent_context,
+            emit_brain_events=False,
         )
         
-        execution_time = int((time.time() - start_time) * 1000)
+        tools_used = [tr["tool"] for tr in loop_result.tool_results]
+        response_text = loop_result.final_answer or ""
+        if not response_text and loop_result.tool_results:
+            response_text = f"Ejecutado en {loop_result.iteration} iteraciones. Herramientas: {', '.join(tools_used)}"
         
+        # Guardar memoria de la sesión (subagente) si hay session_id
+        if _session_id and response_text:
+            subagent._save_memory(
+                _session_id,
+                user_content,
+                response_text,
+                max_messages=getattr(subagent, "MAX_MEMORY_MESSAGES", 10),
+            )
+        
+        result = SubAgentResult(
+            success=True,
+            response=response_text,
+            agent_id=subagent.id,
+            agent_name=subagent.name,
+            tools_used=tools_used,
+            images=loop_result.images,
+            videos=loop_result.videos,
+            data={"tool_results": loop_result.tool_results} if loop_result.tool_results else {},
+            execution_time_ms=int((time.time() - start_time) * 1000),
+        )
         logger.info(
-            "✅ Delegation completed",
+            "✅ Delegation completed (shared loop)",
             agent=agent,
             success=result.success,
             tools_used=result.tools_used,
             has_images=len(result.images) > 0,
-            execution_time_ms=execution_time
+            execution_time_ms=result.execution_time_ms,
         )
-        
         return result.to_dict()
         
     except Exception as e:

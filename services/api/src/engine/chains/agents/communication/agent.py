@@ -1,18 +1,16 @@
 """
 Communication Agent - Estratega de comunicación y storytelling.
 
-Patrón: LLM-Only
-Proporciona recomendaciones de comunicación usando LLM.
+Usa el mismo bucle iterativo que el agente principal (run_session_loop).
 """
 
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
 import structlog
 
 from ..base import BaseSubAgent, SubAgentResult, Skill
-from ...llm_utils import call_llm_with_tools
 
 logger = structlog.get_logger()
 
@@ -61,8 +59,8 @@ class CommunicationAgent(BaseSubAgent):
     def __init__(self):
         super().__init__()
         self.system_prompt = _read_system_prompt()
-        logger.info(f"💬 CommunicationAgent initialized")
-    
+        logger.info("💬 CommunicationAgent initialized (shared loop)")
+
     async def execute(
         self,
         task: str,
@@ -74,11 +72,9 @@ class CommunicationAgent(BaseSubAgent):
         api_key: Optional[str] = None,
         **kwargs
     ) -> SubAgentResult:
-        """Ejecuta usando LLM para recomendaciones de comunicación."""
+        """Ejecuta usando el bucle compartido (run_session_loop)."""
         start_time = time.time()
         logger.info("💬 CommunicationAgent executing", task=task[:80])
-        
-        # Validar LLM configurado
         if not llm_url or not model or not provider_type:
             return SubAgentResult(
                 success=False,
@@ -88,10 +84,15 @@ class CommunicationAgent(BaseSubAgent):
                 error="LLM_NOT_CONFIGURED",
                 execution_time_ms=0
             )
-        
         try:
-            return await self._execute_with_llm(
-                task, context, llm_url, model, provider_type, api_key, start_time
+            return await super().execute(
+                task=task,
+                context=context,
+                session_id=session_id,
+                llm_url=llm_url,
+                model=model,
+                provider_type=provider_type,
+                api_key=api_key,
             )
         except Exception as e:
             logger.error(f"CommunicationAgent error: {e}", exc_info=True)
@@ -103,52 +104,6 @@ class CommunicationAgent(BaseSubAgent):
                 error=str(e),
                 execution_time_ms=int((time.time() - start_time) * 1000)
             )
-    
-    async def _execute_with_llm(
-        self,
-        task: str,
-        context: Optional[str],
-        llm_url: str,
-        model: str,
-        provider_type: str,
-        api_key: Optional[str],
-        start_time: float
-    ) -> SubAgentResult:
-        """Ejecuta con LLM para obtener recomendaciones."""
-        
-        # Obtener herramientas (aunque este agente no use tools de ejecución)
-        tools = self.get_tools()
-        
-        # Construir mensajes
-        system_content = self.system_prompt + self.get_skills_for_prompt()
-        user_content = f"Tarea de comunicación: {task}"
-        if context:
-            user_content += f"\n\nContexto adicional: {context}"
-        
-        messages = [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": user_content}
-        ]
-        
-        # Llamar LLM
-        response = await call_llm_with_tools(
-            messages=messages,
-            tools=[tool.to_function_schema() for tool in tools],
-            temperature=0.7,
-            provider_type=provider_type,
-            api_key=api_key,
-            llm_url=llm_url,
-            model=model
-        )
-        
-        # Retornar respuesta del LLM
-        return SubAgentResult(
-            success=True,
-            response=response.content or "No se pudo generar respuesta",
-            agent_id=self.id,
-            agent_name=self.name,
-            execution_time_ms=int((time.time() - start_time) * 1000)
-        )
 
 
 # Instancia para registro

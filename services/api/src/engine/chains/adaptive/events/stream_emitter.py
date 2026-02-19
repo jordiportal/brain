@@ -3,9 +3,11 @@ StreamEmitter - Emisor de eventos de streaming.
 
 Centraliza la creación de StreamEvents para mantener consistencia
 y reducir duplicación en el código del executor.
+Para runs hijos (subagentes), se pueden pasar session_id y parent_id
+para que el cliente pueda anidar o colapsar subagentes en la UX.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 from ....models import StreamEvent
 
 
@@ -17,14 +19,38 @@ class StreamEmitter:
     manteniendo consistencia en IDs y formatos.
     """
     
-    def __init__(self, execution_id: str, chain_id: str = "adaptive"):
+    def __init__(
+        self,
+        execution_id: str,
+        chain_id: str = "adaptive",
+        session_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        agent_type: Optional[str] = None,
+    ):
         """
         Args:
             execution_id: ID único de la ejecución
             chain_id: ID de la cadena
+            session_id: Si es un run hijo, ID de sesión del hijo (para UX/anidar)
+            parent_id: Si es un run hijo, ID de la sesión padre
+            agent_type: Si es un run hijo, tipo de subagente (ej. sap_analyst)
         """
         self.execution_id = execution_id
         self.chain_id = chain_id
+        self.session_id = session_id
+        self.parent_id = parent_id
+        self.agent_type = agent_type
+    
+    def _enrich_data(self, data: Optional[dict] = None) -> dict:
+        """Añade session_id/parent_id/agent_type al data cuando es un run hijo."""
+        out = dict(data) if data else {}
+        if self.session_id is not None:
+            out["session_id"] = self.session_id
+        if self.parent_id is not None:
+            out["parent_id"] = self.parent_id
+        if self.agent_type is not None:
+            out["agent_type"] = self.agent_type
+        return out
     
     # ========== Eventos de Ciclo de Vida ==========
     
@@ -33,11 +59,11 @@ class StreamEmitter:
         return StreamEvent(
             event_type="start",
             execution_id=self.execution_id,
-            data={
+            data=self._enrich_data({
                 "chain_id": self.chain_id,
                 "chain_name": chain_name,
                 "input": input_data
-            }
+            })
         )
     
     def chain_end(self, output: dict) -> StreamEvent:
@@ -45,7 +71,7 @@ class StreamEmitter:
         return StreamEvent(
             event_type="end",
             execution_id=self.execution_id,
-            data={"output": output}
+            data=self._enrich_data({"output": output})
         )
     
     # ========== Eventos de Nodos ==========
@@ -62,7 +88,7 @@ class StreamEmitter:
             execution_id=self.execution_id,
             node_id=node_id,
             node_name=node_name,
-            data=data or {}
+            data=self._enrich_data(data)
         )
     
     def node_end(
@@ -75,7 +101,7 @@ class StreamEmitter:
             event_type="node_end",
             execution_id=self.execution_id,
             node_id=node_id,
-            data=data or {}
+            data=self._enrich_data(data)
         )
     
     # ========== Eventos de Iteración ==========
@@ -87,7 +113,7 @@ class StreamEmitter:
             execution_id=self.execution_id,
             node_id=f"iteration_{iteration}",
             node_name=f"Iteration {iteration}/{max_iterations}",
-            data={"iteration": iteration}
+            data=self._enrich_data({"iteration": iteration})
         )
     
     def iteration_end(self, iteration: int, tools_used: int = 0) -> StreamEvent:
@@ -96,7 +122,7 @@ class StreamEmitter:
             event_type="node_end",
             execution_id=self.execution_id,
             node_id=f"iteration_{iteration}",
-            data={"tools_used": tools_used}
+            data=self._enrich_data({"tools_used": tools_used})
         )
     
     # ========== Eventos de Tools ==========
@@ -114,7 +140,7 @@ class StreamEmitter:
             execution_id=self.execution_id,
             node_id=f"tool_{tool_name}_{iteration}",
             node_name=display_name,
-            data={"tool": tool_name, "arguments": args}
+            data=self._enrich_data({"tool": tool_name, "arguments": args})
         )
     
     def tool_end(
@@ -129,7 +155,7 @@ class StreamEmitter:
         conversation: Optional[str] = None
     ) -> StreamEvent:
         """Evento de fin de tool."""
-        data = {
+        data: Dict[str, Any] = {
             "tool": tool_name,
             "success": success,
             "result_preview": preview[:200] if preview else "",
@@ -140,13 +166,12 @@ class StreamEmitter:
         if html:
             data["html"] = html
         if conversation:
-            data["conversation"] = conversation  # Contenido completo de la conversación
-        
+            data["conversation"] = conversation
         return StreamEvent(
             event_type="node_end",
             execution_id=self.execution_id,
             node_id=f"tool_{tool_name}_{iteration}",
-            data=data
+            data=self._enrich_data(data)
         )
     
     # ========== Eventos de Contenido ==========
@@ -157,7 +182,8 @@ class StreamEmitter:
             event_type="token",
             execution_id=self.execution_id,
             node_id=node_id,
-            content=content
+            content=content,
+            data=self._enrich_data({})
         )
     
     def image(
@@ -188,7 +214,7 @@ class StreamEmitter:
             event_type="image",
             execution_id=self.execution_id,
             node_id=node_id,
-            data=data
+            data=self._enrich_data(data)
         )
     
     def video(
@@ -224,7 +250,7 @@ class StreamEmitter:
             event_type="video",
             execution_id=self.execution_id,
             node_id=node_id,
-            data=data
+            data=self._enrich_data(data)
         )
     
     # ========== Eventos de Error ==========
@@ -235,7 +261,8 @@ class StreamEmitter:
             event_type="error",
             execution_id=self.execution_id,
             node_id=node_id,
-            content=f"Error: {error_message}"
+            content=f"Error: {error_message}",
+            data=self._enrich_data({})
         )
     
     # ========== Eventos de Límite de Iteraciones ==========
@@ -254,12 +281,12 @@ class StreamEmitter:
             node_id="limit_reached",
             node_name="Límite de iteraciones alcanzado",
             content=message,
-            data={
+            data=self._enrich_data({
                 "iterations_used": iterations_used,
                 "max_iterations": max_iterations,
                 "tools_used": tools_used,
                 "can_continue": True
-            }
+            })
         )
     
     # ========== Eventos de Respuesta Completa ==========
@@ -274,20 +301,18 @@ class StreamEmitter:
         can_continue: bool = False
     ) -> StreamEvent:
         """Evento de respuesta completa."""
-        data = {
+        data: Dict[str, Any] = {
             "complexity": complexity,
             "iterations": iterations,
             "tools_used": tools_used
         }
-        
         if iteration_limit_reached:
             data["iteration_limit_reached"] = True
             data["can_continue"] = can_continue
-        
         return StreamEvent(
             event_type="response_complete",
             execution_id=self.execution_id,
             node_id="adaptive_agent",
             content=content,
-            data=data
+            data=self._enrich_data(data)
         )

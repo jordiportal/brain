@@ -6,16 +6,21 @@ Este es el núcleo simplificado que orquesta:
 2. Ejecución de tools via handlers
 3. Emisión de eventos
 4. Control de flujo (loops, límites, finalización)
+
+El mismo bucle se reutiliza para el agente principal y para sesiones hijas
+(subagentes), de forma análoga a OpenCode: un único loop(sessionID).
 """
 
 import json
+from dataclasses import dataclass, field
 from typing import AsyncGenerator, Optional, Any
 
 import structlog
 
 from ...models import StreamEvent, ChainConfig
 from ...reasoning import ComplexityAnalysis
-from ...reasoning.modes import ReasoningConfig
+from ...reasoning.complexity import ComplexityLevel
+from ...reasoning.modes import ReasoningConfig, ReasoningMode, REASONING_CONFIGS
 from ....tools import tool_registry
 from ..llm_utils import call_llm_with_tools, LLMToolResponse
 
@@ -26,6 +31,53 @@ from .events import StreamEmitter, BrainEmitter
 
 
 logger = structlog.get_logger()
+
+
+def _format_fallback_result(content: Any, tool_name: str, max_chars: int = 400) -> str:
+    """
+    Formatea el resultado de una tool para el fallback de force_finish.
+    Evita volcar dicts/listas crudos (IDs internos, etc.) al usuario.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        # Si parece un repr de dict/lista (galimatías), no mostrarlo
+        s = content.strip()
+        if (s.startswith("{") or s.startswith("[")) and (
+            "'" in s or ":" in s
+        ) and len(s) > 150:
+            return f"Se obtuvieron datos de **{tool_name}**. (Resumen no disponible en este paso.)"
+        return s[:max_chars] + ("..." if len(content) > max_chars else "")
+    if isinstance(content, dict):
+        n = len(content)
+        return f"Se obtuvieron datos de **{tool_name}** ({n} métricas/campos)."
+    if isinstance(content, list):
+        n = len(content)
+        return f"Se obtuvieron datos de **{tool_name}** ({n} registros)."
+    return str(content)[:max_chars]
+
+
+@dataclass
+class AgentContext:
+    """
+    Contexto opcional para ejecutar el mismo bucle como sesión hija (subagente).
+    Permite parametrizar session_id, parent_id, agent_type y max_iterations.
+    """
+    session_id: Optional[str] = None
+    parent_id: Optional[str] = None
+    agent_type: Optional[str] = None
+    max_iterations: Optional[int] = None
+
+
+@dataclass
+class SessionLoopResult:
+    """Resultado de ejecutar el bucle compartido (para child runs o wrappers)."""
+    final_answer: Optional[str] = None
+    tool_results: list = field(default_factory=list)
+    images: list = field(default_factory=list)
+    videos: list = field(default_factory=list)
+    iteration: int = 0
+    execution_complete: bool = False
 
 
 class AdaptiveExecutor:
@@ -70,7 +122,8 @@ class AdaptiveExecutor:
         reasoning_config: ReasoningConfig,
         chain_config: ChainConfig,
         emit_brain_events: bool = False,
-        is_continue_request: bool = False
+        is_continue_request: bool = False,
+        agent_context: Optional[AgentContext] = None
     ):
         self.execution_id = execution_id
         self.llm_url = llm_url
@@ -82,13 +135,16 @@ class AdaptiveExecutor:
         self.chain_config = chain_config
         self.emit_brain_events = emit_brain_events
         self.is_continue_request = is_continue_request
+        self.agent_context = agent_context
         
-        # Configurar límite de iteraciones
+        # Configurar límite de iteraciones (agent_context puede sobreescribir para child runs)
         base_max = (
-            chain_config.max_iterations 
-            if hasattr(chain_config, 'max_iterations') and chain_config.max_iterations 
+            chain_config.max_iterations
+            if hasattr(chain_config, 'max_iterations') and chain_config.max_iterations
             else reasoning_config.max_iterations
         )
+        if agent_context and agent_context.max_iterations is not None:
+            base_max = agent_context.max_iterations
         self.max_iterations = base_max * 2 if is_continue_request else base_max
         self.ask_before_continue = getattr(chain_config, 'ask_before_continue', True)
         
@@ -100,9 +156,14 @@ class AdaptiveExecutor:
         self.images: list[dict] = []  # Imágenes generadas durante ejecución
         self.videos: list[dict] = []  # Vídeos generados durante ejecución
         
-        # Detectores y emitters
+        # Detectores y emitters (runs hijos: session_id/parent_id/agent_type en eventos)
         self.loop_detector = LoopDetector(max_consecutive=3)
-        self.stream_emitter = StreamEmitter(execution_id)
+        self.stream_emitter = StreamEmitter(
+            execution_id,
+            session_id=agent_context.session_id if agent_context else None,
+            parent_id=agent_context.parent_id if agent_context else None,
+            agent_type=agent_context.agent_type if agent_context else None,
+        )
         self.brain_emitter = BrainEmitter(execution_id, enabled=emit_brain_events)
         
         # Config LLM para handlers
@@ -286,10 +347,24 @@ class AdaptiveExecutor:
                 for t in tools
                 if isinstance(t, dict) and t.get("type") == "function"
             }
-            # Ejecutar cada tool
+            # Ejecutar cada tool (si falla, añadir tool response de error para no romper la secuencia)
             for tool_call in response.tool_calls:
-                async for event in self._execute_tool(tool_call, messages, available_tool_names):
-                    yield event
+                try:
+                    async for event in self._execute_tool(tool_call, messages, available_tool_names):
+                        yield event
+                except Exception as tool_err:
+                    tc_name = tool_call.function.get("name", "unknown")
+                    logger.error(f"Tool execution error for {tc_name}: {tool_err}", exc_info=True)
+                    error_content = json.dumps({"error": str(tool_err), "success": False}, ensure_ascii=False)
+                    if self.provider_type == "ollama":
+                        messages.append({"role": "tool", "content": error_content})
+                    else:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tc_name,
+                            "content": error_content,
+                        })
                 
                 # Si terminamos, salir del loop de tools
                 if self.execution_complete or self.final_answer is not None:
@@ -411,22 +486,23 @@ class AdaptiveExecutor:
             self.execution_complete = True
             self.final_answer = result.final_answer
         
-        # Evento de fin de tool (incluir html si es presentación)
-        # Usar message_content completo como "conversation" para la UI
+        # Evento de fin de tool
         conversation = result.message_content or ""
-        html = raw_result.get("data", {}).get("html") if isinstance(raw_result, dict) else None
+        raw_data = raw_result.get("data") if isinstance(raw_result, dict) else None
+        html = raw_data.get("html") if isinstance(raw_data, dict) else None
+        thinking = result.data.get("thinking") if isinstance(result.data, dict) else None
         yield self.stream_emitter.tool_end(
             tool_name,
             self.iteration,
             success=result.success,
             preview=conversation[:200] if conversation else "",
-            thinking=result.data.get("thinking"),
+            thinking=thinking,
             done=result.is_terminal,
             html=html,
-            conversation=conversation  # Contenido completo para la UI
+            conversation=conversation,
         )
         
-        # Agregar resultado a mensajes
+        # Agregar resultado a mensajes (SIEMPRE, para no romper la secuencia de tool_call_id para OpenAI)
         result_str = json.dumps(raw_result, ensure_ascii=False, default=str)
         if len(result_str) > 16000:
             result_str = result_str[:16000] + "... [truncated]"
@@ -491,7 +567,7 @@ IMPORTANT: You MUST call the `finish` tool now with your complete answer."""
         except Exception as e:
             logger.error(f"Error forcing finish: {e}")
         
-        # Fallback si aún no hay respuesta
+        # Fallback si aún no hay respuesta: no volcar datos crudos (dict/list) al usuario
         if not self.final_answer:
             if self.tool_results:
                 last_results = self.tool_results[-3:]
@@ -500,16 +576,16 @@ IMPORTANT: You MUST call the `finish` tool now with your complete answer."""
                     result = tr.get("result", {})
                     if isinstance(result, dict):
                         content = result.get("content") or result.get("data")
-                        if content:
-                            summaries.append(str(content)[:500])
-                
+                        if content is not None:
+                            summary = _format_fallback_result(content, tr.get("tool", ""))
+                            if summary:
+                                summaries.append(summary)
                 if summaries:
                     self.final_answer = "Resultados obtenidos:\n\n" + "\n\n".join(summaries)
                 else:
-                    self.final_answer = f"Tarea procesada usando: {tools_summary}. Consulta los archivos generados para ver los resultados."
+                    self.final_answer = f"Tarea procesada usando: {tools_summary}. No se pudo generar un resumen automático; los datos están disponibles en las herramientas ejecutadas."
             else:
                 self.final_answer = "No se pudo completar la tarea. Por favor, reformula tu petición."
-        
         yield self.stream_emitter.token(self.final_answer)
     
     def get_iteration_limit_message(self) -> str:
@@ -524,3 +600,92 @@ IMPORTANT: You MUST call the `finish` tool now with your complete answer."""
 - Tareas completadas: {len(self.tool_results)} acciones
 
 ¿Quieres que continúe trabajando en la tarea? Responde **"continúa"** para seguir o **"finaliza"** para obtener un resumen de lo realizado."""
+
+
+async def run_session_loop(
+    execution_id: str,
+    messages: list[dict],
+    tools: list[dict],
+    llm_url: str,
+    model: str,
+    provider_type: str,
+    api_key: Optional[str],
+    agent_context: Optional[AgentContext] = None,
+    *,
+    reasoning_config: Optional[ReasoningConfig] = None,
+    chain_config: Optional[ChainConfig] = None,
+    complexity: Optional[ComplexityAnalysis] = None,
+    emit_brain_events: bool = False,
+) -> SessionLoopResult:
+    """
+    Ejecuta el mismo bucle iterativo que el agente principal (un único loop).
+    Usado por delegación para runs hijos y por subagentes como wrapper.
+
+    Memoria por sesión: la carga/guardado de memoria (p. ej. mensajes previos)
+    es responsabilidad del caller. Debe usar agent_context.session_id para
+    construir los mensajes iniciales (con memoria cargada) y guardar al finalizar.
+    El executor no accede a ningún store de memoria; solo ejecuta el bucle.
+
+    Consume el stream de eventos; el caller puede ignorarlos o reenviarlos con
+    session_id/parent_id para UX.
+    """
+    max_iter = (agent_context.max_iterations if agent_context else None) or 12
+    _reasoning = reasoning_config or ReasoningConfig(
+        mode=ReasoningMode.STANDARD,
+        max_iterations=max_iter,
+        temperature=0.3,
+        description="Subagent loop",
+    )
+    _chain = chain_config or ChainConfig(max_iterations=max_iter, ask_before_continue=False)
+    _complexity = complexity or ComplexityAnalysis(
+        level=ComplexityLevel.NORMAL,
+        is_trivial=False,
+        explanation="subagent",
+    )
+    executor = AdaptiveExecutor(
+        execution_id=execution_id,
+        llm_url=llm_url,
+        model=model,
+        provider_type=provider_type,
+        api_key=api_key,
+        complexity=_complexity,
+        reasoning_config=_reasoning,
+        chain_config=_chain,
+        emit_brain_events=emit_brain_events,
+        is_continue_request=False,
+        agent_context=agent_context,
+    )
+    async for _ in executor.execute(messages, tools):
+        pass
+    # Si se agotaron iteraciones sin respuesta final: una sola llamada al LLM sin herramientas
+    # para que escriba el resumen en lenguaje natural (el LLM actúa; no force_finish ni fallbacks)
+    if not executor.final_answer and executor.tool_results:
+        logger.info("Subagent loop ended without final answer; asking LLM for natural-language summary")
+        summary_prompt = (
+            "Los datos o resultados de las herramientas ya están en el contexto anterior. "
+            "Escribe un resumen breve (2-5 frases) para el usuario en español: qué se ha obtenido y las cifras o conclusiones principales. "
+            "Responde solo con el texto del resumen, sin invocar ninguna herramienta."
+        )
+        messages.append({"role": "user", "content": summary_prompt})
+        try:
+            response = await call_llm_with_tools(
+                llm_url=llm_url,
+                model=model,
+                messages=messages,
+                tools=[],  # sin herramientas: solo respuesta en lenguaje natural
+                temperature=0.3,
+                provider_type=provider_type,
+                api_key=api_key,
+            )
+            if response and response.content:
+                executor.final_answer = executor._extract_answer(response.content) or response.content.strip()
+        except Exception as e:
+            logger.warning("Summary pass failed: %s", e)
+    return SessionLoopResult(
+        final_answer=executor.final_answer,
+        tool_results=list(executor.tool_results),
+        images=list(executor.images),
+        videos=list(executor.videos),
+        iteration=executor.iteration,
+        execution_complete=executor.execution_complete,
+    )
