@@ -230,14 +230,22 @@ interface TestRunResult {
                     <mat-card-content>
                       <p class="description">{{ agent.description }}</p>
                       
-                      <div class="tools-section">
-                        <span class="tools-label">Herramientas:</span>
-                        <div class="tools-chips">
-                          @for (tool of agent.domain_tools; track tool) {
-                            <mat-chip class="tool-chip">{{ tool }}</mat-chip>
-                          }
+                      @if (agent.domain_tools && agent.domain_tools.length > 0) {
+                        <div class="tools-section">
+                          <span class="tools-label">
+                            <mat-icon>build</mat-icon>
+                            Herramientas ({{ agent.domain_tools.length }}):
+                          </span>
+                          <div class="tools-mini-grid">
+                            @for (toolId of agent.domain_tools; track toolId) {
+                              <div class="tool-mini-item" [matTooltip]="getToolDescription(toolId)">
+                                <mat-icon class="tmi-icon">{{ getToolTypeIcon(toolId) }}</mat-icon>
+                                <span class="tmi-name">{{ getToolName(toolId) }}</span>
+                              </div>
+                            }
+                          </div>
                         </div>
-                      </div>
+                      }
 
                       @if (agent.skills && agent.skills.length > 0) {
                         <div class="skills-section">
@@ -403,38 +411,69 @@ interface TestRunResult {
                       <div class="info-card tools-card">
                         <div class="info-card-header">
                           <mat-icon>build</mat-icon>
-                          <h3>Herramientas de dominio</h3>
+                          <h3>Herramientas ({{ selectedAgent.domain_tools?.length || 0 }})</h3>
+                          <button mat-stroked-button class="add-tool-btn" (click)="showToolPicker = !showToolPicker">
+                            <mat-icon>{{ showToolPicker ? 'close' : 'add' }}</mat-icon>
+                            {{ showToolPicker ? 'Cerrar' : 'Añadir' }}
+                          </button>
                         </div>
                         <div class="info-card-content">
-                          <mat-form-field appearance="outline" class="full-width">
-                            <mat-label>Tools</mat-label>
-                            <mat-select [(ngModel)]="selectedAgent.domain_tools" multiple>
-                              @for (tool of availableToolsList(); track tool.id) {
-                                <mat-option [value]="tool.id">{{ tool.id }}</mat-option>
-                              }
-                            </mat-select>
-                            <mat-hint>{{ selectedAgent.domain_tools?.length || 0 }} seleccionadas</mat-hint>
-                          </mat-form-field>
-                        </div>
-                      </div>
-                      @if (!isNewAgent() && agentTools().length > 0) {
-                        <div class="info-card tools-card">
-                          <div class="info-card-header">
-                            <mat-icon>list</mat-icon>
-                            <h3>Detalle de herramientas ({{ agentTools().length }})</h3>
-                          </div>
-                          <div class="info-card-content">
-                            <div class="tools-list">
-                              @for (tool of agentTools(); track tool.id) {
-                                <div class="tool-item-card">
-                                  <span class="tool-name">{{ tool.name }}</span>
-                                  <span class="tool-id">{{ tool.id }}</span>
+                          @if (showToolPicker) {
+                            <div class="tool-picker">
+                              <mat-form-field appearance="outline" class="full-width tool-search-field">
+                                <mat-icon matPrefix>search</mat-icon>
+                                <input matInput [(ngModel)]="toolSearchText" placeholder="Buscar herramienta...">
+                              </mat-form-field>
+                              <div class="tool-picker-grid">
+                                @for (tool of filteredAvailableTools(); track tool.id) {
+                                  <div class="tool-picker-item" (click)="addDomainTool(tool.id)"
+                                       [class.already-added]="selectedAgent.domain_tools?.includes(tool.id)">
+                                    <mat-icon class="tp-icon">{{ getToolTypeIcon(tool.id) }}</mat-icon>
+                                    <div class="tp-info">
+                                      <span class="tp-name">{{ tool.name || tool.id }}</span>
+                                      @if (tool.description) {
+                                        <span class="tp-desc">{{ tool.description }}</span>
+                                      }
+                                    </div>
+                                    @if (selectedAgent.domain_tools?.includes(tool.id)) {
+                                      <mat-icon class="tp-check">check_circle</mat-icon>
+                                    } @else {
+                                      <mat-icon class="tp-add">add_circle_outline</mat-icon>
+                                    }
+                                  </div>
+                                }
+                              </div>
+                            </div>
+                          }
+
+                          @if (selectedAgent.domain_tools && selectedAgent.domain_tools.length > 0) {
+                            <div class="tools-grid">
+                              @for (toolId of selectedAgent.domain_tools; track toolId) {
+                                <div class="tool-grid-item" [matTooltip]="getToolDescription(toolId)">
+                                  <mat-icon class="tgi-icon">{{ getToolTypeIcon(toolId) }}</mat-icon>
+                                  <div class="tgi-info">
+                                    <span class="tgi-name">{{ getToolName(toolId) }}</span>
+                                    <span class="tgi-id">{{ toolId }}</span>
+                                  </div>
+                                  <button mat-icon-button class="tgi-remove" (click)="removeDomainTool(toolId)" matTooltip="Quitar">
+                                    <mat-icon>close</mat-icon>
+                                  </button>
                                 </div>
                               }
                             </div>
-                          </div>
+                          } @else if (!showToolPicker) {
+                            <div class="empty-tools">
+                              <mat-icon>extension_off</mat-icon>
+                              <p>Sin herramientas de dominio</p>
+                            </div>
+                          }
+
+                          <mat-slide-toggle [(ngModel)]="selectedAgent.core_tools_enabled" color="primary"
+                                            class="core-tools-toggle">
+                            Core tools (reflect, plan, delegate, finish)
+                          </mat-slide-toggle>
                         </div>
-                      }
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -834,21 +873,7 @@ interface TestRunResult {
                         </mat-form-field>
                       </div>
 
-                      <!-- Link a configuración de herramientas -->
-                      @if (agentTools().length > 0) {
-                        <mat-divider></mat-divider>
-                        <div class="tools-config-link">
-                          <mat-icon>build</mat-icon>
-                          <div>
-                            <h4>Configuración de Herramientas</h4>
-                            <p>Las herramientas de este agente ({{ agentTools().length }}) se configuran en la sección de Herramientas</p>
-                          </div>
-                          <a mat-raised-button color="accent" routerLink="/tools" fragment="config">
-                            <mat-icon>settings</mat-icon>
-                            Ir a Configuración
-                          </a>
-                        </div>
-                      }
+                      
 
                       <div class="config-actions">
                         <button mat-raised-button color="primary" (click)="saveDefinition()" [disabled]="savingDefinition()">
@@ -1183,20 +1208,47 @@ interface TestRunResult {
     .tools-label {
       font-size: 12px;
       color: #888;
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 4px;
       margin-bottom: 8px;
     }
 
-    .tools-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+    .tools-label mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      color: #667eea;
     }
 
-    .tool-chip {
-      font-size: 11px !important;
-      min-height: 24px !important;
-      background: #f5f5f5 !important;
+    /* Mini grid for agent list cards */
+    .tools-mini-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tool-mini-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      background: #f1f5f9;
+      border-radius: 6px;
+      cursor: default;
+    }
+
+    .tmi-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      color: #667eea;
+    }
+
+    .tmi-name {
+      font-size: 11px;
+      font-weight: 500;
+      color: #334155;
     }
 
     .skills-section {
@@ -1356,84 +1408,204 @@ interface TestRunResult {
       flex: 1;
     }
 
-    .loading-tools, .empty-tools {
+    .tools-card .info-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .add-tool-btn {
+      margin-left: auto !important;
+      font-size: 12px !important;
+      height: 32px !important;
+      line-height: 32px !important;
+    }
+
+    .add-tool-btn mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      margin-right: 4px;
+    }
+
+    .empty-tools {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 32px;
-      color: #888;
-      gap: 12px;
+      padding: 24px;
+      color: #999;
+      gap: 8px;
     }
 
     .empty-tools mat-icon {
-      font-size: 40px;
-      width: 40px;
-      height: 40px;
+      font-size: 36px;
+      width: 36px;
+      height: 36px;
       color: #ccc;
     }
 
-    .tools-list {
+    .empty-tools p {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .core-tools-toggle {
+      margin-top: 12px;
+      font-size: 13px;
+    }
+
+    /* Tool picker */
+    .tool-picker {
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .tool-search-field {
+      margin-bottom: 4px;
+    }
+
+    .tool-picker-grid {
+      max-height: 240px;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 4px;
     }
 
-    .tool-item-card {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      padding: 12px;
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #e8e8e8;
-    }
-
-    .tool-icon-wrapper {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+    .tool-picker-item {
       display: flex;
       align-items: center;
-      justify-content: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
     }
 
-    .tool-icon-wrapper mat-icon {
+    .tool-picker-item:hover {
+      background: #f0f4ff;
+    }
+
+    .tool-picker-item.already-added {
+      opacity: 0.5;
+    }
+
+    .tp-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
       color: #667eea;
-      font-size: 20px;
+      flex-shrink: 0;
     }
 
-    .tool-details {
+    .tp-info {
       flex: 1;
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 2px;
     }
 
-    .tool-details .tool-name {
-      font-weight: 600;
+    .tp-name {
       font-size: 13px;
+      font-weight: 500;
       color: #333;
     }
 
-    .tool-details .tool-id {
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 10px;
+    .tp-desc {
+      font-size: 11px;
       color: #888;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .tool-details .tool-desc {
+    .tp-check {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #4caf50;
+      flex-shrink: 0;
+    }
+
+    .tp-add {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #bbb;
+      flex-shrink: 0;
+    }
+
+    /* Tools grid (selected tools) */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .tool-grid-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #f1f5f9;
+      border-radius: 8px;
+      position: relative;
+    }
+
+    .tool-grid-item:hover {
+      background: #e8eef6;
+    }
+
+    .tgi-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #667eea;
+      flex-shrink: 0;
+    }
+
+    .tgi-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tgi-name {
       font-size: 12px;
-      color: #666;
-      line-height: 1.4;
+      font-weight: 500;
+      color: #334155;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .tool-type-chip {
-      font-size: 10px !important;
-      min-height: 20px !important;
-      background: #e8e8e8 !important;
+    .tgi-id {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 9px;
+      color: #999;
+    }
+
+    .tgi-remove {
+      width: 24px !important;
+      height: 24px !important;
+      line-height: 24px !important;
+      opacity: 0;
+      transition: opacity 0.15s;
+      flex-shrink: 0;
+    }
+
+    .tool-grid-item:hover .tgi-remove {
+      opacity: 1;
+    }
+
+    .tgi-remove mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      color: #999;
     }
 
     .info-section {
@@ -1595,39 +1767,7 @@ interface TestRunResult {
       color: #888;
     }
 
-    /* Tools Config Link */
-    .tools-config-link {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 16px;
-      background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
-      border-radius: 12px;
-      margin: 16px 0;
-    }
-
-    .tools-config-link > mat-icon {
-      font-size: 32px;
-      width: 32px;
-      height: 32px;
-      color: #667eea;
-    }
-
-    .tools-config-link > div {
-      flex: 1;
-    }
-
-    .tools-config-link h4 {
-      margin: 0 0 4px;
-      font-size: 14px;
-      font-weight: 500;
-    }
-
-    .tools-config-link p {
-      margin: 0;
-      font-size: 12px;
-      color: #666;
-    }
+    
 
     /* Test Result */
     .test-result {
@@ -2641,6 +2781,9 @@ export class SubagentsComponent implements OnInit {
   loadingVersions = signal(false);
   restoringVersion = signal(false);
 
+  showToolPicker = false;
+  toolSearchText = '';
+
   agentConfig: SubagentConfig = {
     enabled: true,
     settings: {}
@@ -2698,6 +2841,56 @@ export class SubagentsComponent implements OnInit {
       next: (res) => this.availableToolsList.set(res.tools || []),
       error: () => {}
     });
+  }
+
+  // --- Tool grid helpers ---
+
+  getToolName(toolId: string): string {
+    const t = this.availableToolsList().find(t => t.id === toolId);
+    return t?.name || toolId;
+  }
+
+  getToolDescription(toolId: string): string {
+    const t = this.availableToolsList().find(t => t.id === toolId);
+    return t?.description || '';
+  }
+
+  getToolTypeIcon(toolId: string): string {
+    const id = (toolId || '').toLowerCase();
+    if (id.includes('bi_') || id.includes('sap') || id.includes('bw')) return 'storage';
+    if (id.includes('search') || id.includes('rag') || id.includes('busca')) return 'search';
+    if (id.includes('file') || id.includes('read') || id.includes('write')) return 'folder';
+    if (id.includes('web') || id.includes('http') || id.includes('fetch')) return 'language';
+    if (id.includes('exec') || id.includes('bash') || id.includes('shell')) return 'terminal';
+    if (id.includes('date') || id.includes('time') || id.includes('calendario')) return 'schedule';
+    if (id.includes('delegate') || id.includes('team')) return 'share';
+    if (id.includes('reflect') || id.includes('think') || id.includes('plan')) return 'psychology';
+    if (id.includes('slide') || id.includes('present')) return 'slideshow';
+    if (id.includes('image') || id.includes('genera')) return 'palette';
+    return 'extension';
+  }
+
+  filteredAvailableTools(): { id: string; name: string; description: string }[] {
+    const search = (this.toolSearchText || '').toLowerCase().trim();
+    const tools = this.availableToolsList();
+    if (!search) return tools;
+    return tools.filter(t =>
+      t.id.toLowerCase().includes(search) ||
+      (t.name || '').toLowerCase().includes(search) ||
+      (t.description || '').toLowerCase().includes(search)
+    );
+  }
+
+  addDomainTool(toolId: string): void {
+    if (!this.selectedAgent) return;
+    if (!this.selectedAgent.domain_tools) this.selectedAgent.domain_tools = [];
+    if (this.selectedAgent.domain_tools.includes(toolId)) return;
+    this.selectedAgent.domain_tools = [...this.selectedAgent.domain_tools, toolId];
+  }
+
+  removeDomainTool(toolId: string): void {
+    if (!this.selectedAgent?.domain_tools) return;
+    this.selectedAgent.domain_tools = this.selectedAgent.domain_tools.filter(t => t !== toolId);
   }
 
   loadSubagents(): void {
@@ -3212,20 +3405,6 @@ export class SubagentsComponent implements OnInit {
       label: labels[key] || key,
       value
     }));
-  }
-
-  getToolTypeIcon(type: string): string {
-    const icons: Record<string, string> = {
-      'builtin': 'extension',
-      'media': 'image',
-      'slides': 'slideshow',
-      'delegation': 'share',
-      'reasoning': 'psychology',
-      'web': 'language',
-      'filesystem': 'folder',
-      'execution': 'terminal'
-    };
-    return icons[type] || 'build';
   }
 
   resetPrompt(): void {
