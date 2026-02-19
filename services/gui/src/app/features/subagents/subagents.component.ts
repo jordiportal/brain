@@ -45,6 +45,15 @@ interface Subagent {
   skills?: Skill[];
   status: string;
   icon: string;
+  // From agent_definitions (full definition)
+  system_prompt?: string;
+  role?: string;
+  expertise?: string;
+  task_requirements?: string;
+  core_tools_enabled?: boolean;
+  is_enabled?: boolean;
+  icon_name?: string;
+  settings?: Record<string, unknown>;
 }
 
 interface SubagentTool {
@@ -176,14 +185,20 @@ interface TestRunResult {
           <h1>Subagentes Especializados</h1>
           <p class="subtitle">Agentes de dominio para tareas específicas</p>
         </div>
-        <button mat-raised-button color="primary" (click)="loadSubagents()" [disabled]="loading()">
-          @if (loading()) {
-            <mat-spinner diameter="20"></mat-spinner>
-          } @else {
-            <mat-icon>refresh</mat-icon>
-          }
-          Actualizar
-        </button>
+        <div class="header-actions">
+          <button mat-stroked-button (click)="startNewAgent()">
+            <mat-icon>add</mat-icon>
+            Nuevo Agente
+          </button>
+          <button mat-raised-button color="primary" (click)="loadSubagents()" [disabled]="loading()">
+            @if (loading()) {
+              <mat-spinner diameter="20"></mat-spinner>
+            } @else {
+              <mat-icon>refresh</mat-icon>
+            }
+            Actualizar
+          </button>
+        </div>
       </div>
 
       <mat-tab-group [(selectedIndex)]="activeTabIndex" animationDuration="300ms">
@@ -316,14 +331,14 @@ interface TestRunResult {
           }
         </mat-tab>
 
-        <!-- Tab: Configuración (solo habilitada cuando hay un agente seleccionado) -->
+        <!-- Tab: Configuración (habilitada con agente seleccionado o nuevo) -->
         <mat-tab label="Configuración" [disabled]="!selectedAgent">
           @if (selectedAgent) {
             <mat-card class="detail-panel">
               <mat-card-header>
                 <mat-card-title>
                 <mat-icon>{{ selectedAgent.icon }}</mat-icon>
-                {{ selectedAgent.name }}
+                {{ isNewAgent() ? 'Nuevo agente' : selectedAgent.name }}
               </mat-card-title>
               <button mat-icon-button (click)="closeConfiguration()" class="close-btn">
                 <mat-icon>close</mat-icon>
@@ -331,86 +346,94 @@ interface TestRunResult {
             </mat-card-header>
 
             <mat-tab-group>
-              <!-- Tab de Información -->
+              <!-- Tab de Información (editable) -->
               <mat-tab label="Información">
-                <div class="tab-content">
+                <div class="tab-content info-edit-form">
                   <div class="info-grid">
-                    <!-- Columna izquierda: Info general -->
                     <div class="info-column">
-                      <div class="info-card">
-                        <div class="info-card-header">
-                          <mat-icon>info</mat-icon>
-                          <h3>Información General</h3>
+                      @if (isNewAgent()) {
+                        <mat-form-field appearance="outline" class="full-width">
+                          <mat-label>ID del agente</mat-label>
+                          <input matInput [(ngModel)]="selectedAgent.id" placeholder="mi_agente" required>
+                          <mat-hint>Identificador único (snake_case). Obligatorio para crear.</mat-hint>
+                        </mat-form-field>
+                      } @else {
+                        <div class="info-row readonly-id">
+                          <span class="info-label">ID</span>
+                          <span class="info-value mono">{{ selectedAgent.id }}</span>
                         </div>
-                        <div class="info-card-content">
-                          <div class="info-row">
-                            <span class="info-label">ID</span>
-                            <span class="info-value mono">{{ selectedAgent.id }}</span>
-                          </div>
-                          <div class="info-row">
-                            <span class="info-label">Versión</span>
-                            <span class="info-value">v{{ selectedAgent.version }}</span>
-                          </div>
-                          <div class="info-row">
-                            <span class="info-label">Estado</span>
-                            <mat-chip [class]="selectedAgent.status" class="status-chip-small">
-                              {{ selectedAgent.status }}
-                            </mat-chip>
-                          </div>
-                        </div>
+                      }
+                      <mat-form-field appearance="outline" class="full-width">
+                        <mat-label>Nombre</mat-label>
+                        <input matInput [(ngModel)]="selectedAgent.name" placeholder="Nombre del agente">
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="full-width">
+                        <mat-label>Descripción</mat-label>
+                        <textarea matInput [(ngModel)]="selectedAgent.description" rows="2"></textarea>
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="full-width">
+                        <mat-label>Rol</mat-label>
+                        <input matInput [(ngModel)]="selectedAgent.role" placeholder="Ej: Diseñador Visual">
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="full-width">
+                        <mat-label>Expertise</mat-label>
+                        <textarea matInput [(ngModel)]="selectedAgent.expertise" rows="2"></textarea>
+                      </mat-form-field>
+                      <mat-form-field appearance="outline" class="full-width">
+                        <mat-label>Requisitos de tarea</mat-label>
+                        <input matInput [(ngModel)]="selectedAgent.task_requirements">
+                      </mat-form-field>
+                      <div class="form-row-info">
+                        <mat-form-field appearance="outline">
+                          <mat-label>Versión</mat-label>
+                          <input matInput [(ngModel)]="selectedAgent.version" placeholder="1.0.0">
+                        </mat-form-field>
+                        <mat-form-field appearance="outline">
+                          <mat-label>Icono</mat-label>
+                          <input matInput [(ngModel)]="selectedAgent.icon" placeholder="smart_toy">
+                          <mat-icon matSuffix>{{ selectedAgent.icon || 'smart_toy' }}</mat-icon>
+                        </mat-form-field>
                       </div>
-
-                      <div class="info-card">
-                        <div class="info-card-header">
-                          <mat-icon>description</mat-icon>
-                          <h3>Descripción</h3>
-                        </div>
-                        <div class="info-card-content">
-                          <p class="description-text">{{ selectedAgent.description }}</p>
-                        </div>
-                      </div>
+                      <mat-slide-toggle [(ngModel)]="selectedAgent.is_enabled" color="primary">
+                        Agente habilitado
+                      </mat-slide-toggle>
                     </div>
-
-                    <!-- Columna derecha: Herramientas -->
                     <div class="info-column">
                       <div class="info-card tools-card">
                         <div class="info-card-header">
                           <mat-icon>build</mat-icon>
-                          <h3>Herramientas ({{ agentTools().length }})</h3>
-                          @if (loadingTools()) {
-                            <mat-spinner diameter="20" class="header-spinner"></mat-spinner>
-                          }
+                          <h3>Herramientas de dominio</h3>
                         </div>
                         <div class="info-card-content">
-                          @if (loadingTools()) {
-                            <div class="loading-tools">
-                              <mat-spinner diameter="32"></mat-spinner>
-                              <span>Cargando herramientas...</span>
-                            </div>
-                          } @else if (agentTools().length === 0) {
-                            <div class="empty-tools">
-                              <mat-icon>handyman</mat-icon>
-                              <span>Sin herramientas registradas</span>
-                            </div>
-                          } @else {
+                          <mat-form-field appearance="outline" class="full-width">
+                            <mat-label>Tools</mat-label>
+                            <mat-select [(ngModel)]="selectedAgent.domain_tools" multiple>
+                              @for (tool of availableToolsList(); track tool.id) {
+                                <mat-option [value]="tool.id">{{ tool.id }}</mat-option>
+                              }
+                            </mat-select>
+                            <mat-hint>{{ selectedAgent.domain_tools?.length || 0 }} seleccionadas</mat-hint>
+                          </mat-form-field>
+                        </div>
+                      </div>
+                      @if (!isNewAgent() && agentTools().length > 0) {
+                        <div class="info-card tools-card">
+                          <div class="info-card-header">
+                            <mat-icon>list</mat-icon>
+                            <h3>Detalle de herramientas ({{ agentTools().length }})</h3>
+                          </div>
+                          <div class="info-card-content">
                             <div class="tools-list">
                               @for (tool of agentTools(); track tool.id) {
                                 <div class="tool-item-card">
-                                  <div class="tool-icon-wrapper">
-                                    <mat-icon>{{ getToolTypeIcon(tool.type) }}</mat-icon>
-                                  </div>
-                                  <div class="tool-details">
-                                    <span class="tool-name">{{ tool.name }}</span>
-                                    <span class="tool-id">{{ tool.id }}</span>
-                                    <span class="tool-desc">{{ tool.description }}</span>
-                                  </div>
-                                  <mat-chip class="tool-type-chip">{{ tool.type }}</mat-chip>
+                                  <span class="tool-name">{{ tool.name }}</span>
+                                  <span class="tool-id">{{ tool.id }}</span>
                                 </div>
                               }
                             </div>
-                          }
+                          </div>
                         </div>
-                      </div>
+                      }
                     </div>
                   </div>
                 </div>
@@ -485,16 +508,7 @@ interface TestRunResult {
                                   placeholder="Contenido markdown del skill..."></textarea>
                                 <div class="editor-footer">
                                   <span class="char-count">{{ skill.content.length || 0 }} caracteres</span>
-                                  @if (dirtySkills.has(skill.id)) {
-                                    <button mat-raised-button color="primary" (click)="saveSkillContent(skill)" [disabled]="savingSkill()">
-                                      @if (savingSkill()) {
-                                        <mat-spinner diameter="16"></mat-spinner>
-                                      } @else {
-                                        <mat-icon>save</mat-icon>
-                                      }
-                                      Guardar Skill
-                                    </button>
-                                  }
+                                  <span class="hint-save">Usa «Guardar» en la pestaña Configuración para guardar todos los cambios</span>
                                 </div>
                               </div>
                             } @else {
@@ -800,20 +814,22 @@ interface TestRunResult {
 
                       <mat-divider></mat-divider>
 
-                      <!-- System Prompt - común a todos los subagentes -->
+                      <!-- System Prompt (guardado en agent_definitions) -->
                       <div class="prompt-section">
                         <div class="prompt-header">
                           <mat-icon>psychology</mat-icon>
                           <span>System Prompt</span>
-                          <button mat-icon-button matTooltip="Restaurar prompt por defecto" (click)="resetPrompt()">
-                            <mat-icon>restore</mat-icon>
-                          </button>
+                          @if (!isNewAgent()) {
+                            <button mat-icon-button matTooltip="Restaurar desde última versión" (click)="resetPrompt()">
+                              <mat-icon>restore</mat-icon>
+                            </button>
+                          }
                         </div>
                         <mat-form-field appearance="outline" class="full-width">
                           <mat-label>Instrucciones del sistema</mat-label>
-                          <textarea matInput [(ngModel)]="agentConfig.system_prompt" rows="8"
+                          <textarea matInput [(ngModel)]="selectedAgent.system_prompt" rows="8"
                                     placeholder="Instrucciones que definen el comportamiento del subagente..."></textarea>
-                          <mat-hint>Define cómo el subagente procesa las solicitudes</mat-hint>
+                          <mat-hint>Se guarda con el agente (versión automática al guardar)</mat-hint>
                         </mat-form-field>
                       </div>
 
@@ -834,19 +850,57 @@ interface TestRunResult {
                       }
 
                       <div class="config-actions">
-                        <button mat-raised-button color="primary" (click)="saveConfig()" [disabled]="savingConfig()">
-                          @if (savingConfig()) {
+                        <button mat-raised-button color="primary" (click)="saveDefinition()" [disabled]="savingDefinition()">
+                          @if (savingDefinition()) {
                             <mat-spinner diameter="20"></mat-spinner>
                           } @else {
                             <mat-icon>save</mat-icon>
                           }
-                          Guardar Configuración
+                          {{ isNewAgent() ? 'Crear agente' : 'Guardar (crea versión)' }}
                         </button>
                       </div>
                     </div>
                   }
                 </div>
               </mat-tab>
+
+              <!-- Tab Versiones (solo agentes existentes) -->
+              @if (!isNewAgent()) {
+                <mat-tab label="Versiones">
+                  <div class="tab-content">
+                    @if (loadingVersions()) {
+                      <div class="loading-container">
+                        <mat-spinner diameter="32"></mat-spinner>
+                      </div>
+                    } @else if (agentVersions().length === 0) {
+                      <div class="empty-versions">
+                        <mat-icon>history</mat-icon>
+                        <p>No hay versiones anteriores. Cada guardado crea una nueva versión.</p>
+                      </div>
+                    } @else {
+                      <div class="versions-list">
+                        @for (ver of agentVersions(); track ver.id) {
+                          <mat-card class="version-card">
+                            <div class="version-row">
+                              <div>
+                                <strong>Versión {{ ver.version_number }}</strong>
+                                <span class="version-date">{{ ver.created_at | date:'dd/MM/yyyy HH:mm' }}</span>
+                              </div>
+                              <button mat-stroked-button color="primary" (click)="restoreVersion(ver.version_number)">
+                                <mat-icon>restore</mat-icon>
+                                Restaurar
+                              </button>
+                            </div>
+                            @if (ver.change_reason) {
+                              <p class="version-reason">{{ ver.change_reason }}</p>
+                            }
+                          </mat-card>
+                        }
+                      </div>
+                    }
+                  </div>
+                </mat-tab>
+              }
 
               <!-- Tab de Test -->
               <mat-tab label="Estado">
@@ -988,6 +1042,12 @@ interface TestRunResult {
       justify-content: space-between;
       align-items: flex-start;
       margin-bottom: 24px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
     }
 
     h1 {
@@ -2139,6 +2199,10 @@ interface TestRunResult {
       border-radius: 0;
     }
 
+    .editor-footer .hint-save {
+      font-size: 12px;
+      color: #666;
+    }
     .editor-footer {
       display: flex;
       justify-content: space-between;
@@ -2171,6 +2235,39 @@ interface TestRunResult {
       width: 64px;
       height: 64px;
       color: #ccc;
+      margin-bottom: 16px;
+    }
+
+    .empty-versions {
+      text-align: center;
+      padding: 32px;
+      color: #666;
+    }
+    .empty-versions mat-icon {
+      font-size: 48px;
+      width: 48px;
+      height: 48px;
+      color: #ccc;
+      margin-bottom: 16px;
+    }
+    .versions-list { display: flex; flex-direction: column; gap: 12px; }
+    .version-card { padding: 12px 16px; }
+    .version-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .version-date { margin-left: 12px; font-size: 13px; color: #888; }
+    .version-reason { font-size: 13px; color: #666; margin: 8px 0 0; }
+
+    .info-edit-form .full-width { width: 100%; }
+    .info-edit-form .form-row-info {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .info-edit-form .form-row-info mat-form-field { flex: 1; }
+    .info-edit-form .readonly-id {
       margin-bottom: 16px;
     }
 
@@ -2513,6 +2610,7 @@ export class SubagentsComponent implements OnInit {
   loadingSkillContent = signal<string | null>(null);
   savingConfig = signal(false);
   savingSkill = signal(false);
+  savingDefinition = signal(false);
   testingAgent = signal<string | null>(null);
   executing = signal(false);
 
@@ -2531,10 +2629,15 @@ export class SubagentsComponent implements OnInit {
   };
 
   selectedAgent: Subagent | null = null;
+  isNewAgent = signal(false);
   executeAgent = signal<Subagent | null>(null);
   /** Session ID para memoria conversacional del subagente (misma conversación = mismo session_id) */
   subagentSessionId = signal<string | null>(null);
   activeTabIndex = 0; // 0 = Subagentes, 1 = Configuración, 2 = Ejecutar
+  availableToolsList = signal<{ id: string; name: string; description: string }[]>([]);
+  agentVersions = signal<{ id: number; version_number: number; created_at: string; change_reason?: string }[]>([]);
+  loadingVersions = signal(false);
+  restoringVersion = signal(false);
 
   agentConfig: SubagentConfig = {
     enabled: true,
@@ -2583,14 +2686,25 @@ export class SubagentsComponent implements OnInit {
   ngOnInit(): void {
     this.loadSubagents();
     this.loadProviders();
+    this.loadAvailableTools();
+  }
+
+  loadAvailableTools(): void {
+    this.http.get<{ tools: { id: string; name: string; description: string }[] }>(
+      `${environment.apiUrl}/agent-definitions/meta/available-tools`
+    ).subscribe({
+      next: (res) => this.availableToolsList.set(res.tools || []),
+      error: () => {}
+    });
   }
 
   loadSubagents(): void {
     this.loading.set(true);
-    this.http.get<any>(`${environment.apiUrl}/subagents`)
+    this.http.get<{ definitions: any[] }>(`${environment.apiUrl}/agent-definitions`)
       .subscribe({
         next: (response) => {
-          this.subagents.set(response.subagents || []);
+          const list = (response.definitions || []).map((d: any) => this.mapDefinitionToSubagent(d));
+          this.subagents.set(list);
           this.loading.set(false);
         },
         error: (err) => {
@@ -2601,9 +2715,37 @@ export class SubagentsComponent implements OnInit {
       });
   }
 
+  private mapDefinitionToSubagent(d: any): Subagent {
+    const skills: Skill[] = (d.skills || []).map((s: any) => ({
+      id: s.id || '',
+      name: s.name || '',
+      description: s.description || '',
+      content: s.content ?? '',
+      loaded: !!s.content
+    }));
+    return {
+      id: d.agent_id,
+      name: d.name || d.agent_id,
+      description: d.description || '',
+      version: d.version || '1.0.0',
+      domain_tools: d.domain_tools || [],
+      skills,
+      status: d.is_enabled !== false ? 'active' : 'inactive',
+      icon: d.icon || 'smart_toy',
+      system_prompt: d.system_prompt,
+      role: d.role,
+      expertise: d.expertise,
+      task_requirements: d.task_requirements,
+      core_tools_enabled: d.core_tools_enabled !== false,
+      is_enabled: d.is_enabled !== false,
+      settings: d.settings || {}
+    };
+  }
+
   selectAgent(agent: Subagent): void {
+    this.isNewAgent.set(false);
     this.selectedAgent = agent;
-    this.activeTabIndex = 1; // Switch to configuration tab
+    this.activeTabIndex = 1;
     this.testResult.set(null);
     this.expandedSkill = null;
     this.dirtySkills.clear();
@@ -2611,13 +2753,75 @@ export class SubagentsComponent implements OnInit {
     this.currentTestResult.set(null);
     this.loadAgentTools(agent.id);
     this.loadAgentConfig(agent.id);
-    this.loadAgentSkills(agent.id);
+    this.agentSkills.set(agent.skills || []);
+    this.loadingSkills.set(false);
     this.loadAgentTests(agent.id);
+    this.loadAgentVersions(agent.id);
+  }
+
+  loadAgentVersions(agentId: string): void {
+    this.loadingVersions.set(true);
+    this.agentVersions.set([]);
+    this.http.get<{ versions: any[] }>(`${environment.apiUrl}/agent-definitions/${agentId}/versions`)
+      .subscribe({
+        next: (res) => {
+          this.agentVersions.set(res.versions || []);
+          this.loadingVersions.set(false);
+        },
+        error: () => this.loadingVersions.set(false)
+      });
+  }
+
+  restoreVersion(versionNumber: number): void {
+    if (!this.selectedAgent || this.isNewAgent() || !confirm(`¿Restaurar versión ${versionNumber}?`)) return;
+    this.restoringVersion.set(true);
+    this.http.post<any>(
+      `${environment.apiUrl}/agent-definitions/${this.selectedAgent.id}/restore/${versionNumber}`,
+      {}
+    ).subscribe({
+      next: () => {
+        this.restoringVersion.set(false);
+        this.snackBar.open(`Versión ${versionNumber} restaurada`, 'Cerrar', { duration: 3000 });
+        this.loadSubagents();
+        const updated = this.subagents().find(a => a.id === this.selectedAgent!.id);
+        if (updated) {
+          this.selectedAgent = updated;
+          this.agentSkills.set(updated.skills || []);
+        }
+      },
+      error: () => this.restoringVersion.set(false)
+    });
+  }
+
+  startNewAgent(): void {
+    this.isNewAgent.set(true);
+    this.selectedAgent = {
+      id: '',
+      name: '',
+      description: '',
+      version: '1.0.0',
+      domain_tools: [],
+      skills: [],
+      status: 'active',
+      icon: 'smart_toy',
+      system_prompt: '',
+      role: '',
+      expertise: '',
+      task_requirements: '',
+      core_tools_enabled: true,
+      is_enabled: true
+    };
+    this.activeTabIndex = 1;
+    this.agentTools.set([]);
+    this.agentSkills.set([]);
+    this.agentConfig = { enabled: true, settings: {} };
+    this.testCategories.set([]);
   }
 
   closeConfiguration(): void {
-    this.activeTabIndex = 0; // Switch back to subagents list
+    this.activeTabIndex = 0;
     this.selectedAgent = null;
+    this.isNewAgent.set(false);
   }
 
   loadAgentTools(agentId: string): void {
@@ -2746,12 +2950,11 @@ export class SubagentsComponent implements OnInit {
 
   saveConfig(): void {
     if (!this.selectedAgent) return;
-
     this.savingConfig.set(true);
     this.http.put<any>(`${environment.apiUrl}/subagents/${this.selectedAgent.id}/config`, this.agentConfig)
       .subscribe({
         next: () => {
-          this.snackBar.open('Configuración guardada', 'Cerrar', { duration: 3000 });
+          this.snackBar.open('Configuración LLM guardada', 'Cerrar', { duration: 3000 });
           this.savingConfig.set(false);
         },
         error: (err) => {
@@ -2759,6 +2962,64 @@ export class SubagentsComponent implements OnInit {
           this.savingConfig.set(false);
         }
       });
+  }
+
+  saveDefinition(): void {
+    if (!this.selectedAgent) return;
+    const isNew = this.isNewAgent();
+    if (isNew && !this.selectedAgent.id?.trim()) {
+      this.snackBar.open('Indica el ID del agente en la pestaña Información', 'Cerrar', { duration: 4000 });
+      return;
+    }
+    this.savingDefinition.set(true);
+    const skills = this.agentSkills().map(s => ({
+      id: s.id,
+      name: s.name,
+      description: s.description || '',
+      content: s.content ?? ''
+    }));
+    const payload = {
+      agent_id: this.selectedAgent.id.trim(),
+      name: this.selectedAgent.name || this.selectedAgent.id,
+      description: this.selectedAgent.description || '',
+      role: this.selectedAgent.role || '',
+      expertise: this.selectedAgent.expertise || '',
+      task_requirements: this.selectedAgent.task_requirements || '',
+      system_prompt: this.selectedAgent.system_prompt || '',
+      domain_tools: this.selectedAgent.domain_tools || [],
+      core_tools_enabled: this.selectedAgent.core_tools_enabled !== false,
+      skills,
+      is_enabled: this.selectedAgent.is_enabled !== false,
+      version: this.selectedAgent.version || '1.0.0',
+      icon: this.selectedAgent.icon || 'smart_toy',
+      settings: this.selectedAgent.settings || {}
+    };
+    const apiUrl = `${environment.apiUrl}/agent-definitions`;
+    const req = isNew
+      ? this.http.post<any>(apiUrl, payload)
+      : this.http.put<any>(`${apiUrl}/${this.selectedAgent.id}`, payload);
+    req.subscribe({
+      next: (saved) => {
+        this.savingDefinition.set(false);
+        this.dirtySkills.clear();
+        if (isNew) {
+          this.snackBar.open('Agente creado', 'Cerrar', { duration: 3000 });
+          this.loadSubagents();
+          this.closeConfiguration();
+        } else {
+          this.snackBar.open('Guardado (versión creada)', 'Cerrar', { duration: 3000 });
+          this.loadSubagents();
+          this.agentConfig.enabled = this.selectedAgent!.is_enabled !== false;
+          this.http.put<any>(`${environment.apiUrl}/subagents/${this.selectedAgent!.id}/config`, this.agentConfig).subscribe();
+        }
+      },
+      error: (err) => {
+        this.savingDefinition.set(false);
+        const d = err.error?.detail;
+        const msg = typeof d === 'string' ? d : (d?.msg || err.message || 'Error guardando');
+        this.snackBar.open(msg, 'Cerrar', { duration: 4000 });
+      }
+    });
   }
 
   testAgent(agentId: string): void {
@@ -3002,11 +3263,14 @@ export class SubagentsComponent implements OnInit {
   }
 
   resetPrompt(): void {
-    if (!this.selectedAgent) return;
-    
-    // Recargar config desde el servidor para obtener el prompt original
-    this.loadAgentConfig(this.selectedAgent.id);
-    this.snackBar.open('Prompt restaurado', 'Cerrar', { duration: 2000 });
+    if (!this.selectedAgent || this.isNewAgent()) return;
+    this.http.get<any>(`${environment.apiUrl}/agent-definitions/${this.selectedAgent.id}`).subscribe({
+      next: (d) => {
+        this.selectedAgent!.system_prompt = d.system_prompt ?? '';
+        this.snackBar.open('Prompt recargado desde servidor', 'Cerrar', { duration: 2000 });
+      },
+      error: () => this.snackBar.open('Error recargando prompt', 'Cerrar', { duration: 2000 })
+    });
   }
 
   // Skills methods

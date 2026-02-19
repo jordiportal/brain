@@ -20,7 +20,6 @@ import { LlmProvider, McpConnection } from '../../core/models';
 import { HttpClient } from '@angular/common/http';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
-import { AgentDefinitionsComponent } from './agent-definitions.component';
 
 @Component({
   selector: 'app-settings',
@@ -42,7 +41,6 @@ import { AgentDefinitionsComponent } from './agent-definitions.component';
     MatProgressSpinnerModule,
     MatChipsModule,
     MatTooltipModule,
-    AgentDefinitionsComponent,
   ],
   template: `
     <div class="settings-page">
@@ -346,17 +344,6 @@ import { AgentDefinitionsComponent } from './agent-definitions.component';
                 </div>
               }
             </div>
-          </div>
-        </mat-tab>
-
-        <!-- Agent Definitions Tab -->
-        <mat-tab>
-          <ng-template mat-tab-label>
-            <mat-icon>smart_toy</mat-icon>
-            <span>Agentes</span>
-          </ng-template>
-          <div class="tab-content">
-            <app-agent-definitions></app-agent-definitions>
           </div>
         </mat-tab>
 
