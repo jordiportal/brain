@@ -394,8 +394,9 @@ interface TestRunResult {
                       </mat-form-field>
                       <div class="form-row-info">
                         <mat-form-field appearance="outline">
-                          <mat-label>Versión</mat-label>
-                          <input matInput [(ngModel)]="selectedAgent.version" placeholder="1.0.0">
+                          <mat-label>Versión actual</mat-label>
+                          <input matInput [value]="selectedAgent.version || '1.0.0'" readonly>
+                          <mat-hint>Se actualiza al guardar</mat-hint>
                         </mat-form-field>
                         <mat-form-field appearance="outline">
                           <mat-label>Icono</mat-label>
@@ -876,15 +877,44 @@ interface TestRunResult {
                       
 
                       <div class="config-actions">
-                        <button mat-raised-button color="primary" (click)="saveDefinition()" [disabled]="savingDefinition()">
+                        <button mat-raised-button color="primary" (click)="promptSaveDefinition()" [disabled]="savingDefinition()">
                           @if (savingDefinition()) {
                             <mat-spinner diameter="20"></mat-spinner>
                           } @else {
                             <mat-icon>save</mat-icon>
                           }
-                          {{ isNewAgent() ? 'Crear agente' : 'Guardar (crea versión)' }}
+                          {{ isNewAgent() ? 'Crear agente' : 'Guardar versión' }}
                         </button>
                       </div>
+
+                      <!-- Save dialog inline -->
+                      @if (showSaveDialog) {
+                        <div class="save-dialog-overlay" (click)="showSaveDialog = false">
+                          <div class="save-dialog" (click)="$event.stopPropagation()">
+                            <h3>
+                              <mat-icon>save</mat-icon>
+                              Guardar versión
+                            </h3>
+                            <mat-form-field appearance="outline" class="full-width">
+                              <mat-label>Nueva versión</mat-label>
+                              <input matInput [(ngModel)]="saveVersionText" placeholder="1.1.0">
+                              <mat-hint>Actual: {{ selectedAgent.version || '1.0.0' }}</mat-hint>
+                            </mat-form-field>
+                            <mat-form-field appearance="outline" class="full-width">
+                              <mat-label>Motivo del cambio (opcional)</mat-label>
+                              <input matInput [(ngModel)]="saveChangeReason" placeholder="Ej: Mejorado prompt principal">
+                            </mat-form-field>
+                            <div class="save-dialog-actions">
+                              <button mat-button (click)="showSaveDialog = false">Cancelar</button>
+                              <button mat-raised-button color="primary" (click)="confirmSaveDefinition()"
+                                      [disabled]="!saveVersionText.trim()">
+                                <mat-icon>check</mat-icon>
+                                Confirmar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      }
                     </div>
                   }
                 </div>
@@ -1631,6 +1661,54 @@ interface TestRunResult {
     }
 
     .config-actions {
+      margin-top: 16px;
+    }
+
+    /* Save dialog */
+    .save-dialog-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .save-dialog {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 420px;
+      max-width: 90vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    }
+
+    .save-dialog h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 20px;
+      font-size: 18px;
+      font-weight: 500;
+    }
+
+    .save-dialog h3 mat-icon {
+      color: #667eea;
+    }
+
+    .save-dialog .full-width {
+      width: 100%;
+      margin-bottom: 4px;
+    }
+
+    .save-dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
       margin-top: 16px;
     }
 
@@ -2783,6 +2861,9 @@ export class SubagentsComponent implements OnInit {
 
   showToolPicker = false;
   toolSearchText = '';
+  showSaveDialog = false;
+  saveVersionText = '';
+  saveChangeReason = '';
 
   agentConfig: SubagentConfig = {
     enabled: true,
@@ -3159,7 +3240,32 @@ export class SubagentsComponent implements OnInit {
       });
   }
 
-  saveDefinition(): void {
+  promptSaveDefinition(): void {
+    if (!this.selectedAgent) return;
+    if (this.isNewAgent()) {
+      this.saveDefinition(this.selectedAgent.version || '1.0.0', '');
+      return;
+    }
+    this.saveVersionText = this.bumpVersion(this.selectedAgent.version || '1.0.0');
+    this.saveChangeReason = '';
+    this.showSaveDialog = true;
+  }
+
+  confirmSaveDefinition(): void {
+    this.showSaveDialog = false;
+    this.saveDefinition(this.saveVersionText.trim(), this.saveChangeReason.trim());
+  }
+
+  private bumpVersion(current: string): string {
+    const parts = current.split('.').map(Number);
+    if (parts.length === 3 && parts.every(n => !isNaN(n))) {
+      parts[2]++;
+      return parts.join('.');
+    }
+    return current;
+  }
+
+  saveDefinition(version: string, changeReason: string): void {
     if (!this.selectedAgent) return;
     const isNew = this.isNewAgent();
     if (isNew && !this.selectedAgent.id?.trim()) {
@@ -3173,7 +3279,7 @@ export class SubagentsComponent implements OnInit {
       description: s.description || '',
       content: s.content ?? ''
     }));
-    const payload = {
+    const payload: any = {
       agent_id: this.selectedAgent.id.trim(),
       name: this.selectedAgent.name || this.selectedAgent.id,
       description: this.selectedAgent.description || '',
@@ -3185,16 +3291,19 @@ export class SubagentsComponent implements OnInit {
       core_tools_enabled: this.selectedAgent.core_tools_enabled !== false,
       skills,
       is_enabled: this.selectedAgent.is_enabled !== false,
-      version: this.selectedAgent.version || '1.0.0',
+      version,
       icon: this.selectedAgent.icon || 'smart_toy',
       settings: this.selectedAgent.settings || {}
     };
+    if (changeReason) {
+      payload.change_reason = changeReason;
+    }
     const apiUrl = `${environment.apiUrl}/agent-definitions`;
     const req = isNew
       ? this.http.post<any>(apiUrl, payload)
       : this.http.put<any>(`${apiUrl}/${this.selectedAgent.id}`, payload);
     req.subscribe({
-      next: (saved) => {
+      next: () => {
         this.savingDefinition.set(false);
         this.dirtySkills.clear();
         if (isNew) {
@@ -3202,8 +3311,10 @@ export class SubagentsComponent implements OnInit {
           this.loadSubagents();
           this.closeConfiguration();
         } else {
-          this.snackBar.open('Guardado (versión creada)', 'Cerrar', { duration: 3000 });
+          this.selectedAgent!.version = version;
+          this.snackBar.open(`Guardado v${version}`, 'Cerrar', { duration: 3000 });
           this.loadSubagents();
+          this.loadAgentVersions(this.selectedAgent!.id);
           this.agentConfig.enabled = this.selectedAgent!.is_enabled !== false;
           this.http.put<any>(`${environment.apiUrl}/subagents/${this.selectedAgent!.id}/config`, this.agentConfig).subscribe();
         }
