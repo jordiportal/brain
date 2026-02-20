@@ -1,98 +1,79 @@
-# Extracción de Datos SAP BIW
+# Patrones de extracción SAP BIW - KH Lloreda
 
-## Objetivo
-Extracción eficiente de datos desde SAP BW/BI (Business Intelligence Warehouse) usando las herramientas específicas.
+## Uso de bi_execute_query
 
-## Estructura de Datos BIW
+La herramienta `bi_execute_query` genera MDX internamente. Nunca necesitas escribir MDX. Parámetros:
 
-### InfoCubes (Cubos OLAP)
-Los InfoCubes son estructuras multidimensionales optimizadas para reporting:
-- **Características (Characteristics)**: Dimensiones de análisis (ej: Sociedad, Centro, Producto)
-- **Ratios (Key Figures)**: Medidas cuantitativas (ej: Ventas, Cantidad, Coste)
-- **Jerarquías**: Navegación estructurada (ej: Año → Trimestre → Mes)
+- **query**: Nombre completo (ej: `ZBOKCOPA/PBI_SEG_CLI_VNE_Q002`)
+- **measures**: Array de nombres técnicos. Vacío u omitido = todas las medidas
+- **dimension**: Dimensión para desglose de filas (una por llamada)
+- **filters**: Pares dimensión:valor (ej: `{"0CALMONTH": "202601"}`)
+- **options.maxRecords**: Máximo de filas (default: 10000)
 
-### DSOs (DataStore Objects)
-Almacenamiento de datos a nivel de registro:
-- **DSO Estándar**: Datos maestros con sobrescrita
-- **DSO Write-Optimized**: Carga rápida sin sobrescrita
-- **DSo Direct Update**: Actualización directa
+## Manejo automático de variables SAP
 
-### Queries BEx (Business Explorer)
-Consultas estructuradas predefinidas:
-- **Filtros**: Restricciones iniciales
-- **Variables**: Parámetros de selección
-- **Selecciones**: Filtros adicionales dinámicos
+El servicio auto-resuelve las variables SAP BW. No necesitas preocuparte por ellas:
 
-## Proceso de Extracción
+- **Variables de intervalo** (como `VINTMES` para meses): Se auto-expanden al rango completo (01:12)
+- **Variables obligatorias de valor único** (como `MESOBLI` en PBI_CIERRE_VN): Se resuelven a valores por defecto sensatos (mes 12)
+- Si pasas filtros de tiempo en `filters`, se auto-enrutan a la variable SAP correspondiente cuando sea necesario
 
-### 1. Identificar el Origen de Datos
+### PBI_CIERRE_VN — Caso especial
+
+Esta query tiene la variable `MESOBLI` (mes obligatorio). Para consultar un mes específico:
 ```
-Determinar según la necesidad:
-- InfoCube → Análisis multidimensional complejo
-- DSO → Datos detallados o maestros
-- Query BEx → Reporte estructurado predefinido
+bi_execute_query(
+  query="ZBOKCOPA/PBI_CIERRE_VN",
+  filters={"0CALYEAR": "2025", "0CALMONTH2": "06"}
+)
 ```
+El filtro `0CALMONTH2` se auto-enruta a la variable `MESOBLI`. Si se omite, usa mes 12 por defecto.
 
-### 2. Definir Características y Ratios
-```json
-{
-  "caracteristicas": ["ZCE_SOC", "ZCE_CENTRO", "ZCE_PRODUCTO", "ZCE_FECHA"],
-  "ratios": ["ZKF_VENTAS", "ZKF_CANTIDAD", "ZKF_COSTE"],
-  "jerarquias": ["ZHI_CALENDARIO", "ZHI_GEOGRAFIA"]
-}
+## Estrategias de selección de medidas
+
+### Cuando hay muchas medidas (queries P&L con 60-86 medidas)
+Selecciona solo las relevantes para la pregunta. Medidas clave de P&L:
+- `00O2TOVQWROHDSV6GFY652O65` — Venta Neta
+- `00O2TOVQWROHDNZHL9NKWNV3C` — Margen Bruto
+- `00O2TOVQWROHDNZHL9NKWO1EW` — Margen Distribución
+- `00O2TOVQWROHDNZHL9NKWO7QG` — Margen Comercial
+
+### Cuando hay pocas medidas (queries de ventas con 3-21 medidas)
+Puedes omitir `measures` para obtener todas.
+
+### Query de Tesorería (1.584 medidas)
+**SIEMPRE** especifica medidas concretas. Nunca ejecutes sin filtrar medidas.
+
+## Patrones multi-query
+
+### Comparativa de períodos
+Requiere dos llamadas separadas (la cláusula WHERE MDX acepta un valor por dimensión temporal):
 ```
-
-### 3. Aplicar Filtros
-```json
-{
-  "filtros": {
-    "ZCE_SOC": ["1000", "2000"],
-    "ZCE_AÑO": ["2024"],
-    "ZCE_MES": ["01", "02", "03"]
-  }
-}
+Llamada 1: filters={"0CALMONTH": "202601"}  // Enero 2026
+Llamada 2: filters={"0CALMONTH": "202501"}  // Enero 2025
 ```
+Combina resultados y calcula variaciones (absoluta y %).
 
-### 4. Navegación Multidimensional
-Técnicas comunes:
-- **Drill-down**: De general a específico (Año → Mes → Día)
-- **Roll-up**: Agregar niveles superiores
-- **Slice**: Fijar una dimensión (solo Q1)
-- **Dice**: Subconjunto de dimensiones
-
-## Mejores Prácticas
-
-1. **Selección de Granularidad**: 
-   - InfoCube para agregaciones
-   - DSO para datos detallados
-
-2. **Optimización de Filtros**:
-   - Filtros obligatorios en la query
-   - Evitar traer datos innecesarios
-
-3. **Jerarquías**:
-   - Usar para navegación estructurada
-   - Niveles intermedios para drill-down
-
-4. **Variables**:
-   - Parametrizar períodos, sociedades
-   - Facilitar reutilización
-
-## Ejemplo Completo
-
-```python
-# Extracción de ventas por región y producto
-request = {
-    "info_cube": "ZC_SALES_C01",
-    "caracteristicas": ["ZCE_REGION", "ZCE_PRODUCTO", "ZCE_MES"],
-    "ratios": ["ZKF_VENTAS_NETAS", "ZKF_CANTIDAD"],
-    "filtros": {
-        "ZCE_AÑO": ["2024"],
-        "ZCE_SOC": ["1000"]
-    },
-    "jerarquia_tiempo": "ZHI_CALENDARIO",
-    "nivel": "MES"
-}
-
-# Resultado: Matriz multidimensional lista para análisis
+### Análisis cruzado de dimensiones
+Una dimensión por llamada. Para segmento + marca:
 ```
+Llamada 1: dimension="ZSEGMEN"
+Llamada 2: dimension="0MATERIAL__YCOPAPH1"
+```
+Ambas con los mismos filtros. Combina en la respuesta.
+
+### Drill-down progresivo
+1. Totales (sin dimensión) → identificar anomalías
+2. Desglose por la dimensión más relevante → localizar contribuyentes
+3. Filtrar por el valor destacado + desglosar por otra dimensión
+
+## Uso de bi_get_metadata
+
+Usa `bi_get_metadata` para descubrir medidas y dimensiones antes de ejecutar una query desconocida. Retorna:
+- Lista de dimensiones con captions
+- Lista de medidas con captions y tipos de datos
+
+Es esencial cuando:
+- Primera vez que consultas una query en la conversación
+- El usuario pide datos que no sabes si existen en la query
+- Necesitas IDs técnicos exactos de medidas

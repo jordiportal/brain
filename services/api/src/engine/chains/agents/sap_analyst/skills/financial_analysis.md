@@ -1,64 +1,86 @@
-# Análisis Financiero SAP (FI/CO)
+# Análisis Financiero KH Lloreda - P&L y Márgenes
 
-## Objetivo
-Análisis de datos financieros y de controlling desde SAP S/4HANA o ECC.
+## Queries P&L disponibles
 
-## Tablas Clave
+| Query | Medidas | Mejor para |
+|---|---|---|
+| `MKT_CUENTA_RES_CP_OPT_DPCT` | 78 | P&L mensual vista marketing, todos los márgenes |
+| `POWER_BI_PYG` | 60 | P&L completo desde tarifa hasta margen operativo |
+| `MKT_CUENTA_RES_PBI` | 80 | P&L para Power BI |
+| `MKT_CUENTA_RES_PBI_ZMSCOPA` | 86 | Variante multicubo |
 
-### FI - Finanzas
-- **BKPF**: Documentos contables (header)
-- **BSEG**: Segmentos de documentos (líneas)
-- **BSID**: Documentos de clientes (abonos)
-- **BSIK**: Documentos de proveedores (cargos)
-- **SKA1**: Plan de cuentas
-- **T001**: Sociedades
+**CRÍTICO**: Todas requieren `"0VERSION": "#"` para datos reales.
 
-### CO - Controlling
-- **COSP**: Costes CO (totales)
-- **COEP**: Costes CO (líneas)
-- **CSKS**: Centros de coste
-- **CEPC**: Centros de beneficio
-- **AUFK**: Órdenes CO
+## Estructura del P&L (cascada de márgenes)
 
-## Métricas Financieras Clave
-
-### 1. Balance General
-```sql
--- Activos vs Pasivos
-SELECT 
-  SUM(CASE WHEN hkont LIKE '1%' THEN dmbtr ELSE 0 END) as activos,
-  SUM(CASE WHEN hkont LIKE '2%' THEN dmbtr ELSE 0 END) as pasivos,
-  SUM(CASE WHEN hkont LIKE '3%' THEN dmbtr ELSE 0 END) as patrimonio
-FROM bseg
-WHERE gjahr = [año]
+```
+Venta Tarifa
+ - Descuentos
+ = VTA FACTURADA
+ - Rappel + Cargos
+ = Venta Neta (~54M€ anual)
+ - Coste de Venta
+ = Margen Bruto (~55%)
+ - Transporte Total
+ = Margen Distribución
+ - Promo Trade
+ - Marketing
+ = Margen Comercial (~33%)
 ```
 
-### 2. Análisis de Flujo de Caja
-- Cash in/out por período
-- Días de efectivo disponible
-- Proyección de liquidez
+## Medidas clave P&L (MKT_CUENTA_RES_CP_OPT_DPCT)
 
-### 3. Ratio de Eficiencia
-- ROI por centro de coste
-- EVA (Economic Value Added)
-- Coste por unidad de producción
+| ID técnico | Concepto |
+|---|---|
+| `00O2TOVQWROHDSV8YPN5T1S36` | Venta tarifa |
+| `00O2TOVQWROH5JGC3Z8OM9PGT` | Descuentos |
+| `00O2TOVQWROHDSV9SBR7263MV` | VTA FACTURADA |
+| `00O2TOVQWROGPV468P733YSMA` | Rappel + Cargos |
+| `00O2TOVQWROHDSV6GFY652O65` | Venta Neta |
+| `00O2TOVQWROHDNZD5X3AMUFZ5` | Coste Venta |
+| `00O2TOVQWROHDNZHL9NKWNV3C` | Margen Bruto |
+| `00O2TOVQWROGXNTYY6Q9MF36L` | Transporte Total |
+| `00O2TOVQWROHDNZHL9NKWO1EW` | Margen Distribución |
+| `00O2TOVQWROGPV468P7344EW2` | Promo Trade |
+| `00O2TOVQWROGPV468P7345AHU` | Marketing |
+| `00O2TOVQWROHDNZHL9NKWO7QG` | Margen Comercial |
 
-### 4. Análisis de Varianza
-```python
-# Comparativo real vs presupuesto
-variance_pct = (actual - budget) / abs(budget) * 100
+## Análisis de P&L mensual
+
+Usa dimensión `0CALMONTH2` para desglose mensual dentro de un año:
 ```
+bi_execute_query(
+  query="ZBOKCOPA/MKT_CUENTA_RES_CP_OPT_DPCT",
+  measures=["00O2TOVQWROHDSV6GFY652O65", "00O2TOVQWROHDNZHL9NKWNV3C", "00O2TOVQWROHDNZHL9NKWO7QG"],
+  dimension="0CALMONTH2",
+  filters={"0CALYEAR": "2025", "0VERSION": "#"}
+)
+```
+La variable VINTMES se auto-expande a meses 01:12.
 
-## Mejores Prácticas
+## Comparativas financieras
 
-1. **Validación de datos**: Verificar que los períodos estén cerrados
-2. **Conciliación**: Cruzar datos de FI con CO
-3. **Segmentación**: Analizar por sociedad, división, área funcional
-4. **Currency**: Considerar monedas y conversiones
+### YoY (año vs año)
+Dos llamadas con mismo set de medidas, diferentes filtros de año. Calcular:
+- Variación absoluta: actual - anterior
+- Variación %: (actual - anterior) / |anterior| × 100
 
-## Reportes Típicos
-- Balance Sheet
-- P&L Statement
-- Cash Flow Analysis
-- Cost Center Reports
-- Variance Analysis
+### MoM (mes vs mes)
+Dos llamadas con diferentes `0CALMONTH`. Útil para detectar estacionalidad.
+
+### Real vs Objetivo vs Previsión
+En queries de ventas (Q002): medidas separadas para real, previsión y objetivo.
+En queries P&L: filtrar `0VERSION` a `#` (real), `000` (previsión), `001` (objetivo) en llamadas separadas.
+
+## Rentabilidad por cliente
+
+Query `BO_RENT_CLIENTE` (27 medidas): márgenes por cliente individual.
+Útil para análisis Pareto, identificar clientes de alta/baja rentabilidad.
+
+## Indicadores de referencia KH Lloreda
+
+- VN anual: ~54M€
+- Margen Bruto: ~55%
+- Margen Comercial: ~33%
+- Marca dominante: KH-7 (88% ingresos)
+- Segmento principal: NACIONAL

@@ -1,84 +1,94 @@
-# Análisis de Ventas SAP (SD)
+# Análisis de Ventas KH Lloreda
 
-## Objetivo
-Análisis de ventas y distribución desde el módulo SD de SAP.
+## Selección de query según la pregunta
 
-## Tablas Clave
+| Tipo de pregunta | Query | Notas |
+|---|---|---|
+| Ventas del mes/año actual | `PBI_SEG_CLI_VNE_Q002` | Tiene 2026, VN estimada |
+| Ventas históricas con detalle | `PBI_SEG_CLI_VNE_Q004` | Sin 2026, pero más medidas detalladas |
+| Cierre de ventas con márgenes | `PBI_CIERRE_VN` | VN real/obj/prev + márgenes. Variable mes obligatoria |
+| Evolución anual rápida | `CO_EVOL_VENTAS_ANUAL_OPT` | 5 medidas, multi-año |
+| Histórico mensual (unidades) | `VTAS_HIST_MENS_OPT` | 3 medidas: unidades, facturado, PM |
+| Año cerrado (post-cierre) | `PBI_SEG_CLI_VNE_Q005` | Solo disponible tras cierre fiscal |
 
-- **VBAK**: Cabecera de pedidos de venta
-- **VBAP**: Posiciones de pedidos de venta
-- **VBRK**: Cabecera de facturas
-- **VBRP**: Posiciones de facturas
-- **KNA1**: Datos maestros de clientes
-- **MARA**: Datos maestros de materiales
-- **TVKBT**: Textos de grupos de clientes
+## Medidas clave de ventas (Q002)
 
-## Métricas de Ventas Clave
+Las 21 medidas incluyen:
+- `ZVNETAEST` — VN estimada del mes (incluye estimación del mes abierto)
+- `PBI_VNETA_ACUM_MC` — VN acumulada mes actual
+- `PBI_PREV_MESACT` — Previsión mes actual
+- `PBI_OBJ_MESACT` — Objetivo mes actual
+- `PBI_UD_FACT_ACUM` — Unidades facturadas acumuladas
+- `PBI_UD_OBJ_ACUM` — Unidades objetivo acumuladas
 
-### 1. Análisis de Volumen
-```python
-# KPIs básicos
-total_revenue = df['amount'].sum()
-total_orders = len(df)
-avg_order_value = total_revenue / total_orders
-total_quantity = df['quantity'].sum()
+## Dimensiones de análisis de ventas
+
+### Por segmento de mercado
+`dimension="ZSEGMEN"` → NACIONAL, EXPORTACION, DISTRIBUCION, USA
+
+### Por marca
+`dimension="0MATERIAL__YCOPAPH1"` → KH-7, CIF, DOMESTOS
+
+### Por sub-marca
+`dimension="0MATERIAL__YCOPAPH2"` → Quitagrasas, Sin Manchas, Antical, etc.
+
+### Por grupo de cliente
+`dimension="0CUST_SALES__0CUST_GROUP"` → SUPER, HIPER, DISCOUNT, MERCADONA, etc.
+
+### Por mes (dentro de un año)
+`dimension="0CALMONTH2"` → 01, 02, ..., 12
+
+## Patrones de análisis
+
+### Análisis de mes actual
+```
+bi_execute_query(
+  query="ZBOKCOPA/PBI_SEG_CLI_VNE_Q002",
+  measures=["ZVNETAEST", "PBI_PREV_MESACT", "PBI_OBJ_MESACT"],
+  filters={"0CALMONTH": "YYYYMM"}
+)
+```
+Compara VN estimada vs previsión y objetivo. Calcula % cumplimiento.
+
+### Evolución mensual del año
+```
+bi_execute_query(
+  query="ZBOKCOPA/PBI_SEG_CLI_VNE_Q002",
+  dimension="0CALMONTH",
+  filters={"0CALYEAR": "2026"}
+)
 ```
 
-### 2. Análisis Temporal
-- Ventas por mes/año
-- Comparativa YoY (Year over Year)
-- Comparativa MoM (Month over Month)
-- Tendencias estacionales
+### Top-down analysis
+1. **Totales** → ¿cómo va el mes?
+2. **Por segmento** → ¿quién contribuye más/menos?
+3. **Por marca** (filtrado al segmento destacado) → ¿qué marca impulsa/frena?
+4. **Por cliente** → ¿quién compra más/menos?
 
-### 3. Análisis de Clientes
-- Top N clientes (Pareto 80/20)
-- Distribución ABC de clientes
-- Customer Lifetime Value (CLV)
-- Churn rate de clientes
+### Mes abierto vs mes cerrado
+- **Mes cerrado**: Datos definitivos, se puede desglosar por todas las dimensiones
+- **Mes abierto (actual)**: Solo `ZVNETAEST` tiene estimación total. Las unidades parciales (`PBI_UD_FACT_ACUM`) sí se desglosan. La VN en EUR NO se puede desglosar por dimensiones en mes abierto.
 
-### 4. Análisis de Productos
-- Top N productos
-- Mix de productos por cliente
-- Penetración de categorías
-- Análisis de canibalización
+## Cierre de ventas (PBI_CIERRE_VN)
 
-### 5. Análisis Geográfico
-- Ventas por región/país
-- Densidad de clientes
-- Análisis de territorios
+Para análisis de cierre con márgenes incluidos:
+```
+bi_execute_query(
+  query="ZBOKCOPA/PBI_CIERRE_VN",
+  dimension="ZSEGMEN",
+  filters={"0CALYEAR": "2025", "0CALMONTH2": "06"}
+)
+```
+El filtro `0CALMONTH2` indica "hasta qué mes" va el cierre. Se auto-enruta a la variable SAP `MESOBLI`.
 
-## Segmentación Común
+## Stock e Inventario
 
-### Por Dimensiones
-- **Temporal**: Día, Semana, Mes, Trimestre, Año
-- **Geográfico**: Región, País, Ciudad, Territorio
-- **Producto**: Categoría, Familia, SKU
-- **Cliente**: Tipo, Segmento, Canal, Grupo
-- **Comercial**: Vendedor, Equipo, Organización de ventas
+Query `0IC_C03/PBI_ST_001` (4 medidas): unidades y valor en stock.
+Útil para contrastar con datos de ventas (rotación, cobertura).
 
-## Forecasting de Ventas
+## Contexto de negocio para interpretar datos
 
-### Métodos
-1. **Promedio móvil**: Suavizado de series temporales
-2. **Tendencia lineal**: Regresión simple
-3. **Seasonal ARIMA**: Para datos con estacionalidad
-4. **Holt-Winters**: Triple suavizado exponencial
-
-### Métricas de Precisión
-- MAE (Mean Absolute Error)
-- MAPE (Mean Absolute Percentage Error)
-- RMSE (Root Mean Square Error)
-
-## Mejores Prácticas
-
-1. **Limpiar cancelaciones**: Excluir pedidos cancelados
-2. **Tratar devoluciones**: Considerar facturas de crédito
-3. **Moneda consistente**: Convertir a moneda base
-4. **Validar duplicados**: Asegurar integridad referencial
-
-## Reportes Típicos
-- Sales Performance Dashboard
-- Pipeline Analysis
-- Win/Loss Analysis
-- Customer Segmentation
-- Territory Performance
+- KH-7 domina con 88% de ingresos → cualquier variación en KH-7 impacta fuertemente al total
+- NACIONAL es el segmento principal → EXPORTACION puede tener mayor crecimiento %
+- Estacionalidad: Q1 y Q3 suelen ser más fuertes en limpieza doméstica
+- MERCADONA (ZD) y SUPER (Z2) son los canales de mayor volumen

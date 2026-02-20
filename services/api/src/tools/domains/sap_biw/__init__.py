@@ -195,6 +195,16 @@ async def bi_get_dimension_values(
     return result
 
 
+async def bi_get_query_variables(query_name: str) -> Dict[str, Any]:
+    """Obtiene las variables SAP BW definidas en una query."""
+    logger.info("SAP BIW: getting query variables", query=query_name)
+    encoded = quote(query_name, safe="")
+    result = await _proxy_request("GET", f"/api/bi/queries/{encoded}/variables")
+    if isinstance(result, dict) and "error" not in result:
+        result["success"] = True
+    return result
+
+
 async def bi_execute_query(
     query: str,
     measures: Optional[List[str]] = None,
@@ -309,6 +319,22 @@ BIW_TOOLS = {
             "required": ["query_name", "dimension"]
         },
         "handler": bi_get_dimension_values
+    },
+    "bi_get_query_variables": {
+        "id": "bi_get_query_variables",
+        "name": "bi_get_query_variables",
+        "description": "Obtiene las variables SAP BW definidas en una query. Variables con procType=1 son customer exits. bi_execute_query auto-maneja variables de intervalo (expandiendo al rango completo) y variables obligatorias de valor unico (usando valores por defecto sensatos). Generalmente no necesitas preocuparte por las variables.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query_name": {
+                    "type": "string",
+                    "description": "Nombre completo de la query incluyendo catalogo (ej: 'ZBOKCOPA/PBI_SEG_CLI_VNE_Q002')"
+                }
+            },
+            "required": ["query_name"]
+        },
+        "handler": bi_get_query_variables
     },
     "bi_execute_query": {
         "id": "bi_execute_query",

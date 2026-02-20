@@ -70,12 +70,13 @@ class SAPAnalystAgent(BaseSubAgent):
     id = "sap_analyst"
     name = "SAP BIW Analyst"
     description = "Analista de datos SAP BIW: extracción, queries, P&L, reportes via proxy-biw"
-    version = "3.0.0"
+    version = "4.0.0"
     domain_tools = [
         "bi_list_catalogs",
         "bi_list_queries",
         "bi_get_metadata",
         "bi_get_dimension_values",
+        "bi_get_query_variables",
         "bi_execute_query",
         "bw_execute_mdx",
         "generate_spreadsheet",

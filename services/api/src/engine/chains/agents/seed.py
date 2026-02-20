@@ -67,7 +67,8 @@ def get_default_agents() -> List[Dict[str, Any]]:
         "system_prompt": _read_file(sap_dir / "prompts" / "system_prompt.txt"),
         "domain_tools": [
             "bi_list_catalogs", "bi_list_queries", "bi_get_metadata",
-            "bi_get_dimension_values", "bi_execute_query", "bw_execute_mdx",
+            "bi_get_dimension_values", "bi_get_query_variables",
+            "bi_execute_query", "bw_execute_mdx",
             "generate_spreadsheet",
         ],
         "skills": _load_skills(sap_dir, [
@@ -80,7 +81,7 @@ def get_default_agents() -> List[Dict[str, Any]]:
             {"id": "sales_analysis", "name": "Análisis de Ventas",
              "description": "Ventas por segmento, canal, marca, evolución temporal"},
         ]),
-        "version": "3.0.0",
+        "version": "4.0.0",
         "icon": "analytics",
     })
 

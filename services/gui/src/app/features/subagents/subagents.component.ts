@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject, computed } from '@angular/core';
+import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -2902,12 +2902,11 @@ export class SubagentsComponent implements OnInit {
   // Toggle: usar config guardada del agente vs personalizar
   useSavedConfig = signal(true); // Por defecto usar la config guardada
   
-  // Computed signal para obtener el proveedor actual de la config
-  savedConfigProvider = computed(() => {
+  savedConfigProvider(): DBLLMProvider | undefined {
     const providerId = this.agentConfig.llm_provider;
     if (!providerId) return undefined;
     return this.dbProviders().find(p => p.id.toString() === providerId.toString());
-  });
+  }
 
   ngOnInit(): void {
     this.loadSubagents();
@@ -3353,25 +3352,36 @@ export class SubagentsComponent implements OnInit {
     this.executeContext = '';
     this.messages.set([]);
     this.subagentSessionId.set(null);
-    
-    // SINCRONIZAR con la configuración del agente
+    this.activeTabIndex = 2;
+
+    this._syncLlmFromConfig();
+
+    this.http.get<any>(`${environment.apiUrl}/subagents/${agent.id}/config`)
+      .subscribe({
+        next: (response) => {
+          this.agentConfig = response.config || { enabled: true, settings: {} };
+          this._syncLlmFromConfig();
+        },
+        error: () => {
+          this._syncLlmFromConfig();
+        }
+      });
+  }
+
+  private _syncLlmFromConfig(): void {
     if (this.agentConfig.llm_provider) {
       this.executeProviderId = this.agentConfig.llm_provider;
-      
-      // Buscar el proveedor para obtener la URL base
-      const provider = this.dbProviders().find(p => 
+
+      const provider = this.dbProviders().find(p =>
         p.id.toString() === this.agentConfig.llm_provider?.toString()
       );
-      
+
       if (provider) {
-        // Usar el modelo de la config, o el default del proveedor
         this.executeModel = this.agentConfig.llm_model || provider.defaultModel || '';
       } else {
-        // Si no encontramos el proveedor, usar el ID y dejar el modelo vacío
         this.executeModel = this.agentConfig.llm_model || '';
       }
     } else {
-      // Si no hay config, seleccionar el primer proveedor por defecto
       const defaultProvider = this.dbProviders().find(p => p.isDefault);
       if (defaultProvider) {
         this.executeProviderId = defaultProvider.id;
@@ -3381,8 +3391,6 @@ export class SubagentsComponent implements OnInit {
         this.executeModel = this.dbProviders()[0].defaultModel || '';
       }
     }
-    
-    this.activeTabIndex = 2; // Switch to execution tab
   }
 
   closeExecution(): void {

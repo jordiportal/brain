@@ -7,6 +7,8 @@ import {
   Signal,
   signal,
   OnInit,
+  OnChanges,
+  SimpleChanges,
   inject
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -179,7 +181,7 @@ import { LlmProvider } from '../../../core/models';
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class LlmSelectorComponent implements OnInit {
+export class LlmSelectorComponent implements OnInit, OnChanges {
   private llmService = inject(LlmSelectionService);
 
   // Inputs para two-way binding
@@ -211,6 +213,7 @@ export class LlmSelectorComponent implements OnInit {
   // Internal state
   private _providerId: string | number | null = null;
   private _model = '';
+  private _initialized = false;
   
   providers: Signal<LlmProvider[]> = this.llmService.providers;
   loadingProviders: Signal<boolean> = this.llmService.loadingProviders;
@@ -235,10 +238,36 @@ export class LlmSelectorComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    // Cargar proveedores
     this.llmService.loadProviders().subscribe();
-    
-    // Aplicar valores de entrada si existen
+    this._applyInputs();
+    this._initialized = true;
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!this._initialized) return;
+
+    const providerChanged = changes['providerId'] && !changes['providerId'].firstChange;
+    const modelChanged = changes['model'] && !changes['model'].firstChange;
+
+    if (providerChanged) {
+      const newId = changes['providerId'].currentValue;
+      if (this._providerId?.toString() !== newId?.toString()) {
+        this._providerId = newId;
+        this._model = this.model || '';
+        if (newId) {
+          this.loadModelsForProvider(newId);
+        } else {
+          this.availableModels.set([]);
+        }
+      }
+    }
+
+    if (modelChanged && !providerChanged) {
+      this._model = changes['model'].currentValue || '';
+    }
+  }
+
+  private _applyInputs(): void {
     if (this.providerId) {
       this._providerId = this.providerId;
       this.loadModelsForProvider(this.providerId);
