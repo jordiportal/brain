@@ -6,6 +6,8 @@ obtiene opinión/propuesta del experto sin ejecutar la tarea completa.
 """
 
 from .base import ToolHandler, ToolResult
+from src.config import get_settings
+from src.db.repositories.brain_settings import BrainSettingsRepository
 
 
 class ConsultTeamMemberHandler(ToolHandler):
@@ -42,5 +44,7 @@ class ConsultTeamMemberHandler(ToolHandler):
         return ToolResult(
             success=True,
             data=result,
-            message_content=message or str(result)[:16000]
+            message_content=message or str(result)[:await BrainSettingsRepository.get_int(
+                "tool_result_max_chars", default=get_settings().tool_result_max_chars
+            )]
         )

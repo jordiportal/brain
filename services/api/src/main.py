@@ -27,6 +27,8 @@ from src.engine.chains.agents.definitions_router import router as agent_definiti
 from src.openai_compat.router import router as openai_compat_router
 from src.config_router import router as config_router
 from src.auth_router import router as auth_router
+from src.profile_router import router as profile_router
+from src.task_router import router as task_router
 from src.monitoring.router import router as monitoring_router
 from src.code_executor.router import router as workspace_router
 from src.artifacts.router import router as artifacts_router
@@ -182,6 +184,8 @@ app.include_router(browser_router, prefix="/api/v1")
 app.include_router(subagents_router, prefix="/api/v1")
 app.include_router(agent_definitions_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
+app.include_router(profile_router, prefix="/api/v1")
+app.include_router(task_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(workspace_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")

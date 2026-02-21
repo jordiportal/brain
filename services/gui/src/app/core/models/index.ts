@@ -133,6 +133,7 @@ export interface SystemSetting {
   value: any;
   type: 'string' | 'number' | 'boolean' | 'json' | 'secret';
   category: 'general' | 'security' | 'llm' | 'mcp' | 'rag' | 'monitoring' | 'other';
+  label?: string;
   description?: string;
   isPublic: boolean;
   createdAt: string;
@@ -167,4 +168,53 @@ export interface MenuItem {
   icon: string;
   route: string;
   children?: MenuItem[];
+}
+
+// User Sandbox: perfiles y tareas programadas
+export interface UserProfile {
+  user_id: string;
+  display_name?: string;
+  personal_prompt?: string;
+  m365_user_id?: string;
+  timezone: string;
+  preferences: UserPreferences;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UserPreferences {
+  importantSenders?: string[];
+  projectKeywords?: string[];
+  mailSignature?: string;
+  digestFormat?: string;
+}
+
+export interface UserTask {
+  id: number;
+  user_id: string;
+  type: string;
+  name: string;
+  cron_expression: string;
+  is_active: boolean;
+  config?: Record<string, unknown>;
+  llm_provider_id?: number;
+  llm_model?: string;
+  last_run_at?: string;
+  last_status?: string;
+  next_run_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TaskResult {
+  id: number;
+  task_id: number;
+  user_id: string;
+  result_type: string;
+  title: string;
+  content: string;
+  data?: Record<string, unknown>;
+  is_read: boolean;
+  created_at: string;
+  expires_at: string;
 }

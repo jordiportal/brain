@@ -142,7 +142,9 @@ class ToolRegistry:
         "web_search", "web_fetch",
         "think", "reflect", "plan", "finish",
         "calculate",
-        "get_agent_info", "delegate", "parallel_delegate"
+        "get_agent_info", "delegate", "parallel_delegate",
+        "user_tasks_list", "user_tasks_create", "user_tasks_update",
+        "user_tasks_delete", "user_tasks_run_now", "user_tasks_results",
     ]
 
     def get_tools_for_team(self) -> List[Dict[str, Any]]:
@@ -254,6 +256,8 @@ class ToolRegistry:
         from .core import CORE_TOOLS, TEAM_TOOLS, SLIDES_TOOLS
         from .domains.media import MEDIA_TOOLS
         from .domains.sap_biw import BIW_TOOLS
+        from .domains.microsoft365 import M365_TOOLS
+        from .domains.user_tasks import USER_TASKS_TOOLS
         
         # Registrar cada core tool (delegation tools son callables para enum dinámico)
         for tool_id, tool_def in CORE_TOOLS.items():
@@ -310,6 +314,28 @@ class ToolRegistry:
                 handler=td["handler"]
             )
         
+        # Registrar domain tools: Microsoft 365
+        for tool_id, tool_def in M365_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
+            self.register_domain_tool(
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
+            )
+        
+        # Registrar domain tools: User Tasks
+        for tool_id, tool_def in USER_TASKS_TOOLS.items():
+            td = tool_def() if callable(tool_def) else tool_def
+            self.register_domain_tool(
+                id=td["id"],
+                name=td["name"],
+                description=td["description"],
+                parameters=td["parameters"],
+                handler=td["handler"]
+            )
+        
         # Registrar domain tools: RAG
         from .domains.rag import RAG_TOOLS
         for tool_id, tool_def in RAG_TOOLS.items():
@@ -337,7 +363,7 @@ class ToolRegistry:
         self._core_registered = True
         
         # Log de herramientas registradas
-        all_tools = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys()) + list(MEDIA_TOOLS.keys()) + list(SLIDES_TOOLS.keys()) + list(BIW_TOOLS.keys()) + list(RAG_TOOLS.keys()) + list(OFFICE_TOOLS.keys())
+        all_tools = list(CORE_TOOLS.keys()) + list(TEAM_TOOLS.keys()) + list(MEDIA_TOOLS.keys()) + list(SLIDES_TOOLS.keys()) + list(BIW_TOOLS.keys()) + list(M365_TOOLS.keys()) + list(USER_TASKS_TOOLS.keys()) + list(RAG_TOOLS.keys()) + list(OFFICE_TOOLS.keys())
         logger.info(
             f"✅ Brain 2.0 Tools registradas: {len(all_tools)}",
             tools=all_tools

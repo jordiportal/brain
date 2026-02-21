@@ -45,6 +45,7 @@ RUN pip install --no-cache-dir \
     pyyaml \
     # Database
     psycopg2-binary \
+    asyncpg \
     redis \
     # HTTP client avanzado
     httpx \
@@ -64,6 +65,9 @@ RUN mkdir -p \
     ${WORKSPACE}/logs \
     ${WORKSPACE}/data \
     /var/log/supervisor
+
+# Copiar scheduler de tareas programadas
+COPY scheduler/ /scheduler/
 
 # Configurar supervisord
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf

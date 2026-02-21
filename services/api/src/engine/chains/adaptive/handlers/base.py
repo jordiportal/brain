@@ -13,6 +13,8 @@ from typing import Any, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 
 from ....models import StreamEvent
+from src.config import get_settings
+from src.db.repositories.brain_settings import BrainSettingsRepository
 
 
 @dataclass
@@ -161,14 +163,18 @@ class DefaultHandler(ToolHandler):
     
     async def process_result(self, result: Any, args: dict) -> ToolResult:
         """Procesamiento por defecto (acepta dict, list, o cualquier tipo)."""
+        _max = await BrainSettingsRepository.get_int(
+            "tool_result_max_chars",
+            default=get_settings().tool_result_max_chars,
+        )
         if isinstance(result, dict):
             return ToolResult(
                 success=result.get("success", True),
                 data=result,
-                message_content=str(result)[:16000],
+                message_content=str(result)[:_max],
             )
         return ToolResult(
             success=True,
             data={"raw": result},
-            message_content=str(result)[:16000],
+            message_content=str(result)[:_max],
         )

@@ -252,25 +252,57 @@ export class ConfigService {
   }
 
   // ===========================================
-  // System Settings - Devuelve vacío por ahora
+  // System Settings
   // ===========================================
 
   getSystemSettings(category?: string): Observable<SystemSetting[]> {
-    return of([]);
+    return this.http.get<any[]>(`${this.API_URL}/config/settings`).pipe(
+      map(rows => rows
+        .filter(r => !category || r.category === category)
+        .map(r => this.mapSettingResponse(r))
+      ),
+      catchError(err => {
+        console.error('Error loading settings:', err);
+        return of([]);
+      })
+    );
   }
 
   getSystemSetting(key: string): Observable<SystemSetting | undefined> {
-    return of(undefined);
+    return this.getSystemSettings().pipe(
+      map(settings => settings.find(s => s.key === key))
+    );
   }
 
-  updateSystemSetting(documentId: string, value: any): Observable<SystemSetting> {
-    console.warn('updateSystemSetting not implemented');
-    return of({} as SystemSetting);
+  updateSystemSetting(key: string, value: any): Observable<SystemSetting> {
+    return this.http.put<any>(`${this.API_URL}/config/settings/${key}`, { value }).pipe(
+      map(r => this.mapSettingResponse(r)),
+      catchError(err => {
+        console.error('Error updating setting:', err);
+        throw err;
+      })
+    );
   }
 
   createSystemSetting(data: Partial<SystemSetting>): Observable<SystemSetting> {
-    console.warn('createSystemSetting not implemented');
+    console.warn('createSystemSetting not supported — settings are predefined');
     return of(data as SystemSetting);
+  }
+
+  private mapSettingResponse(r: any): SystemSetting {
+    return {
+      id: r.id || 0,
+      documentId: r.key,
+      key: r.key,
+      value: r.value,
+      type: r.type || 'string',
+      category: r.category || 'general',
+      label: r.label,
+      description: r.description,
+      isPublic: r.isPublic ?? true,
+      createdAt: r.createdAt || new Date().toISOString(),
+      updatedAt: r.updatedAt || new Date().toISOString(),
+    };
   }
 
   // ===========================================

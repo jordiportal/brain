@@ -59,6 +59,10 @@ export const routes: Routes = [
       {
         path: 'artifacts',
         loadComponent: () => import('./features/artifacts/artifacts.component').then(m => m.ArtifactsComponent)
+      },
+      {
+        path: 'profile',
+        loadComponent: () => import('./features/profile/profile.component').then(m => m.ProfileComponent)
       }
     ]
   },

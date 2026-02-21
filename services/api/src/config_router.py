@@ -15,6 +15,7 @@ from src.db.repositories import (
     ApiKeyRepository,
     ModelConfigRepository,
     OpenAPIConnectionRepository,
+    BrainSettingsRepository,
 )
 from src.db.repositories.mcp_connections import MCPConnectionRepository
 
@@ -547,6 +548,65 @@ async def delete_api_key(key_id: int):
         db = get_db()
         await db.execute("DELETE FROM brain_api_keys WHERE id = $1", key_id)
         return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================
+# Brain Settings
+# ===========================================
+
+class BrainSettingResponse(BaseModel):
+    key: str
+    value: Any
+    type: str
+    category: str
+    label: Optional[str] = None
+    description: Optional[str] = None
+    isPublic: bool = True
+
+
+class UpdateSettingRequest(BaseModel):
+    value: Any
+
+
+@router.get("/settings", response_model=List[BrainSettingResponse])
+async def get_settings():
+    """Obtener todos los settings del sistema"""
+    try:
+        rows = await BrainSettingsRepository.get_all()
+        return [
+            BrainSettingResponse(
+                key=r["key"],
+                value=r["value"],
+                type=r["type"],
+                category=r["category"],
+                label=r.get("label"),
+                description=r.get("description"),
+                isPublic=r.get("is_public", True),
+            )
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/settings/{key}", response_model=BrainSettingResponse)
+async def update_setting(key: str, request: UpdateSettingRequest):
+    """Actualizar el valor de un setting"""
+    try:
+        row = await BrainSettingsRepository.upsert(key, request.value)
+        return BrainSettingResponse(
+            key=row["key"],
+            value=row["value"],
+            type=row["type"],
+            category=row["category"],
+            label=row.get("label"),
+            description=row.get("description"),
+            isPublic=row.get("is_public", True),
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

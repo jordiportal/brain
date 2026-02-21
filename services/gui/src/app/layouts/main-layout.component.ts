@@ -467,6 +467,7 @@ export class MainLayoutComponent {
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
     { label: 'RAG / Documentos', icon: 'description', route: '/rag' },
     { label: 'Configuración', icon: 'settings', route: '/settings' },
+    { label: 'Mi Perfil', icon: 'person', route: '/profile' },
   ];
 
   constructor(

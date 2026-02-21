@@ -8,6 +8,8 @@ Maneja delegación a subagentes especializados:
 
 from .base import ToolHandler, ToolResult
 from ....models import StreamEvent
+from src.config import get_settings
+from src.db.repositories.brain_settings import BrainSettingsRepository
 
 
 class DelegateHandler(ToolHandler):
@@ -144,5 +146,7 @@ class DelegateHandler(ToolHandler):
             final_answer=final_answer,
             events=events,
             brain_events=brain_events,
-            message_content=response_text or str(result)[:16000]
+            message_content=response_text or str(result)[:await BrainSettingsRepository.get_int(
+                "tool_result_max_chars", default=get_settings().tool_result_max_chars
+            )]
         )

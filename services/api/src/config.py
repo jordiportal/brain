@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     # CORS - Lista de orígenes permitidos (separados por comas en env var)
     cors_origins: list[str] = ["http://localhost:4200", "http://localhost:1337"]
     
+    # Límite de caracteres por resultado de tool antes de truncar.
+    # Modelos modernos (Claude 3.5, GPT-4o, Gemini 2.0) soportan 128K-1M tokens,
+    # por lo que 16 000 chars (~4K tokens) era innecesariamente restrictivo.
+    # 100 000 chars ≈ 25K tokens: suficiente para listas largas de datos sin
+    # comprometer el presupuesto total de contexto en conversaciones multi-turno.
+    # Ajusta a la baja (ej: 16000) si usas modelos Ollama pequeños con contexto limitado.
+    tool_result_max_chars: int = 100_000
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -20,6 +20,7 @@ from ....tools import tool_registry
 from .validators import is_continue_command
 from .executor import AdaptiveExecutor
 from .events import StreamEmitter, BrainEmitter
+from ...context_injector import apply_user_context
 
 
 logger = structlog.get_logger()
@@ -40,6 +41,7 @@ async def build_adaptive_agent(
     provider_type: str = "ollama",
     api_key: Optional[str] = None,
     emit_brain_events: bool = False,
+    user_id: Optional[str] = None,
     **kwargs
 ) -> AsyncGenerator[StreamEvent, None]:
     """
@@ -73,7 +75,8 @@ async def build_adaptive_agent(
         query=query[:100],
         model=model,
         provider=provider_type,
-        is_continue=is_continue_request
+        is_continue=is_continue_request,
+        user_id=user_id,
     )
     
     # ========== FASE 1: ANÁLISIS DE COMPLEJIDAD ==========
@@ -119,9 +122,14 @@ async def build_adaptive_agent(
     logger.info(f"📦 {len(tools)} core tools loaded")
     logger.info(f"📝 System prompt: {len(system_prompt)} chars")
     
+    # Inyectar contexto del usuario (briefing + personal_prompt)
+    briefing_messages: list[dict] = []
+    system_prompt = await apply_user_context(user_id, briefing_messages, system_prompt)
+
     # Construir mensajes
     messages = [{"role": "system", "content": system_prompt}]
-    
+    messages.extend(briefing_messages)
+
     # Agregar memoria
     if memory and config.use_memory:
         max_memory = config.max_memory_messages or 10

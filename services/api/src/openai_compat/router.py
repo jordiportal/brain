@@ -201,6 +201,9 @@ async def create_chat_completion(
     # Generar ID único para esta completion
     completion_id = f"chatcmpl-brain-{uuid.uuid4().hex[:24]}"
     
+    # Resolver user_id: del request o del default de la API key
+    user_id = request.user or key_data.get("permissions", {}).get("default_user_id")
+    
     # Si streaming, retornar StreamingResponse
     if request.stream:
         return StreamingResponse(
@@ -210,7 +213,8 @@ async def create_chat_completion(
                 model_config=model_config,
                 backend_config=config.backend_llm,
                 api_key=api_key,
-                key_data=key_data
+                key_data=key_data,
+                user_id=user_id,
             ),
             media_type="text/event-stream",
             headers={
@@ -227,7 +231,8 @@ async def create_chat_completion(
         model_config=model_config,
         backend_config=config.backend_llm,
         api_key=api_key,
-        key_data=key_data
+        key_data=key_data,
+        user_id=user_id
     )
 
 
@@ -237,7 +242,8 @@ async def execute_chat_completion(
     model_config,
     backend_config,
     api_key: str,
-    key_data: dict
+    key_data: dict,
+    user_id: Optional[str] = None,
 ) -> ChatCompletionResponse:
     """Ejecuta una chat completion sin streaming"""
     
@@ -296,7 +302,8 @@ async def execute_chat_completion(
             execution_id=completion_id,
             stream=False,
             provider_type=backend_config.provider,
-            api_key=backend_config.api_key
+            api_key=backend_config.api_key,
+            user_id=user_id,
         ):
             # Capturar resultado
             if isinstance(event, dict) and "_result" in event:
@@ -369,7 +376,8 @@ async def stream_chat_completion(
     model_config,
     backend_config,
     api_key: str,
-    key_data: dict
+    key_data: dict,
+    user_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """Genera streaming de chat completion en formato SSE"""
     
@@ -444,7 +452,8 @@ async def stream_chat_completion(
             stream=True,
             provider_type=backend_config.provider,
             api_key=backend_config.api_key,
-            emit_brain_events=emit_brain_events
+            emit_brain_events=emit_brain_events,
+            user_id=user_id,
         ):
             # Streaming de tokens
             if hasattr(event, 'event_type') and event.event_type == "token" and event.content:

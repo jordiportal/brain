@@ -16,7 +16,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { StrapiService } from '../../core/services/config.service';
-import { LlmProvider, McpConnection } from '../../core/models';
+import { LlmProvider, McpConnection, SystemSetting } from '../../core/models';
 import { HttpClient } from '@angular/common/http';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
@@ -355,15 +355,61 @@ import { environment } from '../../../environments/environment';
           </ng-template>
 
           <div class="tab-content">
-            <h2>Configuración General</h2>
-            <p class="info-text">Configuraciones adicionales del sistema se gestionarán aquí.</p>
-            
-            <mat-card class="info-card">
-              <mat-card-content>
-                <mat-icon>info</mat-icon>
-                <p>Las configuraciones generales del sistema están en desarrollo.</p>
-              </mat-card-content>
-            </mat-card>
+            <div class="section-header">
+              <h2>Configuración General</h2>
+            </div>
+
+            @if (loadingSettings()) {
+              <div class="empty-state">
+                <mat-spinner diameter="40"></mat-spinner>
+              </div>
+            } @else {
+              <div class="settings-list">
+                @for (setting of systemSettings(); track setting.key) {
+                  <mat-card class="setting-card">
+                    <mat-card-content>
+                      <div class="setting-row">
+                        <div class="setting-info">
+                          <h3>{{ setting.label || setting.key }}</h3>
+                          @if (setting.description) {
+                            <p class="setting-description">{{ setting.description }}</p>
+                          }
+                          <span class="setting-key">{{ setting.key }}</span>
+                        </div>
+                        <div class="setting-control">
+                          @if (setting.type === 'number') {
+                            <mat-form-field appearance="outline" class="setting-field">
+                              <mat-label>Valor</mat-label>
+                              <input matInput type="number"
+                                     [value]="setting.value"
+                                     (change)="onSettingChange(setting, $any($event.target).value)"
+                                     [disabled]="savingSetting() === setting.key">
+                            </mat-form-field>
+                          } @else if (setting.type === 'boolean') {
+                            <mat-slide-toggle
+                              [checked]="setting.value"
+                              (change)="onSettingChange(setting, $event.checked)"
+                              [disabled]="savingSetting() === setting.key">
+                            </mat-slide-toggle>
+                          } @else {
+                            <mat-form-field appearance="outline" class="setting-field">
+                              <mat-label>Valor</mat-label>
+                              <input matInput
+                                     [value]="setting.value"
+                                     (change)="onSettingChange(setting, $any($event.target).value)"
+                                     [disabled]="savingSetting() === setting.key">
+                            </mat-form-field>
+                          }
+                          @if (savingSetting() === setting.key) {
+                            <mat-spinner diameter="20" style="margin-left: 8px;"></mat-spinner>
+                          }
+                        </div>
+                      </div>
+                    </mat-card-content>
+                  </mat-card>
+                }
+              </div>
+            }
           </div>
         </mat-tab>
       </mat-tab-group>
@@ -537,6 +583,60 @@ import { environment } from '../../../environments/environment';
       gap: 12px;
     }
 
+    .settings-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .setting-card {
+      border: 1px solid #e0e0e0;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+    }
+
+    .setting-info {
+      flex: 1;
+    }
+
+    .setting-info h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .setting-description {
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: #666;
+      line-height: 1.5;
+    }
+
+    .setting-key {
+      font-size: 11px;
+      font-family: monospace;
+      color: #999;
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .setting-control {
+      display: flex;
+      align-items: center;
+      min-width: 200px;
+      justify-content: flex-end;
+    }
+
+    .setting-field {
+      width: 200px;
+    }
+
     .info-card mat-icon {
       color: #1976d2;
     }
@@ -597,6 +697,11 @@ export class SettingsComponent implements OnInit {
   showMcpForm = signal(false);
   editingMcp = signal<McpConnection | null>(null);
   savingMcp = signal(false);
+
+  // System Settings
+  systemSettings = signal<SystemSetting[]>([]);
+  loadingSettings = signal(false);
+  savingSetting = signal<string | null>(null);
   mcpForm: FormGroup;
 
   constructor(
@@ -629,6 +734,47 @@ export class SettingsComponent implements OnInit {
   ngOnInit(): void {
     this.loadLlmProviders();
     this.loadMcpConnections();
+    this.loadSystemSettings();
+  }
+
+  // System Settings Methods
+  loadSystemSettings(): void {
+    this.loadingSettings.set(true);
+    this.strapiService.getSystemSettings().subscribe({
+      next: (settings) => {
+        this.systemSettings.set(settings);
+        this.loadingSettings.set(false);
+      },
+      error: () => {
+        this.snackBar.open('Error cargando configuración', 'Cerrar', { duration: 3000 });
+        this.loadingSettings.set(false);
+      }
+    });
+  }
+
+  onSettingChange(setting: SystemSetting, rawValue: any): void {
+    let value: any = rawValue;
+    if (setting.type === 'number') {
+      value = Number(rawValue);
+      if (isNaN(value)) return;
+    } else if (setting.type === 'boolean') {
+      value = Boolean(rawValue);
+    }
+
+    this.savingSetting.set(setting.key);
+    this.strapiService.updateSystemSetting(setting.key, value).subscribe({
+      next: (updated) => {
+        this.systemSettings.update(list =>
+          list.map(s => s.key === setting.key ? { ...s, value: updated.value } : s)
+        );
+        this.snackBar.open('Configuración guardada', 'Cerrar', { duration: 2000 });
+        this.savingSetting.set(null);
+      },
+      error: () => {
+        this.snackBar.open('Error guardando configuración', 'Cerrar', { duration: 3000 });
+        this.savingSetting.set(null);
+      }
+    });
   }
 
   // LLM Providers Methods

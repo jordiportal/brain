@@ -139,6 +139,10 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD:-brain_secret}@postgres:5432/${POSTGRES_DB:-brain_db}
       - REDIS_URL=redis://redis:6379
       - API_URL=http://api:8000
+      # Scheduler: proxy-365 y Brain API key
+      - PROXY_365_URL=${PROXY_365_URL:-http://host.docker.internal:3001}
+      - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}
+      - BRAIN_API_KEY=${BRAIN_API_KEY:-}
     volumes:
       # Bind mount a carpeta local del Mac para acceso directo
       - ~/Docker/workspace:/workspace

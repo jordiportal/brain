@@ -162,6 +162,12 @@ class ApiKeyRepository:
         """Convert database row to BrainApiKey model."""
         permissions = row.get('permissions')
         usage_stats = row.get('usage_stats')
+        if isinstance(permissions, str):
+            import json as _json
+            permissions = _json.loads(permissions)
+        if isinstance(usage_stats, str):
+            import json as _json
+            usage_stats = _json.loads(usage_stats)
         
         return BrainApiKey(
             id=row['id'],

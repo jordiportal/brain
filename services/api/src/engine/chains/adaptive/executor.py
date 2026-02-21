@@ -17,6 +17,9 @@ from typing import AsyncGenerator, Optional, Any
 
 import structlog
 
+from src.config import get_settings
+from src.db.repositories.brain_settings import BrainSettingsRepository
+
 from ...models import StreamEvent, ChainConfig
 from ...reasoning import ComplexityAnalysis
 from ...reasoning.complexity import ComplexityLevel
@@ -504,8 +507,13 @@ class AdaptiveExecutor:
         
         # Agregar resultado a mensajes (SIEMPRE, para no romper la secuencia de tool_call_id para OpenAI)
         result_str = json.dumps(raw_result, ensure_ascii=False, default=str)
-        if len(result_str) > 16000:
-            result_str = result_str[:16000] + "... [truncated]"
+        # Leer límite desde BD (caché 60 s); fallback al valor de config.py si BD no disponible
+        _max_chars = await BrainSettingsRepository.get_int(
+            "tool_result_max_chars",
+            default=get_settings().tool_result_max_chars,
+        )
+        if len(result_str) > _max_chars:
+            result_str = result_str[:_max_chars] + "... [truncated]"
         
         if self.provider_type == "ollama":
             messages.append({

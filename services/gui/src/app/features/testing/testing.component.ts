@@ -118,8 +118,8 @@ import { LlmSelectorComponent, LlmSelectionService } from '../../shared/componen
               <mat-icon>chat</mat-icon>
               Chat de Prueba
             </mat-card-title>
-            @if (selectedModel) {
-              <mat-chip class="model-chip">{{ selectedModel }}</mat-chip>
+            @if (effectiveModel) {
+              <mat-chip class="model-chip">{{ effectiveModel }}</mat-chip>
             }
             @if (useStreaming) {
               <mat-chip class="streaming-chip">
@@ -435,6 +435,11 @@ export class TestingComponent implements OnInit {
     return this.llmSelectionService.getProviderById(this.selectedProviderId);
   }
 
+  // Resuelve el modelo efectivo: el seleccionado explícitamente o el default del provider
+  get effectiveModel(): string {
+    return this.selectedModel || this.selectedProvider?.defaultModel || '';
+  }
+
   ngOnInit(): void {
     // Cargar proveedores desde el servicio
     this.llmSelectionService.loadProviders().subscribe();
@@ -486,7 +491,8 @@ export class TestingComponent implements OnInit {
   }
 
   async sendMessage(): Promise<void> {
-    if (!this.newMessage.trim() || !this.selectedProvider || !this.selectedModel) return;
+    const model = this.effectiveModel;
+    if (!this.newMessage.trim() || !this.selectedProvider || !model) return;
 
     const userMessage: ChatMessage = {
       role: 'user',
@@ -512,13 +518,13 @@ export class TestingComponent implements OnInit {
     });
 
     if (this.useStreaming) {
-      await this.sendStreamingMessage(apiMessages);
+      await this.sendStreamingMessage(apiMessages, model);
     } else {
-      this.sendNormalMessage(apiMessages);
+      this.sendNormalMessage(apiMessages, model);
     }
   }
 
-  private async sendStreamingMessage(apiMessages: { role: string; content: string }[]): Promise<void> {
+  private async sendStreamingMessage(apiMessages: { role: string; content: string }[], model: string): Promise<void> {
     // Crear mensaje de asistente vacío para streaming
     const assistantMessage: ChatMessage = {
       role: 'assistant',
@@ -541,7 +547,7 @@ export class TestingComponent implements OnInit {
           provider_url: this.selectedProvider!.baseUrl,
           provider_type: this.selectedProvider!.type,
           api_key: this.selectedProvider!.apiKey,
-          model: this.selectedModel,
+          model,
           messages: apiMessages
         })
       });
@@ -574,12 +580,11 @@ export class TestingComponent implements OnInit {
               
               if (data.content) {
                 fullContent += data.content;
-                // Actualizar el mensaje en el array
                 this.messages.update(msgs => {
                   const updated = [...msgs];
-                  const lastMsg = updated[updated.length - 1];
-                  if (lastMsg.role === 'assistant') {
-                    lastMsg.content = fullContent;
+                  const last = updated[updated.length - 1];
+                  if (last.role === 'assistant') {
+                    updated[updated.length - 1] = { ...last, content: fullContent };
                   }
                   return updated;
                 });
@@ -599,9 +604,9 @@ export class TestingComponent implements OnInit {
       // Finalizar streaming
       this.messages.update(msgs => {
         const updated = [...msgs];
-        const lastMsg = updated[updated.length - 1];
-        if (lastMsg.role === 'assistant') {
-          lastMsg.isStreaming = false;
+        const last = updated[updated.length - 1];
+        if (last.role === 'assistant') {
+          updated[updated.length - 1] = { ...last, isStreaming: false };
         }
         return updated;
       });
@@ -620,14 +625,14 @@ export class TestingComponent implements OnInit {
     }
   }
 
-  private sendNormalMessage(apiMessages: { role: string; content: string }[]): void {
+  private sendNormalMessage(apiMessages: { role: string; content: string }[], model: string): void {
     this.http.post<{ content: string; model: string; tokens_used?: number }>(
       `${this.API_URL}/llm/chat`,
       {
         provider_url: this.selectedProvider!.baseUrl,
         provider_type: this.selectedProvider!.type,
         api_key: this.selectedProvider!.apiKey,
-        model: this.selectedModel,
+        model,
         messages: apiMessages
       }
     ).subscribe({

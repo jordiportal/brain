@@ -6,6 +6,8 @@ Estas tools permiten al agente razonar sobre la tarea actual.
 
 from .base import ToolHandler, ToolResult
 from ....models import StreamEvent
+from src.config import get_settings
+from src.db.repositories.brain_settings import BrainSettingsRepository
 
 
 class ReasoningHandler(ToolHandler):
@@ -75,5 +77,7 @@ class ReasoningHandler(ToolHandler):
             is_terminal=False,
             events=events,
             brain_events=brain_events,
-            message_content=thinking_content[:16000] if thinking_content else ""
+            message_content=thinking_content[:await BrainSettingsRepository.get_int(
+                "tool_result_max_chars", default=get_settings().tool_result_max_chars
+            )] if thinking_content else ""
         )

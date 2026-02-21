@@ -168,6 +168,36 @@ def get_default_agents() -> List[Dict[str, Any]]:
         "icon": "library_books",
     })
 
+    # ── Microsoft 365 Assistant ──────────────────────────────────
+    m365_dir = _AGENTS_DIR / "m365_assistant"
+    agents.append({
+        "agent_id": "m365_assistant",
+        "name": "Microsoft 365 Assistant",
+        "description": "Asistente M365: correo, calendario, OneDrive, Teams y directorio corporativo",
+        "role": "Asistente de Productividad Microsoft 365",
+        "expertise": "Experto en gestión de correo, calendario, archivos, Teams y directorio corporativo via Microsoft Graph",
+        "task_requirements": "Consultas sobre correo, calendario, archivos OneDrive, Teams o directorio corporativo",
+        "system_prompt": _read_file(m365_dir / "prompts" / "system_prompt.txt"),
+        "domain_tools": [
+            "m365_mail_list", "m365_mail_folders", "m365_mail_send",
+            "m365_calendar_list", "m365_calendar_events", "m365_calendar_create_event",
+            "m365_onedrive_root", "m365_onedrive_list", "m365_onedrive_search",
+            "m365_teams_list", "m365_teams_chats", "m365_teams_channels",
+            "m365_teams_members", "m365_teams_channel_messages", "m365_teams_send_message",
+            "m365_directory_users", "m365_directory_groups", "m365_directory_group_members",
+        ],
+        "skills": _load_skills(m365_dir, [
+            {"id": "m365_productivity", "name": "Microsoft 365 Productivity",
+             "description": "Referencia completa de todas las herramientas M365, patrones de uso y mejores prácticas. CARGAR SIEMPRE."},
+            {"id": "email_management", "name": "Gestión de Correo",
+             "description": "Estrategias de búsqueda de correo, plantillas HTML y reglas de envío"},
+            {"id": "calendar_teams", "name": "Calendario y Teams",
+             "description": "Gestión de agenda, creación de eventos, envío de mensajes Teams"},
+        ]),
+        "version": "1.0.0",
+        "icon": "mail",
+    })
+
     return agents
 
 
