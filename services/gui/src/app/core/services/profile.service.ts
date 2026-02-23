@@ -96,17 +96,22 @@ export class ProfileService {
     return this.http.get<{ items: TaskResult[] }>(`${this.API}/tasks/${taskId}/results`, { params: { limit: String(limit) } });
   }
 
-  // Workspace / Sandbox
-  listWorkspace(dirPath: string = ''): Observable<WorkspaceListing> {
+  // Workspace / Sandbox (per-user)
+  listWorkspace(dirPath: string = '', userId?: string): Observable<WorkspaceListing> {
     const safePath = dirPath.replace(/^\/+/, '');
-    return this.http.get<WorkspaceListing>(`${this.API}/workspace/list/${safePath}`);
+    const params: Record<string, string> = {};
+    if (userId) params['user_id'] = userId;
+    return this.http.get<WorkspaceListing>(`${this.API}/workspace/list/${safePath}`, { params });
   }
 
-  getFileUrl(filePath: string): string {
-    return `${this.API}/workspace/files/${filePath}`;
+  getFileUrl(filePath: string, userId?: string): string {
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    return `${this.API}/workspace/files/${filePath}${qs}`;
   }
 
-  deleteWorkspaceFile(filePath: string): Observable<{ status: string }> {
-    return this.http.delete<{ status: string }>(`${this.API}/workspace/files/${filePath}`);
+  deleteWorkspaceFile(filePath: string, userId?: string): Observable<{ status: string }> {
+    const params: Record<string, string> = {};
+    if (userId) params['user_id'] = userId;
+    return this.http.delete<{ status: string }>(`${this.API}/workspace/files/${filePath}`, { params });
   }
 }

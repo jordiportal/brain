@@ -72,6 +72,13 @@ services:
       - CODE_EXECUTION_MEMORY_LIMIT=512m
       - CODE_EXECUTION_CPU_LIMIT=1.0
       - DEBUG=${DEBUG:-true}
+      # Sandbox manager: env vars passed to per-user containers
+      - PROXY_365_URL=${PROXY_365_URL:-http://host.docker.internal:3001}
+      - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}
+      - BRAIN_API_KEY=${BRAIN_API_KEY:-}
+      - SANDBOX_IMAGE=brain-persistent-runner:latest
+      - SANDBOX_NETWORK=brain-network
+      - SANDBOX_WORKSPACE_BASE=${SANDBOX_WORKSPACE_BASE:-/Users/jordip/Docker/workspace/users}
     volumes:
       - ./services/api/src:/app/src
       - /var/run/docker.sock:/var/run/docker.sock  # Acceso a Docker daemon para code execution
@@ -125,26 +132,26 @@ services:
       start_period: 10s
 
   # ===========================================
-  # Persistent Python Runner - Contenedor Administrativo
+  # Persistent Python Runner - Shared fallback + image builder
+  # Per-user sandboxes are created dynamically by SandboxManager
+  # using this same image (brain-persistent-runner:latest).
   # ===========================================
   persistent-runner:
     build:
       context: ./services/code-runners
       dockerfile: Dockerfile.persistent-python
+    image: brain-persistent-runner:latest
     container_name: brain-persistent-runner
     restart: unless-stopped
     environment:
       - WORKSPACE=/workspace
-      # Acceso a servicios internos
       - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD:-brain_secret}@postgres:5432/${POSTGRES_DB:-brain_db}
       - REDIS_URL=redis://redis:6379
       - API_URL=http://api:8000
-      # Scheduler: proxy-365 y Brain API key
       - PROXY_365_URL=${PROXY_365_URL:-http://host.docker.internal:3001}
       - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}
       - BRAIN_API_KEY=${BRAIN_API_KEY:-}
     volumes:
-      # Bind mount a carpeta local del Mac para acceso directo
       - ~/Docker/workspace:/workspace
     networks:
       - brain-network

@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 logger = logging.getLogger("scheduler")
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+USER_ID = os.environ.get("USER_ID", "")  # If set, only process this user's tasks
 SYNC_INTERVAL = 60
 
 _pool: asyncpg.Pool | None = None
@@ -37,12 +38,17 @@ async def get_pool() -> asyncpg.Pool:
 async def _process_run_now() -> None:
     """Ejecuta tareas con solicitud run-now pendiente."""
     pool = await get_pool()
+    query = (
+        "SELECT rn.task_id, t.user_id, t.type, t.name "
+        "FROM user_task_run_now rn JOIN user_tasks t ON t.id = rn.task_id "
+    )
+    params: list = []
+    if USER_ID:
+        query += "WHERE t.user_id = $1 "
+        params.append(USER_ID)
+    query += "ORDER BY rn.requested_at"
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT rn.task_id, t.user_id, t.type, t.name "
-            "FROM user_task_run_now rn JOIN user_tasks t ON t.id = rn.task_id "
-            "ORDER BY rn.requested_at"
-        )
+        rows = await conn.fetch(query, *params)
     for r in rows:
         tid = int(r["task_id"])
         logger.info("Run-now: task %s (%s)", tid, r["type"])
@@ -59,10 +65,13 @@ async def sync_tasks() -> None:
     try:
         await _process_run_now()
         pool = await get_pool()
+        query = "SELECT id, user_id, type, name, cron_expression FROM user_tasks WHERE is_active = true"
+        params: list = []
+        if USER_ID:
+            query += " AND user_id = $1"
+            params.append(USER_ID)
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT id, user_id, type, name, cron_expression FROM user_tasks WHERE is_active = true"
-            )
+            rows = await conn.fetch(query, *params)
     except Exception:
         logger.exception("Error syncing tasks")
         return
@@ -133,7 +142,8 @@ async def main() -> None:
     _scheduler.add_job(sync_tasks, "interval", seconds=SYNC_INTERVAL, id="_sync")
     _scheduler.start()
     await sync_tasks()
-    logger.info("Scheduler running (sync every %ss)", SYNC_INTERVAL)
+    scope = f"user={USER_ID}" if USER_ID else "all users"
+    logger.info("Scheduler running (sync every %ss, scope: %s)", SYNC_INTERVAL, scope)
     while True:
         await asyncio.sleep(3600)
 

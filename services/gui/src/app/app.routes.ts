@@ -63,6 +63,10 @@ export const routes: Routes = [
       {
         path: 'profile',
         loadComponent: () => import('./features/profile/profile.component').then(m => m.ProfileComponent)
+      },
+      {
+        path: 'sandboxes',
+        loadComponent: () => import('./features/sandboxes/sandboxes.component').then(m => m.SandboxesComponent)
       }
     ]
   },

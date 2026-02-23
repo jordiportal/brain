@@ -466,6 +466,7 @@ export class MainLayoutComponent {
     { label: 'Testing LLM', icon: 'science', route: '/testing' },
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
     { label: 'RAG / Documentos', icon: 'description', route: '/rag' },
+    { label: 'Sandboxes', icon: 'dns', route: '/sandboxes' },
     { label: 'Configuración', icon: 'settings', route: '/settings' },
     { label: 'Mi Perfil', icon: 'person', route: '/profile' },
   ];

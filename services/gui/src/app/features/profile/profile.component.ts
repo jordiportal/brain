@@ -372,7 +372,7 @@ export class ProfileComponent implements OnInit {
     this.wsLoading.set(true);
     this.currentPath.set(path);
     this.updateBreadcrumbs(path);
-    this.profileService.listWorkspace(path).subscribe({
+    this.profileService.listWorkspace(path, this.userId()).subscribe({
       next: (listing) => {
         const sorted = [...listing.files].sort((a, b) => {
           if (a.is_directory !== b.is_directory) return a.is_directory ? -1 : 1;
@@ -417,7 +417,7 @@ export class ProfileComponent implements OnInit {
 
   downloadFile(f: WorkspaceFile): void {
     const filePath = this.joinPath(this.currentPath(), f.name);
-    const url = this.profileService.getFileUrl(filePath);
+    const url = this.profileService.getFileUrl(filePath, this.userId());
     const a = document.createElement('a');
     a.href = url;
     a.download = f.name;
@@ -428,7 +428,7 @@ export class ProfileComponent implements OnInit {
   deleteFile(f: WorkspaceFile): void {
     if (!confirm(`¿Eliminar "${f.name}"?`)) return;
     const filePath = this.joinPath(this.currentPath(), f.name);
-    this.profileService.deleteWorkspaceFile(filePath).subscribe({
+    this.profileService.deleteWorkspaceFile(filePath, this.userId()).subscribe({
       next: () => {
         this.snack.open('Archivo eliminado', 'OK', { duration: 2000 });
         this.loadWorkspace(this.currentPath());

@@ -368,32 +368,31 @@ async def _download_video(video_uri: str, api_key: str) -> Dict[str, Any]:
             }
 
 
-def _save_video_to_workspace(video_bytes: bytes, filename: str) -> Optional[str]:
+def _save_video_to_workspace(video_bytes: bytes, filename: str, user_id: Optional[str] = None) -> Optional[str]:
     """
-    Guarda el vídeo en el workspace del persistent-runner.
-    
-    Args:
-        video_bytes: Bytes del vídeo
-        filename: Nombre del archivo (ej: video_abc123.mp4)
-    
-    Returns:
-        Ruta relativa al workspace o None si hay error
+    Guarda el vídeo en el workspace del sandbox del usuario.
+    Falls back to shared persistent-runner if no user_id.
     """
     try:
-        from src.code_executor.persistent_executor import PersistentCodeExecutor
-        
-        executor = PersistentCodeExecutor()
-        
-        # Guardar en media/videos/
+        if user_id:
+            import asyncio
+            from src.code_executor.sandbox_manager import sandbox_manager
+            executor = asyncio.get_event_loop().run_until_complete(
+                sandbox_manager.get_or_create(user_id)
+            )
+        else:
+            from src.code_executor.persistent_executor import PersistentCodeExecutor
+            executor = PersistentCodeExecutor()
+
         file_path = f"media/videos/{filename}"
-        
+
         if executor.write_binary_file(file_path, video_bytes):
             logger.info(f"Video saved to workspace: {file_path}")
             return file_path
         else:
-            logger.error(f"Failed to save video to workspace")
+            logger.error("Failed to save video to workspace")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error saving video to workspace: {e}")
         return None

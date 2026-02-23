@@ -3,6 +3,7 @@ Brain API - Entry Point
 Servidor FastAPI para gestión de cadenas de pensamiento con LangChain/LangGraph
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -131,8 +132,26 @@ async def lifespan(app: FastAPI):
         await mcp_client.ensure_playwright_connection()
     except Exception as e:
         logger.warning(f"No se pudieron cargar conexiones MCP: {e}")
-    
+
+    # Sandbox cleanup background task
+    async def _sandbox_cleanup_loop():
+        import asyncio as _aio
+        from src.code_executor.sandbox_manager import sandbox_manager
+        while True:
+            await _aio.sleep(300)  # every 5 min
+            try:
+                stopped = await sandbox_manager.stop_idle(max_idle_minutes=30)
+                if stopped:
+                    logger.info(f"Sandbox cleanup: stopped {stopped} idle container(s)")
+            except Exception as exc:
+                logger.warning(f"Sandbox cleanup error: {exc}")
+
+    _cleanup_task = asyncio.create_task(_sandbox_cleanup_loop())
+    logger.info("Sandbox cleanup task started (every 5 min, idle > 30 min)")
+
     yield
+
+    _cleanup_task.cancel()
     
     # Shutdown
     logger.info("Cerrando Brain API")

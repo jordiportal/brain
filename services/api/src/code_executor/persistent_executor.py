@@ -27,28 +27,27 @@ logger = structlog.get_logger()
 class PersistentCodeExecutor:
     """Ejecutor de código en contenedor Docker permanente"""
     
-    CONTAINER_NAME = "brain-persistent-runner"
     WORKSPACE_PATH = "/workspace"
     
-    def __init__(self):
-        """Inicializa el ejecutor persistente"""
+    def __init__(self, container_name: str = "brain-persistent-runner"):
+        self.container_name = container_name
         self._verify_container_running()
     
     def _verify_container_running(self) -> bool:
         """Verifica que el contenedor persistente esté corriendo"""
         try:
             result = subprocess.run(
-                ["docker", "ps", "--filter", f"name={self.CONTAINER_NAME}", "--format", "{{.Names}}"],
+                ["docker", "ps", "--filter", f"name={self.container_name}", "--format", "{{.Names}}"],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
             
-            if self.CONTAINER_NAME in result.stdout:
-                logger.info(f"Contenedor persistente {self.CONTAINER_NAME} está corriendo")
+            if self.container_name in result.stdout:
+                logger.info(f"Contenedor persistente {self.container_name} está corriendo")
                 return True
             else:
-                logger.warning(f"Contenedor {self.CONTAINER_NAME} no está corriendo")
+                logger.warning(f"Contenedor {self.container_name} no está corriendo")
                 return False
                 
         except Exception as e:
@@ -95,7 +94,7 @@ class PersistentCodeExecutor:
             # Paso 1: Escribir código en el contenedor
             write_cmd = [
                 "docker", "exec",
-                self.CONTAINER_NAME,
+                self.container_name,
                 "bash", "-c",
                 f'cat > {script_path} << \'EOFPYTHON\'\n{code}\nEOFPYTHON'
             ]
@@ -117,13 +116,13 @@ class PersistentCodeExecutor:
                     status=ExecutionStatus.CONTAINER_ERROR,
                     language=Language.PYTHON,
                     error_message="No se pudo escribir el script en el contenedor",
-                    container_id=self.CONTAINER_NAME
+                    container_id=self.container_name
                 )
             
             # Paso 2: Ejecutar el script
             exec_cmd = [
                 "docker", "exec",
-                self.CONTAINER_NAME,
+                self.container_name,
                 "python", script_path
             ]
             
@@ -153,7 +152,7 @@ class PersistentCodeExecutor:
                 # Paso 3: Limpiar script si no se debe guardar
                 if not save_script:
                     subprocess.run(
-                        ["docker", "exec", self.CONTAINER_NAME, "rm", "-f", script_path],
+                        ["docker", "exec", self.container_name, "rm", "-f", script_path],
                         capture_output=True,
                         timeout=5
                     )
@@ -176,7 +175,7 @@ class PersistentCodeExecutor:
                     status=status,
                     language=Language.PYTHON,
                     error_message=error_msg,
-                    container_id=self.CONTAINER_NAME
+                    container_id=self.container_name
                 )
             
             except subprocess.TimeoutExpired:
@@ -186,7 +185,7 @@ class PersistentCodeExecutor:
                 # Intentar limpiar
                 if not save_script:
                     subprocess.run(
-                        ["docker", "exec", self.CONTAINER_NAME, "rm", "-f", script_path],
+                        ["docker", "exec", self.container_name, "rm", "-f", script_path],
                         capture_output=True,
                         timeout=5
                     )
@@ -200,7 +199,7 @@ class PersistentCodeExecutor:
                     status=ExecutionStatus.TIMEOUT,
                     language=Language.PYTHON,
                     error_message=f"Timeout después de {timeout} segundos",
-                    container_id=self.CONTAINER_NAME
+                    container_id=self.container_name
                 )
         
         except Exception as e:
@@ -217,14 +216,14 @@ class PersistentCodeExecutor:
                 status=ExecutionStatus.CONTAINER_ERROR,
                 language=Language.PYTHON,
                 error_message=error_msg,
-                container_id=self.CONTAINER_NAME
+                container_id=self.container_name
             )
     
     def list_scripts(self) -> list[str]:
         """Lista scripts guardados en /workspace/scripts"""
         try:
             result = subprocess.run(
-                ["docker", "exec", self.CONTAINER_NAME, "ls", "-1", f"{self.WORKSPACE_PATH}/scripts"],
+                ["docker", "exec", self.container_name, "ls", "-1", f"{self.WORKSPACE_PATH}/scripts"],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -245,7 +244,7 @@ class PersistentCodeExecutor:
         try:
             full_path = f"{self.WORKSPACE_PATH}/{file_path}"
             result = subprocess.run(
-                ["docker", "exec", self.CONTAINER_NAME, "cat", full_path],
+                ["docker", "exec", self.container_name, "cat", full_path],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -269,7 +268,7 @@ class PersistentCodeExecutor:
             # Crear directorio si no existe
             dir_path = str(Path(full_path).parent)
             subprocess.run(
-                ["docker", "exec", self.CONTAINER_NAME, "mkdir", "-p", dir_path],
+                ["docker", "exec", self.container_name, "mkdir", "-p", dir_path],
                 capture_output=True,
                 timeout=5
             )
@@ -277,7 +276,7 @@ class PersistentCodeExecutor:
             # Escribir archivo
             write_cmd = [
                 "docker", "exec",
-                self.CONTAINER_NAME,
+                self.container_name,
                 "bash", "-c",
                 f'cat > {full_path} << \'EOFFILE\'\n{content}\nEOFFILE'
             ]
@@ -314,7 +313,7 @@ class PersistentCodeExecutor:
             # Crear directorio en el contenedor si no existe
             dir_path = str(Path(full_path).parent)
             subprocess.run(
-                ["docker", "exec", self.CONTAINER_NAME, "mkdir", "-p", dir_path],
+                ["docker", "exec", self.container_name, "mkdir", "-p", dir_path],
                 capture_output=True,
                 timeout=5
             )
@@ -327,7 +326,7 @@ class PersistentCodeExecutor:
             try:
                 # Copiar al contenedor usando docker cp
                 result = subprocess.run(
-                    ["docker", "cp", tmp_path, f"{self.CONTAINER_NAME}:{full_path}"],
+                    ["docker", "cp", tmp_path, f"{self.container_name}:{full_path}"],
                     capture_output=True,
                     timeout=60  # Timeout más largo para archivos grandes
                 )
@@ -368,7 +367,7 @@ class PersistentCodeExecutor:
             
             try:
                 result = subprocess.run(
-                    ["docker", "cp", f"{self.CONTAINER_NAME}:{full_path}", tmp_path],
+                    ["docker", "cp", f"{self.container_name}:{full_path}", tmp_path],
                     capture_output=True,
                     timeout=60
                 )
@@ -406,7 +405,7 @@ class PersistentCodeExecutor:
         try:
             full_path = f"{self.WORKSPACE_PATH}/{file_path}"
             result = subprocess.run(
-                ["docker", "exec", self.CONTAINER_NAME, "rm", "-f", full_path],
+                ["docker", "exec", self.container_name, "rm", "-f", full_path],
                 capture_output=True,
                 timeout=5
             )

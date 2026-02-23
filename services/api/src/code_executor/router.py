@@ -1,149 +1,121 @@
 """
 Router para el Code Executor y Workspace
 
-Endpoints:
+Endpoints (todos aceptan ?user_id para scoping per-user sandbox):
 - GET /workspace/files/{path} - Sirve archivos del workspace
 - GET /workspace/list/{path} - Lista archivos de un directorio
 - DELETE /workspace/files/{path} - Elimina un archivo
+- GET /workspace/media/recent - Lista archivos multimedia recientes
+- GET /workspace/sandboxes - Lista sandboxes activos (admin)
 """
 
+import subprocess
 import structlog
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pathlib import Path
 from typing import Optional
 import mimetypes
 import io
 
-from .persistent_executor import PersistentCodeExecutor
+from .sandbox_manager import sandbox_manager
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/workspace", tags=["Workspace"])
 
-# Instancia del executor
-_executor: Optional[PersistentCodeExecutor] = None
+FALLBACK_CONTAINER = "brain-persistent-runner"
 
 
-def get_executor() -> PersistentCodeExecutor:
-    """Obtiene o crea el executor persistente"""
-    global _executor
-    if _executor is None:
-        _executor = PersistentCodeExecutor()
-    return _executor
+async def _get_executor(user_id: Optional[str] = None):
+    """Resolve the executor for the given user (or fallback)."""
+    if user_id:
+        return await sandbox_manager.get_or_create(user_id)
+    from .persistent_executor import PersistentCodeExecutor
+    return PersistentCodeExecutor(FALLBACK_CONTAINER)
 
 
 @router.get("/files/{file_path:path}")
-async def get_workspace_file(file_path: str):
-    """
-    Sirve un archivo del workspace del persistent-runner.
-    
-    Args:
-        file_path: Ruta relativa al workspace (ej: media/videos/video.mp4)
-    
-    Returns:
-        El archivo con el Content-Type apropiado
-    """
-    executor = get_executor()
-    
-    # Leer el archivo binario
+async def get_workspace_file(file_path: str, user_id: Optional[str] = Query(None)):
+    """Sirve un archivo del workspace del sandbox del usuario."""
+    executor = await _get_executor(user_id)
+
     data = executor.read_binary_file(file_path)
-    
+
     if data is None:
         raise HTTPException(status_code=404, detail=f"Archivo no encontrado: {file_path}")
-    
-    # Detectar mime type
+
     mime_type, _ = mimetypes.guess_type(file_path)
     if mime_type is None:
         mime_type = "application/octet-stream"
-    
-    # Nombre del archivo
+
     filename = Path(file_path).name
-    
-    logger.info(f"Sirviendo archivo: {file_path} ({len(data)} bytes, {mime_type})")
-    
+    logger.info("Serving file", path=file_path, size=len(data), mime=mime_type, user=user_id)
+
     return StreamingResponse(
         io.BytesIO(data),
         media_type=mime_type,
         headers={
             "Content-Disposition": f'inline; filename="{filename}"',
-            "Content-Length": str(len(data))
-        }
+            "Content-Length": str(len(data)),
+        },
     )
 
 
 @router.get("/list/{dir_path:path}")
-async def list_workspace_directory(dir_path: str = ""):
-    """
-    Lista archivos de un directorio del workspace.
-    
-    Args:
-        dir_path: Ruta relativa al workspace (ej: media/videos)
-    
-    Returns:
-        Lista de archivos y directorios
-    """
-    import subprocess
-    
-    executor = get_executor()
+async def list_workspace_directory(dir_path: str = "", user_id: Optional[str] = Query(None)):
+    """Lista archivos de un directorio del workspace del sandbox del usuario."""
+    executor = await _get_executor(user_id)
     full_path = f"{executor.WORKSPACE_PATH}/{dir_path}" if dir_path else executor.WORKSPACE_PATH
-    
+
     try:
         result = subprocess.run(
-            ["docker", "exec", executor.CONTAINER_NAME, "ls", "-la", full_path],
+            ["docker", "exec", executor.container_name, "ls", "-la", full_path],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
-        
+
         if result.returncode != 0:
             raise HTTPException(status_code=404, detail=f"Directorio no encontrado: {dir_path}")
-        
-        # Parsear output de ls -la
-        lines = result.stdout.strip().split('\n')
+
+        lines = result.stdout.strip().split("\n")
         files = []
-        
-        for line in lines[1:]:  # Skip "total X" line
+
+        for line in lines[1:]:
             parts = line.split()
             if len(parts) >= 9:
                 permissions = parts[0]
                 size = int(parts[4]) if parts[4].isdigit() else 0
-                name = ' '.join(parts[8:])
-                
-                if name in ['.', '..']:
+                name = " ".join(parts[8:])
+
+                if name in [".", ".."]:
                     continue
-                
-                files.append({
-                    "name": name,
-                    "is_directory": permissions.startswith('d'),
-                    "size": size,
-                    "permissions": permissions
-                })
-        
-        return {
-            "path": dir_path,
-            "files": files
-        }
-    
+
+                files.append(
+                    {
+                        "name": name,
+                        "is_directory": permissions.startswith("d"),
+                        "size": size,
+                        "permissions": permissions,
+                    }
+                )
+
+        return {"path": dir_path, "files": files}
+
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Timeout listando directorio")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error listando directorio: {e}")
+        logger.error("Error listing directory", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/files/{file_path:path}")
-async def delete_workspace_file(file_path: str):
-    """
-    Elimina un archivo del workspace.
-    
-    Args:
-        file_path: Ruta relativa al workspace
-    
-    Returns:
-        Confirmación de eliminación
-    """
-    executor = get_executor()
-    
+async def delete_workspace_file(file_path: str, user_id: Optional[str] = Query(None)):
+    """Elimina un archivo del workspace del sandbox del usuario."""
+    executor = await _get_executor(user_id)
+
     if executor.delete_file(file_path):
         return {"status": "ok", "message": f"Archivo eliminado: {file_path}"}
     else:
@@ -151,62 +123,65 @@ async def delete_workspace_file(file_path: str):
 
 
 @router.get("/media/recent")
-async def list_recent_media(limit: int = 20):
-    """
-    Lista los archivos multimedia más recientes (imágenes y vídeos).
-    
-    Args:
-        limit: Número máximo de archivos a devolver
-    
-    Returns:
-        Lista de archivos multimedia con URLs
-    """
-    import subprocess
-    
-    executor = get_executor()
-    
+async def list_recent_media(limit: int = 20, user_id: Optional[str] = Query(None)):
+    """Lista los archivos multimedia más recientes del sandbox del usuario."""
+    executor = await _get_executor(user_id)
+
     try:
-        # Buscar archivos multimedia ordenados por fecha
         result = subprocess.run(
             [
-                "docker", "exec", executor.CONTAINER_NAME,
+                "docker", "exec", executor.container_name,
                 "find", f"{executor.WORKSPACE_PATH}/media",
                 "-type", "f",
                 "-name", "*.mp4", "-o", "-name", "*.webm",
                 "-o", "-name", "*.png", "-o", "-name", "*.jpg", "-o", "-name", "*.jpeg",
-                "-o", "-name", "*.gif", "-o", "-name", "*.webp"
+                "-o", "-name", "*.gif", "-o", "-name", "*.webp",
             ],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
-        
+
         if result.returncode != 0:
-            # Directorio no existe aún
             return {"files": []}
-        
+
         files = []
-        for line in result.stdout.strip().split('\n'):
+        for line in result.stdout.strip().split("\n"):
             if line:
-                # Convertir path absoluto a relativo
                 rel_path = line.replace(f"{executor.WORKSPACE_PATH}/", "")
                 filename = Path(line).name
-                
-                # Determinar tipo
                 ext = Path(line).suffix.lower()
                 media_type = "video" if ext in [".mp4", ".webm"] else "image"
-                
-                files.append({
-                    "path": rel_path,
-                    "name": filename,
-                    "type": media_type,
-                    "url": f"/api/v1/workspace/files/{rel_path}"
-                })
-        
+                files.append(
+                    {
+                        "path": rel_path,
+                        "name": filename,
+                        "type": media_type,
+                        "url": f"/api/v1/workspace/files/{rel_path}",
+                    }
+                )
+
         return {"files": files[:limit]}
-    
+
     except subprocess.TimeoutExpired:
         return {"files": []}
     except Exception as e:
-        logger.error(f"Error listando media: {e}")
+        logger.error("Error listing media", error=str(e))
         return {"files": []}
+
+
+@router.get("/sandboxes")
+async def list_sandboxes():
+    """Lista todos los sandboxes de usuario (admin)."""
+    return {"sandboxes": await sandbox_manager.list_sandboxes()}
+
+
+@router.delete("/sandboxes/{user_id:path}")
+async def remove_sandbox(user_id: str):
+    """Elimina el sandbox de un usuario (admin)."""
+    try:
+        await sandbox_manager.remove_sandbox(user_id)
+        return {"status": "ok", "message": f"Sandbox de {user_id} eliminado"}
+    except Exception as e:
+        logger.error("Error removing sandbox", user=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
