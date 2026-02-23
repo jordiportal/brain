@@ -46,6 +46,18 @@ export interface TaskResult {
   expires_at: string;
 }
 
+export interface WorkspaceFile {
+  name: string;
+  is_directory: boolean;
+  size: number;
+  permissions: string;
+}
+
+export interface WorkspaceListing {
+  path: string;
+  files: WorkspaceFile[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
   private readonly API = environment.apiUrl;
@@ -82,5 +94,19 @@ export class ProfileService {
 
   getTaskResults(taskId: number, limit = 20): Observable<{ items: TaskResult[] }> {
     return this.http.get<{ items: TaskResult[] }>(`${this.API}/tasks/${taskId}/results`, { params: { limit: String(limit) } });
+  }
+
+  // Workspace / Sandbox
+  listWorkspace(dirPath: string = ''): Observable<WorkspaceListing> {
+    const safePath = dirPath.replace(/^\/+/, '');
+    return this.http.get<WorkspaceListing>(`${this.API}/workspace/list/${safePath}`);
+  }
+
+  getFileUrl(filePath: string): string {
+    return `${this.API}/workspace/files/${filePath}`;
+  }
+
+  deleteWorkspaceFile(filePath: string): Observable<{ status: string }> {
+    return this.http.delete<{ status: string }>(`${this.API}/workspace/files/${filePath}`);
   }
 }

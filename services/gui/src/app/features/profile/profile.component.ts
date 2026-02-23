@@ -12,7 +12,9 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { ProfileService, UserProfile, UserTask, UserPreferences } from '../../core/services/profile.service';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatDividerModule } from '@angular/material/divider';
+import { ProfileService, UserProfile, UserTask, UserPreferences, WorkspaceFile } from '../../core/services/profile.service';
 
 const DEFAULT_USER_ID = 'jordip@khlloreda.com';
 
@@ -23,6 +25,7 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
     MatTabsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatButtonModule, MatSlideToggleModule, MatChipsModule, MatIconModule,
     MatCardModule, MatSnackBarModule, MatProgressSpinnerModule,
+    MatTooltipModule, MatDividerModule,
   ],
   selector: 'app-profile',
   template: `
@@ -131,9 +134,132 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
             }
           </div>
         </mat-tab>
+
+        <!-- TAB: Sandbox -->
+        <mat-tab label="Sandbox">
+          <div style="padding: 16px 0;">
+            <!-- Breadcrumb -->
+            <div class="sandbox-breadcrumb">
+              <button mat-button (click)="navigateTo('')" [disabled]="currentPath() === ''">
+                <mat-icon>home</mat-icon> workspace
+              </button>
+              @for (crumb of breadcrumbs(); track crumb.path) {
+                <mat-icon style="vertical-align: middle; color: #999;">chevron_right</mat-icon>
+                <button mat-button (click)="navigateTo(crumb.path)">{{ crumb.name }}</button>
+              }
+            </div>
+
+            @if (wsLoading()) {
+              <mat-spinner diameter="28" style="margin: 24px auto;"></mat-spinner>
+            } @else {
+              <div class="sandbox-file-list">
+                @if (currentPath() !== '') {
+                  <div class="sandbox-file-row sandbox-dir-row" (click)="navigateUp()">
+                    <mat-icon class="sandbox-file-icon" style="color: #78909c;">subdirectory_arrow_left</mat-icon>
+                    <span class="sandbox-file-name">..</span>
+                    <span class="sandbox-file-meta"></span>
+                    <span class="sandbox-file-actions"></span>
+                  </div>
+                }
+
+                @for (f of wsFiles(); track f.name) {
+                  <div class="sandbox-file-row" [class.sandbox-dir-row]="f.is_directory"
+                       (click)="f.is_directory ? navigateTo(joinPath(currentPath(), f.name)) : null">
+                    <mat-icon class="sandbox-file-icon" [style.color]="f.is_directory ? '#ffa726' : '#90a4ae'">
+                      {{ f.is_directory ? 'folder' : fileIcon(f.name) }}
+                    </mat-icon>
+                    <span class="sandbox-file-name">{{ f.name }}</span>
+                    <span class="sandbox-file-meta">{{ f.is_directory ? '' : formatSize(f.size) }}</span>
+                    <span class="sandbox-file-actions">
+                      @if (!f.is_directory) {
+                        <button mat-icon-button matTooltip="Descargar"
+                                (click)="downloadFile(f); $event.stopPropagation()">
+                          <mat-icon>download</mat-icon>
+                        </button>
+                        <button mat-icon-button matTooltip="Eliminar" color="warn"
+                                (click)="deleteFile(f); $event.stopPropagation()">
+                          <mat-icon>delete</mat-icon>
+                        </button>
+                      }
+                    </span>
+                  </div>
+                }
+
+                @if (wsFiles().length === 0 && currentPath() === '') {
+                  <p style="text-align: center; color: #999; margin-top: 24px;">
+                    El sandbox está vacío.
+                  </p>
+                }
+              </div>
+            }
+          </div>
+        </mat-tab>
       </mat-tab-group>
     </div>
   `,
+  styles: [`
+    .sandbox-breadcrumb {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 2px;
+      margin-bottom: 12px;
+      padding: 8px 4px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .sandbox-file-list {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .sandbox-file-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      gap: 12px;
+      border-bottom: 1px solid #f0f0f0;
+      transition: background 0.15s;
+    }
+    .sandbox-file-row:last-child {
+      border-bottom: none;
+    }
+    .sandbox-file-row:hover {
+      background: #fafafa;
+    }
+    .sandbox-dir-row {
+      cursor: pointer;
+    }
+    .sandbox-dir-row:hover {
+      background: #fff3e0;
+    }
+    .sandbox-file-icon {
+      flex-shrink: 0;
+    }
+    .sandbox-file-name {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 400;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sandbox-dir-row .sandbox-file-name {
+      font-weight: 500;
+    }
+    .sandbox-file-meta {
+      flex-shrink: 0;
+      font-size: 12px;
+      color: #999;
+      min-width: 70px;
+      text-align: right;
+    }
+    .sandbox-file-actions {
+      flex-shrink: 0;
+      display: flex;
+      gap: 2px;
+    }
+  `],
 })
 export class ProfileComponent implements OnInit {
   userId = signal(DEFAULT_USER_ID);
@@ -148,11 +274,18 @@ export class ProfileComponent implements OnInit {
   tasks = signal<UserTask[]>([]);
   timezones = ['Europe/Madrid', 'Europe/London', 'UTC', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo'];
 
+  // Sandbox explorer
+  currentPath = signal('');
+  wsFiles = signal<WorkspaceFile[]>([]);
+  wsLoading = signal(false);
+  breadcrumbs = signal<{ name: string; path: string }[]>([]);
+
   constructor(private profileService: ProfileService, private snack: MatSnackBar) {}
 
   ngOnInit(): void {
     this.loadProfile();
     this.loadTasks();
+    this.loadWorkspace('');
   }
 
   loadProfile(): void {
@@ -231,5 +364,99 @@ export class ProfileComponent implements OnInit {
     if (min === '0' && hour === '8' && dow === '1-5') return 'L-V a las 8:00';
     if (min === '0' && hour === '9' && dow === '*') return 'Cada día a las 9:00';
     return cron;
+  }
+
+  // --- Sandbox Explorer ---
+
+  loadWorkspace(path: string): void {
+    this.wsLoading.set(true);
+    this.currentPath.set(path);
+    this.updateBreadcrumbs(path);
+    this.profileService.listWorkspace(path).subscribe({
+      next: (listing) => {
+        const sorted = [...listing.files].sort((a, b) => {
+          if (a.is_directory !== b.is_directory) return a.is_directory ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        this.wsFiles.set(sorted);
+        this.wsLoading.set(false);
+      },
+      error: () => {
+        this.wsFiles.set([]);
+        this.wsLoading.set(false);
+      },
+    });
+  }
+
+  navigateTo(path: string): void {
+    this.loadWorkspace(path);
+  }
+
+  navigateUp(): void {
+    const parts = this.currentPath().split('/').filter(Boolean);
+    parts.pop();
+    this.navigateTo(parts.join('/'));
+  }
+
+  joinPath(base: string, name: string): string {
+    return base ? `${base}/${name}` : name;
+  }
+
+  updateBreadcrumbs(path: string): void {
+    if (!path) {
+      this.breadcrumbs.set([]);
+      return;
+    }
+    const parts = path.split('/').filter(Boolean);
+    const crumbs = parts.map((name, i) => ({
+      name,
+      path: parts.slice(0, i + 1).join('/'),
+    }));
+    this.breadcrumbs.set(crumbs);
+  }
+
+  downloadFile(f: WorkspaceFile): void {
+    const filePath = this.joinPath(this.currentPath(), f.name);
+    const url = this.profileService.getFileUrl(filePath);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = f.name;
+    a.target = '_blank';
+    a.click();
+  }
+
+  deleteFile(f: WorkspaceFile): void {
+    if (!confirm(`¿Eliminar "${f.name}"?`)) return;
+    const filePath = this.joinPath(this.currentPath(), f.name);
+    this.profileService.deleteWorkspaceFile(filePath).subscribe({
+      next: () => {
+        this.snack.open('Archivo eliminado', 'OK', { duration: 2000 });
+        this.loadWorkspace(this.currentPath());
+      },
+      error: () => this.snack.open('Error al eliminar', 'OK', { duration: 3000 }),
+    });
+  }
+
+  formatSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+  }
+
+  fileIcon(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    const icons: Record<string, string> = {
+      py: 'code', js: 'code', ts: 'code', json: 'data_object',
+      csv: 'table_chart', xlsx: 'table_chart', xls: 'table_chart',
+      pdf: 'picture_as_pdf',
+      png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image',
+      mp4: 'movie', webm: 'movie', mov: 'movie',
+      txt: 'description', md: 'description', log: 'description',
+      zip: 'archive', tar: 'archive', gz: 'archive',
+      sh: 'terminal', bash: 'terminal',
+      html: 'language', css: 'palette', sql: 'storage',
+    };
+    return icons[ext] ?? 'insert_drive_file';
   }
 }

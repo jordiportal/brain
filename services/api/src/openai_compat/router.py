@@ -33,6 +33,7 @@ from .models import (
     ErrorDetail
 )
 from .auth import api_key_validator
+from .oauth import oauth_validator
 from .config import config_loader, BackendLLM
 
 from ..engine.registry import chain_registry
@@ -78,12 +79,16 @@ async def _get_chain_llm_provider(chain_id: str) -> Optional[BackendLLM]:
 
 
 # ============================================
-# Dependency: API Key Authentication
+# Dependency: Dual Authentication (API Key + OAuth)
 # ============================================
 
-async def verify_api_key(authorization: Optional[str] = Header(None)) -> dict:
-    """Verifica la API key del header Authorization"""
-    
+async def verify_auth(authorization: Optional[str] = Header(None)) -> dict:
+    """
+    Dual-mode auth dependency.
+
+    - Bearer sk-brain-* → API key validation (existing flow)
+    - Bearer eyJ*         → Microsoft Entra ID JWT validation (OAuth)
+    """
     if not authorization:
         raise HTTPException(
             status_code=401,
@@ -95,39 +100,62 @@ async def verify_api_key(authorization: Optional[str] = Header(None)) -> dict:
                 }
             }
         )
-    
-    # Extraer token del header "Bearer sk-brain-xxx"
+
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(
             status_code=401,
             detail={
                 "error": {
-                    "message": "Invalid Authorization header format. Expected 'Bearer <api_key>'",
+                    "message": "Invalid Authorization header format. Expected 'Bearer <token>'",
                     "type": "invalid_request_error",
                     "code": "invalid_api_key"
                 }
             }
         )
-    
-    api_key = parts[1]
-    
-    # Validar key
-    key_data = await api_key_validator.validate_key(api_key)
-    
-    if not key_data:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": {
-                    "message": "Invalid API key",
-                    "type": "invalid_request_error", 
-                    "code": "invalid_api_key"
-                }
+
+    token = parts[1]
+
+    # --- Path A: Brain API Key ---
+    if token.startswith("sk-brain-"):
+        key_data = await api_key_validator.validate_key(token)
+        if not key_data:
+            raise HTTPException(
+                status_code=401,
+                detail={"error": {"message": "Invalid API key", "type": "invalid_request_error", "code": "invalid_api_key"}}
+            )
+        user_id = key_data.get("permissions", {}).get("default_user_id")
+        return {
+            "auth_type": "apikey",
+            "key_data": key_data,
+            "api_key": token,
+            "user_id": user_id,
+        }
+
+    # --- Path B: OAuth JWT (Microsoft Entra ID) ---
+    if await oauth_validator.is_enabled():
+        try:
+            claims = await oauth_validator.validate_token(token)
+            return {
+                "auth_type": "oauth",
+                "key_data": None,
+                "api_key": None,
+                "user_id": claims.user_id,
+                "user_name": claims.name,
+                "oauth_claims": claims,
             }
-        )
-    
-    return {"key_data": key_data, "api_key": api_key}
+        except ValueError as e:
+            logger.warning("OAuth token validation failed", error=str(e))
+            raise HTTPException(
+                status_code=401,
+                detail={"error": {"message": str(e), "type": "authentication_error", "code": "invalid_token"}}
+            )
+
+    # Token doesn't match any known auth method
+    raise HTTPException(
+        status_code=401,
+        detail={"error": {"message": "Invalid credentials. Provide a valid API key (sk-brain-*) or OAuth token.", "type": "invalid_request_error", "code": "invalid_api_key"}}
+    )
 
 
 # ============================================
@@ -137,26 +165,29 @@ async def verify_api_key(authorization: Optional[str] = Header(None)) -> dict:
 @router.post("/v1/chat/completions")
 async def create_chat_completion(
     request: ChatCompletionRequest,
-    auth: dict = Depends(verify_api_key)
+    auth: dict = Depends(verify_auth)
 ):
     """
     Creates a model response for the given chat conversation.
     
     Compatible con la API de OpenAI /v1/chat/completions.
     Internamente ejecuta la cadena Brain correspondiente al modelo solicitado.
+    Acepta autenticación por API key (sk-brain-*) o JWT de Microsoft Entra ID.
     """
-    key_data = auth["key_data"]
-    api_key = auth["api_key"]
+    key_data = auth.get("key_data")
+    api_key = auth.get("api_key")
+    auth_type = auth.get("auth_type", "apikey")
     
     logger.info(
-        "🔵 OpenAI-compat chat completion request",
+        "OpenAI-compat chat completion request",
         model=request.model,
         messages_count=len(request.messages),
         stream=request.stream,
-        key_name=key_data.get("name")
+        auth_type=auth_type,
+        key_name=key_data.get("name") if key_data else None,
+        user_id=auth.get("user_id"),
     )
     
-    # Cargar configuración
     config = await config_loader.load_config()
     
     if not config.is_enabled:
@@ -171,20 +202,25 @@ async def create_chat_completion(
             }
         )
     
-    # Verificar permiso para el modelo
-    if not api_key_validator.check_model_permission(key_data, request.model):
+    # Model permission check
+    model_allowed = True
+    if auth_type == "apikey" and key_data:
+        model_allowed = api_key_validator.check_model_permission(key_data, request.model)
+    elif auth_type == "oauth":
+        model_allowed = await oauth_validator.check_model_permission(request.model)
+
+    if not model_allowed:
         raise HTTPException(
             status_code=403,
             detail={
                 "error": {
-                    "message": f"API key does not have permission to use model '{request.model}'",
+                    "message": f"No permission to use model '{request.model}'",
                     "type": "permission_denied",
                     "code": "model_not_allowed"
                 }
             }
         )
     
-    # Obtener configuración del modelo
     model_config = config_loader.get_model(request.model)
     if not model_config:
         raise HTTPException(
@@ -198,13 +234,11 @@ async def create_chat_completion(
             }
         )
     
-    # Generar ID único para esta completion
     completion_id = f"chatcmpl-brain-{uuid.uuid4().hex[:24]}"
     
-    # Resolver user_id: del request o del default de la API key
-    user_id = request.user or key_data.get("permissions", {}).get("default_user_id")
+    # Resolve user_id: explicit in request > auth-resolved > key default
+    user_id = request.user or auth.get("user_id")
     
-    # Si streaming, retornar StreamingResponse
     if request.stream:
         return StreamingResponse(
             stream_chat_completion(
@@ -224,7 +258,6 @@ async def create_chat_completion(
             }
         )
     
-    # Modo no-streaming
     return await execute_chat_completion(
         request=request,
         completion_id=completion_id,
@@ -324,12 +357,12 @@ async def execute_chat_completion(
         completion_tokens = len(full_response) // 4
         total_tokens = prompt_tokens + completion_tokens
         
-        # Actualizar estadísticas de uso
-        await api_key_validator.update_usage(api_key, total_tokens)
+        if api_key:
+            await api_key_validator.update_usage(api_key, total_tokens)
         
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.info(
-            "✅ Chat completion completed",
+            "Chat completion completed",
             completion_id=completion_id,
             tokens=total_tokens,
             elapsed_ms=elapsed_ms
@@ -488,12 +521,12 @@ async def stream_chat_completion(
         yield f"data: {final_chunk.model_dump_json()}\n\n"
         yield "data: [DONE]\n\n"
         
-        # Actualizar estadísticas
-        await api_key_validator.update_usage(api_key, total_tokens)
+        if api_key:
+            await api_key_validator.update_usage(api_key, total_tokens)
         
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.info(
-            "✅ Streaming completion finished",
+            "Streaming completion finished",
             completion_id=completion_id,
             elapsed_ms=elapsed_ms
         )
@@ -515,26 +548,25 @@ async def stream_chat_completion(
 # ============================================
 
 @router.get("/v1/models")
-async def list_models(auth: dict = Depends(verify_api_key)):
+async def list_models(auth: dict = Depends(verify_auth)):
     """
     Lists the currently available models.
     
     Compatible con la API de OpenAI /v1/models.
     """
-    key_data = auth["key_data"]
+    key_data = auth.get("key_data")
     
     config = await config_loader.load_config()
     
-    # Filtrar modelos según permisos del key
-    permissions = key_data.get("permissions", {})
-    allowed_models = permissions.get("models", [])
-    
+    # Filter by permissions
     models = []
     for model in config.available_models:
-        # Si hay restricciones, filtrar
-        if allowed_models and model.id not in allowed_models:
-            continue
-        
+        if key_data:
+            if not api_key_validator.check_model_permission(key_data, model.id):
+                continue
+        elif auth.get("auth_type") == "oauth":
+            if not await oauth_validator.check_model_permission(model.id):
+                continue
         models.append(ModelInfo(
             id=model.id,
             created=int(time.time()),
@@ -542,26 +574,24 @@ async def list_models(auth: dict = Depends(verify_api_key)):
         ))
     
     logger.info(
-        "📋 Models list requested",
+        "Models list requested",
         models_count=len(models),
-        key_name=key_data.get("name")
+        auth_type=auth.get("auth_type"),
     )
     
     return ModelsListResponse(data=models)
 
 
 @router.get("/v1/models/{model_id}")
-async def get_model(model_id: str, auth: dict = Depends(verify_api_key)):
+async def get_model(model_id: str, auth: dict = Depends(verify_auth)):
     """
     Retrieves a model instance.
     
     Compatible con la API de OpenAI /v1/models/{model}.
     """
-    key_data = auth["key_data"]
+    key_data = auth.get("key_data")
     
     config = await config_loader.load_config()
-    
-    # Buscar modelo
     model_config = config_loader.get_model(model_id)
     
     if not model_config:
@@ -576,8 +606,13 @@ async def get_model(model_id: str, auth: dict = Depends(verify_api_key)):
             }
         )
     
-    # Verificar permiso
-    if not api_key_validator.check_model_permission(key_data, model_id):
+    model_allowed = True
+    if key_data:
+        model_allowed = api_key_validator.check_model_permission(key_data, model_id)
+    elif auth.get("auth_type") == "oauth":
+        model_allowed = await oauth_validator.check_model_permission(model_id)
+
+    if not model_allowed:
         raise HTTPException(
             status_code=403,
             detail={

@@ -30,3 +30,47 @@ INSERT INTO brain_settings (key, value, type, category, label, description) VALU
     'Máximo de caracteres que se pasan al LLM por cada resultado de herramienta. Aumenta para modelos con contexto grande (Claude, GPT-4o, Gemini). Reduce a 16000–32000 si usas modelos Ollama pequeños con contexto limitado.'
 )
 ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO brain_settings (key, value, type, category, label, description) VALUES
+(
+    'oauth_enabled',
+    'false'::jsonb,
+    'boolean',
+    'security',
+    'Activar autenticación OAuth / Microsoft Entra ID',
+    'Permite autenticar usuarios mediante tokens JWT de Microsoft Entra ID (Azure AD) además de API keys. Requiere configurar Tenant ID y Client ID.'
+)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO brain_settings (key, value, type, category, label, description) VALUES
+(
+    'oauth_azure_tenant_id',
+    '""'::jsonb,
+    'string',
+    'security',
+    'Azure AD Tenant ID',
+    'ID del tenant de Microsoft Entra ID. Se encuentra en Azure Portal > App Registrations > Overview. Formato: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO brain_settings (key, value, type, category, label, description) VALUES
+(
+    'oauth_azure_client_id',
+    '""'::jsonb,
+    'string',
+    'security',
+    'Azure AD Client ID (Application ID)',
+    'Application (client) ID del app registration en Entra ID. Se usa como audience para validar los JWT. Normalmente es el Client ID de OpenWebUI.'
+)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO brain_settings (key, value, type, category, label, description) VALUES
+(
+    'oauth_allowed_models',
+    '"*"'::jsonb,
+    'string',
+    'security',
+    'Modelos permitidos para usuarios OAuth',
+    'Lista de modelos accesibles por usuarios autenticados via OAuth. Usa * para todos, o una lista separada por comas: brain-adaptive, brain-creative. Se aplica a todos los usuarios OAuth.'
+)
+ON CONFLICT (key) DO NOTHING;
