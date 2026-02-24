@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS subagent_configs (
     id SERIAL PRIMARY KEY,
     agent_id VARCHAR(255) NOT NULL UNIQUE,  -- designer_agent, researcher_agent, etc.
     is_enabled BOOLEAN DEFAULT TRUE,
-    llm_provider_id INTEGER REFERENCES llm_providers(id) ON DELETE SET NULL,
+    llm_provider_id INTEGER REFERENCES brain_llm_providers(id) ON DELETE SET NULL,
     llm_model VARCHAR(255),  -- Override del modelo (NULL = usar default del provider)
     system_prompt TEXT,  -- Override del prompt del sistema
     settings JSONB,  -- Configuraciones adicionales del subagente
