@@ -4,13 +4,14 @@ Montado en /api/v1/tasks
 """
 
 from typing import Any, Optional, Dict
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.db.repositories.user_tasks import UserTaskRepository
 from src.db.repositories.user_task_results import UserTaskResultRepository
+from src.auth import get_current_user
 
-router = APIRouter(prefix="/tasks", tags=["Tasks"])
+router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
 
 class TaskCreate(BaseModel):

@@ -3,7 +3,7 @@ Config Router - Endpoints para configuración del sistema
 Accede directamente a PostgreSQL
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -18,8 +18,13 @@ from src.db.repositories import (
     BrainSettingsRepository,
 )
 from src.db.repositories.mcp_connections import MCPConnectionRepository
+from src.auth import require_role
 
-router = APIRouter(prefix="/config", tags=["Configuration"])
+router = APIRouter(
+    prefix="/config",
+    tags=["Configuration"],
+    dependencies=[Depends(require_role("admin"))],
+)
 
 
 # ===========================================

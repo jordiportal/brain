@@ -11,8 +11,9 @@ Endpoints (todos aceptan ?user_id para scoping per-user sandbox):
 
 import subprocess
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from src.auth import require_role
 from pathlib import Path
 from typing import Optional
 import mimetypes
@@ -170,13 +171,13 @@ async def list_recent_media(limit: int = 20, user_id: Optional[str] = Query(None
         return {"files": []}
 
 
-@router.get("/sandboxes")
+@router.get("/sandboxes", dependencies=[Depends(require_role("admin"))])
 async def list_sandboxes():
     """Lista todos los sandboxes de usuario (admin)."""
     return {"sandboxes": await sandbox_manager.list_sandboxes()}
 
 
-@router.delete("/sandboxes/{user_id:path}")
+@router.delete("/sandboxes/{user_id:path}", dependencies=[Depends(require_role("admin"))])
 async def remove_sandbox(user_id: str):
     """Elimina el sandbox de un usuario (admin)."""
     try:

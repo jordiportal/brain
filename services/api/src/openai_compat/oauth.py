@@ -153,7 +153,30 @@ class OAuthValidator:
             name=claims.name,
             oid=claims.oid[:8] + "..." if claims.oid else "",
         )
+
+        await self._ensure_brain_user(claims)
         return claims
+
+    @staticmethod
+    async def _ensure_brain_user(claims: "OAuthClaims") -> None:
+        """Auto-create a brain_users record for OAuth users on first login."""
+        try:
+            from ..db.repositories.users import UserRepository
+            existing = await UserRepository.get_by_email(claims.user_id)
+            if not existing:
+                import secrets
+                name_parts = claims.name.split(" ", 1) if claims.name else ["", ""]
+                await UserRepository.create({
+                    "email": claims.user_id,
+                    "password": f"$oauth${secrets.token_hex(16)}",
+                    "firstname": name_parts[0],
+                    "lastname": name_parts[1] if len(name_parts) > 1 else "",
+                    "role": "user",
+                    "is_active": True,
+                })
+                logger.info("Auto-created brain_user for OAuth user", email=claims.user_id)
+        except Exception as exc:
+            logger.warning("Could not auto-create brain_user", email=claims.user_id, error=str(exc))
 
     async def check_model_permission(self, model: str) -> bool:
         """Check if a model is allowed for OAuth users."""

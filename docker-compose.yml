@@ -72,6 +72,8 @@ services:
       - CODE_EXECUTION_MEMORY_LIMIT=512m
       - CODE_EXECUTION_CPU_LIMIT=1.0
       - DEBUG=${DEBUG:-true}
+      # Auth
+      - JWT_SECRET=${JWT_SECRET:-brain-secret-key-change-in-production}
       # Sandbox manager: env vars passed to per-user containers
       - PROXY_365_URL=${PROXY_365_URL:-http://host.docker.internal:3001}
       - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}

@@ -13,6 +13,7 @@ from .brain_settings import BrainSettingsRepository
 from .user_profiles import UserProfileRepository
 from .user_tasks import UserTaskRepository
 from .user_task_results import UserTaskResultRepository
+from .users import UserRepository
 
 __all__ = [
     "ChainRepository",
@@ -26,4 +27,5 @@ __all__ = [
     "UserProfileRepository",
     "UserTaskRepository",
     "UserTaskResultRepository",
+    "UserRepository",
 ]

@@ -3,12 +3,20 @@
 // ===========================================
 
 // Auth
+export type UserRole = 'admin' | 'user' | 'viewer';
+
 export interface User {
   id: number;
-  username: string;
   email: string;
+  username: string;
+  firstname?: string;
+  lastname?: string;
+  role: UserRole;
+  is_active: boolean;
   blocked: boolean;
   confirmed: boolean;
+  last_login_at?: string;
+  avatar_url?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +29,27 @@ export interface AuthResponse {
 export interface LoginCredentials {
   identifier: string;
   password: string;
+}
+
+export interface BrainUser {
+  id: number;
+  email: string;
+  firstname?: string;
+  lastname?: string;
+  role: UserRole;
+  is_active: boolean;
+  last_login_at?: string;
+  avatar_url?: string;
+  preferences?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RolePermission {
+  id: number;
+  role: string;
+  resource: string;
+  actions: string[];
 }
 
 // LLM Providers
@@ -168,6 +197,7 @@ export interface MenuItem {
   icon: string;
   route: string;
   children?: MenuItem[];
+  roles?: UserRole[];
 }
 
 // User Sandbox: perfiles y tareas programadas

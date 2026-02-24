@@ -1,32 +1,33 @@
 """
-Auth Router - Endpoints de autenticación para el GUI
-Autenticación directa con PostgreSQL
+Auth Router - Authentication endpoints for the GUI.
+Uses brain_users table with bcrypt password hashing.
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+import os
 from typing import Optional
-import hashlib
-import secrets
-import jwt
+
+import jwt as pyjwt
+import structlog
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel
 from datetime import datetime, timedelta
 
-from src.db import get_db
+from src.db.repositories.users import UserRepository
+from src.auth.dependencies import JWT_SECRET, JWT_ALGORITHM, get_current_user
+
+logger = structlog.get_logger()
 
 router = APIRouter(tags=["Authentication"])
 
-# Secret key para JWT (en producción debería estar en variables de entorno)
-JWT_SECRET = "brain-secret-key-change-in-production"
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24 * 7  # 7 días
+JWT_EXPIRATION_HOURS = int(os.environ.get("JWT_EXPIRATION_HOURS", "168"))  # 7 days
 
 
 # ===========================================
-# Request/Response Models
+# Models
 # ===========================================
 
 class LoginRequest(BaseModel):
-    identifier: str  # email o username
+    identifier: str
     password: str
 
 
@@ -35,61 +36,69 @@ class LoginResponse(BaseModel):
     user: dict
 
 
-class UserResponse(BaseModel):
+class UserMeResponse(BaseModel):
     id: int
-    username: str
     email: str
+    username: str
+    firstname: Optional[str] = None
+    lastname: Optional[str] = None
+    role: str
+    is_active: bool
     blocked: bool
     confirmed: bool
     createdAt: str
     updatedAt: str
 
 
+class ChangeMyPasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 # ===========================================
-# Funciones de utilidad
+# Helpers
 # ===========================================
 
-def hash_password(password: str, salt: str = "") -> str:
-    """Hash de password usando bcrypt-style (compatible con Strapi)"""
-    # Strapi usa bcrypt, pero para simplificar usamos sha256
-    # En producción deberías usar bcrypt
-    return hashlib.sha256((password + salt).encode()).hexdigest()
-
-
-def verify_strapi_password(password: str, stored_hash: str) -> bool:
-    """
-    Verifica password contra hash de Strapi/bcrypt.
-    Strapi usa bcrypt, vamos a intentar verificar.
-    """
+def _verify_password(plain: str, hashed: str) -> bool:
     try:
         import bcrypt
-        return bcrypt.checkpw(password.encode(), stored_hash.encode())
-    except ImportError:
-        # Si no hay bcrypt, intentar sha256
-        return hash_password(password) == stored_hash
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
     except Exception:
         return False
 
 
-def create_jwt_token(user_id: int, email: str) -> str:
-    """Crear token JWT"""
+def _hash_password(plain: str) -> str:
+    import bcrypt
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+
+
+def _create_token(user: dict) -> str:
     payload = {
-        "id": user_id,
-        "email": email,
+        "id": user["id"],
+        "email": user["email"],
+        "role": user.get("role", "user"),
+        "firstname": user.get("firstname", ""),
+        "lastname": user.get("lastname", ""),
         "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def decode_jwt_token(token: str) -> Optional[dict]:
-    """Decodificar token JWT"""
-    try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
+def _user_to_response(user: dict) -> dict:
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "username": user.get("firstname") or user["email"].split("@")[0],
+        "firstname": user.get("firstname"),
+        "lastname": user.get("lastname"),
+        "role": user.get("role", "user"),
+        "is_active": user.get("is_active", True),
+        "blocked": not user.get("is_active", True),
+        "confirmed": True,
+        "createdAt": user.get("created_at", datetime.utcnow().isoformat()),
+        "updatedAt": user.get("updated_at", datetime.utcnow().isoformat()),
+    }
 
 
 # ===========================================
@@ -98,101 +107,55 @@ def decode_jwt_token(token: str) -> Optional[dict]:
 
 @router.post("/api/auth/local", response_model=LoginResponse)
 async def login(request: LoginRequest):
-    """
-    Login de usuario - Compatible con Strapi API.
-    Busca en admin_users y up_users.
-    """
-    db = get_db()
-    
-    # Primero intentar en admin_users (administradores de Strapi)
-    admin_query = """
-        SELECT id, email, firstname, lastname, password, is_active
-        FROM admin_users 
-        WHERE email = $1
-    """
-    admin = await db.fetch_one(admin_query, request.identifier)
-    
-    if admin:
-        # Verificar password de admin
-        if verify_strapi_password(request.password, admin["password"]):
-            if not admin["is_active"]:
-                raise HTTPException(status_code=401, detail="Usuario desactivado")
-            
-            token = create_jwt_token(admin["id"], admin["email"])
-            return LoginResponse(
-                jwt=token,
-                user={
-                    "id": admin["id"],
-                    "username": admin["firstname"] or admin["email"].split("@")[0],
-                    "email": admin["email"],
-                    "blocked": not admin["is_active"],
-                    "confirmed": True,
-                    "createdAt": datetime.utcnow().isoformat(),
-                    "updatedAt": datetime.utcnow().isoformat()
-                }
-            )
-    
-    # Intentar en up_users (usuarios públicos)
-    user_query = """
-        SELECT id, username, email, password, confirmed, blocked
-        FROM up_users 
-        WHERE email = $1 OR username = $1
-    """
-    user = await db.fetch_one(user_query, request.identifier)
-    
-    if user:
-        if verify_strapi_password(request.password, user["password"]):
-            if user["blocked"]:
-                raise HTTPException(status_code=401, detail="Usuario bloqueado")
-            if not user["confirmed"]:
-                raise HTTPException(status_code=401, detail="Usuario no confirmado")
-            
-            token = create_jwt_token(user["id"], user["email"])
-            return LoginResponse(
-                jwt=token,
-                user={
-                    "id": user["id"],
-                    "username": user["username"],
-                    "email": user["email"],
-                    "blocked": user["blocked"],
-                    "confirmed": user["confirmed"],
-                    "createdAt": datetime.utcnow().isoformat(),
-                    "updatedAt": datetime.utcnow().isoformat()
-                }
-            )
-    
-    # Si llegamos aquí, credenciales inválidas
-    raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    """Login - searches brain_users by email. Returns JWT with role."""
+    user = await UserRepository.get_by_email(request.identifier)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    if not _verify_password(request.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Usuario desactivado")
+
+    await UserRepository.update_last_login(user["id"])
+
+    token = _create_token(user)
+    return LoginResponse(jwt=token, user=_user_to_response(user))
 
 
-@router.get("/api/users/me", response_model=UserResponse)
-async def get_current_user(authorization: str = None):
-    """
-    Obtener usuario actual por token JWT.
-    Compatible con Strapi API.
-    """
-    # En una implementación real, extraerías el token del header Authorization
-    # Por ahora, si hay token válido en localStorage, el GUI ya tiene el usuario
-    
-    # Devolver un usuario por defecto para que el GUI funcione
-    return UserResponse(
-        id=1,
-        username="Admin",
-        email="admin@brain.local",
-        blocked=False,
-        confirmed=True,
-        createdAt=datetime.utcnow().isoformat(),
-        updatedAt=datetime.utcnow().isoformat()
-    )
+@router.get("/api/users/me")
+async def get_me(current_user: dict = Depends(get_current_user)):
+    """Return the currently authenticated user's data from the DB."""
+    user = await UserRepository.get_by_id(current_user["id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return _user_to_response(user)
+
+
+@router.put("/api/users/me/password")
+async def change_my_password(
+    body: ChangeMyPasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Allow the current user to change their own password."""
+    user = await UserRepository.get_by_id(current_user["id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    if not _verify_password(body.current_password, user["password"]):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+
+    hashed = _hash_password(body.new_password)
+    await UserRepository.change_password(user["id"], hashed)
+    return {"message": "Contraseña actualizada"}
 
 
 @router.post("/api/auth/local/register")
-async def register(username: str, email: str, password: str):
-    """
-    Registro de nuevo usuario.
-    Por ahora deshabilitado - solo administradores pueden crear usuarios.
-    """
+async def register():
+    """Registration is disabled. Only admins can create users."""
     raise HTTPException(
-        status_code=403, 
-        detail="El registro de usuarios está deshabilitado. Contacte al administrador."
+        status_code=403,
+        detail="El registro de usuarios está deshabilitado. Contacte al administrador.",
     )

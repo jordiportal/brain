@@ -53,7 +53,7 @@ import { ArtifactService, Artifact } from '../core/services/artifact.service';
 
         <!-- Menu Items - Icon Only -->
         <mat-nav-list class="icon-only-menu">
-          @for (item of menuItems; track item.route) {
+          @for (item of menuItems(); track item.route) {
             <a mat-list-item 
                [routerLink]="item.route" 
                routerLinkActive="active"
@@ -113,11 +113,17 @@ import { ArtifactService, Artifact } from '../core/services/artifact.service';
               <span class="material-icons" style="margin-right: 8px;">email</span>
               <span>{{ currentUser()?.email }}</span>
             </button>
-            <mat-divider></mat-divider>
-            <button mat-menu-item routerLink="/settings">
-              <span class="material-icons" style="margin-right: 8px;">settings</span>
-              <span>Configuración</span>
+            <button mat-menu-item disabled>
+              <span class="material-icons" style="margin-right: 8px;">badge</span>
+              <span style="text-transform: capitalize;">{{ currentUser()?.role }}</span>
             </button>
+            <mat-divider></mat-divider>
+            @if (authService.isAdmin()) {
+              <button mat-menu-item routerLink="/settings">
+                <span class="material-icons" style="margin-right: 8px;">settings</span>
+                <span>Configuración</span>
+              </button>
+            }
             <button mat-menu-item (click)="logout()">
               <span class="material-icons" style="margin-right: 8px;">logout</span>
               <span>Cerrar Sesión</span>
@@ -456,23 +462,31 @@ export class MainLayoutComponent {
 
   currentUser = computed(() => this.authService.currentUser());
 
-  menuItems: MenuItem[] = [
+  private allMenuItems: MenuItem[] = [
     { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
     { label: 'Asistentes', icon: 'account_tree', route: '/chains' },
     { label: 'Agentes', icon: 'smart_toy', route: '/subagents' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
-    { label: 'API Externa', icon: 'api', route: '/external-api' },
+    { label: 'API Externa', icon: 'api', route: '/external-api', roles: ['admin'] },
     { label: 'Artefactos', icon: 'folder_special', route: '/artifacts' },
-    { label: 'Testing LLM', icon: 'science', route: '/testing' },
+    { label: 'Testing LLM', icon: 'science', route: '/testing', roles: ['admin', 'user'] },
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
     { label: 'RAG / Documentos', icon: 'description', route: '/rag' },
-    { label: 'Sandboxes', icon: 'dns', route: '/sandboxes' },
-    { label: 'Configuración', icon: 'settings', route: '/settings' },
-    { label: 'Mi Perfil', icon: 'person', route: '/profile' },
+    { label: 'Sandboxes', icon: 'dns', route: '/sandboxes', roles: ['admin'] },
+    { label: 'Usuarios', icon: 'group', route: '/users', roles: ['admin'] },
+    { label: 'Configuración', icon: 'settings', route: '/settings', roles: ['admin'] },
+    { label: 'Mi Perfil', icon: 'person', route: '/profile', roles: ['admin', 'user'] },
   ];
 
+  menuItems = computed(() => {
+    const role = this.authService.userRole();
+    return this.allMenuItems.filter(item =>
+      !item.roles || item.roles.includes(role)
+    );
+  });
+
   constructor(
-    private authService: AuthService,
+    public authService: AuthService,
     private router: Router,
     private artifactService: ArtifactService
   ) {

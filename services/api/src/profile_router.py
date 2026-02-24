@@ -4,13 +4,14 @@ Montado en /api/v1/profile
 """
 
 from typing import Any, Optional, Dict
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.db.repositories.user_profiles import UserProfileRepository
 from src.db.repositories.user_task_results import UserTaskResultRepository
+from src.auth import get_current_user
 
-router = APIRouter(prefix="/profile", tags=["Profile"])
+router = APIRouter(prefix="/profile", tags=["Profile"], dependencies=[Depends(get_current_user)])
 
 
 class ProfileUpdate(BaseModel):

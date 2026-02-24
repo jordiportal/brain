@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard, publicGuard } from './core/guards/auth.guard';
+import { roleGuard } from './core/guards/role.guard';
 
 export const routes: Routes = [
   // Public routes
@@ -34,6 +35,7 @@ export const routes: Routes = [
       },
       {
         path: 'settings',
+        canActivate: [roleGuard('admin')],
         loadComponent: () => import('./features/settings/settings.component').then(m => m.SettingsComponent)
       },
       {
@@ -42,6 +44,7 @@ export const routes: Routes = [
       },
       {
         path: 'testing',
+        canActivate: [roleGuard('admin', 'user')],
         loadComponent: () => import('./features/testing/testing.component').then(m => m.TestingComponent)
       },
       {
@@ -54,6 +57,7 @@ export const routes: Routes = [
       },
       {
         path: 'external-api',
+        canActivate: [roleGuard('admin')],
         loadComponent: () => import('./features/external-api/external-api.component').then(m => m.ExternalApiComponent)
       },
       {
@@ -62,11 +66,18 @@ export const routes: Routes = [
       },
       {
         path: 'profile',
+        canActivate: [roleGuard('admin', 'user')],
         loadComponent: () => import('./features/profile/profile.component').then(m => m.ProfileComponent)
       },
       {
         path: 'sandboxes',
+        canActivate: [roleGuard('admin')],
         loadComponent: () => import('./features/sandboxes/sandboxes.component').then(m => m.SandboxesComponent)
+      },
+      {
+        path: 'users',
+        canActivate: [roleGuard('admin')],
+        loadComponent: () => import('./features/users/users.component').then(m => m.UsersComponent)
       }
     ]
   },
