@@ -180,6 +180,8 @@ CREATE TABLE IF NOT EXISTS code_executions_brain_chain_lnk (
 );
 
 -- RAG Chunks (used by vectorstore)
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS rag_chunks (
     id SERIAL PRIMARY KEY,
     collection VARCHAR(255) NOT NULL,
