@@ -1,0 +1,57 @@
+# ===========================================
+# Brain API - Production (layered for registry compatibility)
+# ===========================================
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# System dependencies + Docker CLI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev curl ca-certificates gnupg \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip
+
+# Layer 1: PyTorch CPU-only (biggest dep, ~800MB instead of 2GB+)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Layer 2: ML/Embeddings
+RUN pip install --no-cache-dir sentence-transformers==2.5.1
+
+# Layer 3: LangChain ecosystem
+RUN pip install --no-cache-dir \
+    langchain>=0.1.9 \
+    langchain-community>=0.0.24 \
+    langchain-core>=0.1.27 \
+    langgraph>=0.0.32 \
+    langchain-postgres>=0.0.2
+
+# Layer 4: RAG / Document processing
+RUN pip install --no-cache-dir \
+    unstructured==0.12.4 \
+    pypdf==4.0.1 \
+    python-docx==1.1.0 \
+    tiktoken==0.6.0
+
+# Layer 5: Core deps (small)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

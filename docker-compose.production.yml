@@ -1,7 +1,9 @@
 # ===========================================
-# Brain - Production Deployment
-# Portainer Stack: brain-stack
-# Acceso directo a PostgreSQL (sin Strapi)
+# Brain Stack - Production (Portainer)
+# Registry: registry.khlloreda.es
+# ===========================================
+# Deploy: Portainer > Stacks > Add Stack > paste this file
+# Required: .env file with secrets (see bottom for template)
 # ===========================================
 
 services:
@@ -9,26 +11,25 @@ services:
   # PostgreSQL con pgvector
   # ===========================================
   postgres:
-    image: pgvector/pgvector:pg16
+    image: registry.khlloreda.es/brain-postgres:latest
     container_name: brain-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-brain}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brain_secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-brain_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d:ro
-    networks:
-      - brain-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-brain} -d ${POSTGRES_DB:-brain_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - brain-network
 
   # ===========================================
-  # Redis - Cache
+  # Redis
   # ===========================================
   redis:
     image: redis:7-alpine
@@ -37,90 +38,156 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    networks:
-      - brain-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - brain-network
 
   # ===========================================
-  # API Python - LangChain/LangGraph
-  # Acceso directo a PostgreSQL
+  # Brain API
   # ===========================================
   api:
-    build:
-      context: ./services/api
-      dockerfile: Dockerfile
-    image: brain-api:v1.0.0
+    image: registry.khlloreda.es/brain-api:latest
     container_name: brain-api
     restart: unless-stopped
     environment:
-      DEBUG: "false"
-      DATABASE_HOST: postgres
-      DATABASE_PORT: 5432
-      DATABASE_NAME: ${POSTGRES_DB:-brain_db}
-      DATABASE_USER: ${POSTGRES_USER:-brain}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-brain_secret}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD:-brain_secret}@postgres:5432/${POSTGRES_DB:-brain_db}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_URL: redis://redis:6379
-      BROWSER_VNC_HOST: browser-service
-      BROWSER_VNC_PORT: 6080
-      MCP_PLAYWRIGHT_URL: http://mcp-playwright:3001
-    ports:
-      - "8001:8000"
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=${POSTGRES_DB:-brain_db}
+      - DATABASE_USER=${POSTGRES_USER:-brain}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brain_db}
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - BROWSER_VNC_HOST=browser
+      - BROWSER_CDP_PORT=9222
+      - BROWSER_HEADLESS=true
+      - CODE_EXECUTION_TIMEOUT=30
+      - CODE_EXECUTION_MEMORY_LIMIT=512m
+      - CODE_EXECUTION_CPU_LIMIT=1.0
+      - DEBUG=${DEBUG:-false}
+      # Sandbox manager
+      - PROXY_365_URL=http://proxy-365:3000
+      - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}
+      - BRAIN_API_KEY=${BRAIN_API_KEY:-}
+      - SANDBOX_IMAGE=registry.khlloreda.es/brain-persistent-runner:latest
+      - SANDBOX_NETWORK=brain-network
+      - SANDBOX_WORKSPACE_BASE=${SANDBOX_WORKSPACE_BASE:-/opt/brain/workspace/users}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - workspace_shared:/workspace
+    ports:
+      - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      browser:
+        condition: service_healthy
     networks:
       - brain-network
-    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ===========================================
-  # Browser Service - Chrome con VNC
+  # Browser Service
   # ===========================================
-  browser-service:
-    build:
-      context: ./services/browser-service
-      dockerfile: Dockerfile
-    image: brain-browser-service:v1.0.0
-    container_name: brain-browser-service
+  browser:
+    image: registry.khlloreda.es/brain-browser:latest
+    container_name: brain-browser
+    restart: unless-stopped
+    ports:
+      - "${BROWSER_VNC_PORT:-6080}:6080"
+      - "${BROWSER_CDP_PORT:-9223}:9223"
+    networks:
+      - brain-network
+    ipc: host
+    security_opt:
+      - seccomp=unconfined
+    shm_size: '2gb'
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================
+  # Persistent Runner (shared fallback + image ref)
+  # ===========================================
+  persistent-runner:
+    image: registry.khlloreda.es/brain-persistent-runner:latest
+    container_name: brain-persistent-runner
     restart: unless-stopped
     environment:
-      DISPLAY_WIDTH: 1920
-      DISPLAY_HEIGHT: 1080
-      VNC_PASSWORD: ""
-    ports:
-      - "6080:6080"
-      - "9222:9222"
+      - WORKSPACE=/workspace
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brain_db}
+      - REDIS_URL=redis://redis:6379
+      - API_URL=http://api:8000
+      - PROXY_365_URL=http://proxy-365:3000
+      - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}
+      - BRAIN_API_KEY=${BRAIN_API_KEY:-}
+    volumes:
+      - workspace_shared:/workspace
     networks:
       - brain-network
-    shm_size: 2gb
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ===========================================
-  # GUI - Angular Frontend
+  # Angular GUI (nginx production)
   # ===========================================
   gui:
-    build:
-      context: ./services/gui
-      dockerfile: Dockerfile
-      target: production
-    image: brain-gui:v1.0.0
+    image: registry.khlloreda.es/brain-gui:latest
     container_name: brain-gui
     restart: unless-stopped
-    environment:
-      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://192.168.7.102:8000}
     ports:
-      - "4200:80"
+      - "${GUI_PORT:-4200}:80"
     depends_on:
       - api
+    networks:
+      - brain-network
+
+  # ===========================================
+  # Proxy 365 - Microsoft Graph Gateway
+  # ===========================================
+  proxy-365:
+    image: registry.khlloreda.es/brain-proxy-365:latest
+    container_name: brain-proxy-365
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - CONFIG_DATA_DIR=/app/data
+      - API_KEY=${PROXY_365_API_KEY:-}
+    volumes:
+      - proxy365_data:/app/data
+    ports:
+      - "${PROXY_365_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); });"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - brain-network
 
@@ -129,13 +196,29 @@ services:
 # ===========================================
 volumes:
   postgres_data:
-    driver: local
+    name: brain-postgres-data
   redis_data:
-    driver: local
+    name: brain-redis-data
+  workspace_shared:
+    name: brain-workspace-shared
+  proxy365_data:
+    name: brain-proxy365-data
 
 # ===========================================
-# Networks
+# Network
 # ===========================================
 networks:
   brain-network:
+    name: brain-network
     driver: bridge
+
+# ===========================================
+# .env template (create alongside this file):
+# -------------------------------------------
+# POSTGRES_PASSWORD=<strong-password>
+# PROXY_365_API_KEY=<proxy-365-api-key>
+# BRAIN_API_KEY=<brain-api-key>
+# OLLAMA_BASE_URL=http://host.docker.internal:11434
+# SANDBOX_WORKSPACE_BASE=/opt/brain/workspace/users
+# DEBUG=false
+# ===========================================
