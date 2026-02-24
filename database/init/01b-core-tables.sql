@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS brain_chains (
 CREATE TABLE IF NOT EXISTS brain_chains_llm_provider_lnk (
     id SERIAL PRIMARY KEY,
     brain_chain_id INTEGER REFERENCES brain_chains(id) ON DELETE CASCADE,
-    brain_llm_provider_id INTEGER REFERENCES brain_llm_providers(id) ON DELETE CASCADE
+    llm_provider_id INTEGER REFERENCES brain_llm_providers(id) ON DELETE CASCADE
 );
 
 -- API Keys
@@ -178,6 +178,20 @@ CREATE TABLE IF NOT EXISTS code_executions_brain_chain_lnk (
     code_execution_id INTEGER REFERENCES code_executions(id) ON DELETE CASCADE,
     brain_chain_id INTEGER REFERENCES brain_chains(id) ON DELETE CASCADE
 );
+
+-- RAG Chunks (used by vectorstore)
+CREATE TABLE IF NOT EXISTS rag_chunks (
+    id SERIAL PRIMARY KEY,
+    collection VARCHAR(255) NOT NULL,
+    document_id VARCHAR(255),
+    content TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    embedding vector(4096),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS rag_chunks_collection_idx ON rag_chunks(collection);
+CREATE INDEX IF NOT EXISTS rag_chunks_document_idx ON rag_chunks(document_id);
 
 DO $$ BEGIN
     RAISE NOTICE 'Core tables created successfully';
