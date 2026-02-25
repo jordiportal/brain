@@ -26,6 +26,26 @@ from ...context_injector import apply_user_context
 logger = structlog.get_logger()
 
 
+def _inject_dynamic_subagents(prompt: str, subagents_section: str) -> str:
+    """Replace hardcoded subagents table in the system prompt with the dynamic one from registry."""
+    import re
+    # Pattern: match the "## Subagentes Especializados" block (or similar) until next ## or # section
+    pattern = r'##\s*[Ss]ubagentes?\s+[Ee]specializados.*?(?=\n#[# ]|\Z)'
+    if re.search(pattern, prompt, re.DOTALL):
+        return re.sub(pattern, subagents_section.strip(), prompt, flags=re.DOTALL)
+
+    # Also try the table-only pattern with designer_agent/researcher_agent
+    table_pattern = r'\|\s*Agente\s*\|\s*Rol\s*\|.*?(?=\n###|\n##|\n#[^#]|\Z)'
+    if re.search(table_pattern, prompt, re.DOTALL):
+        return re.sub(table_pattern, subagents_section.strip(), prompt, flags=re.DOTALL)
+
+    # Fallback: append before "# FLUJO" or at the end
+    flujo_marker = "\n# FLUJO"
+    if flujo_marker in prompt:
+        return prompt.replace(flujo_marker, f"\n\n{subagents_section}\n{flujo_marker}")
+    return prompt + f"\n\n{subagents_section}"
+
+
 # ============================================
 # Builder Principal
 # ============================================
@@ -115,6 +135,11 @@ async def build_adaptive_agent(
     system_prompt = config.system_prompt or ""
     if not system_prompt:
         logger.warning("⚠️ No system prompt in config, using empty")
+
+    from .prompts.base import get_subagents_section
+    dynamic_subagents = get_subagents_section()
+    if dynamic_subagents:
+        system_prompt = _inject_dynamic_subagents(system_prompt, dynamic_subagents)
 
     tool_registry.register_core_tools()
     tools = tool_registry.get_tools_for_llm(tool_registry.ADAPTIVE_TOOL_IDS)

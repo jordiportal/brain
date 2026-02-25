@@ -725,9 +725,9 @@ def _get_agent_ids() -> list:
         from src.engine.chains.agents import subagent_registry
         if subagent_registry.is_initialized():
             return subagent_registry.list_ids()
-        return ["designer_agent", "researcher_agent", "communication_agent"]
     except Exception:
-        return ["designer_agent", "researcher_agent", "communication_agent"]
+        pass
+    return []
 
 
 def get_agent_info_tool() -> dict:

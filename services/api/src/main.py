@@ -105,17 +105,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"No se pudieron cargar asistentes desde BD: {e}")
 
-    # Cargar herramientas built-in (core tools)
-    tool_registry.register_builtin_tools()
-    logger.info("Herramientas built-in registradas")
-    
-    # Registrar subagentes especializados
+    # Registrar subagentes especializados (ANTES de core tools para que el enum de delegate sea dinámico)
     try:
         from src.engine.chains.agents import register_all_subagents
         await register_all_subagents()
         logger.info("Subagentes especializados registrados")
     except Exception as e:
         logger.warning(f"No se pudieron registrar subagentes: {e}")
+
+    # Cargar herramientas built-in (core tools) - después de subagentes para que delegate tenga el enum correcto
+    tool_registry.register_builtin_tools()
+    logger.info("Herramientas built-in registradas")
     
     # Cargar herramientas OpenAPI desde BD
     try:

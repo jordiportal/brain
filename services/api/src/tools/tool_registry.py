@@ -118,6 +118,31 @@ class ToolRegistry:
             return [t for t in self.tools.values() if t.type == tool_type]
         return list(self.tools.values())
     
+    _DELEGATION_TOOL_IDS = {"delegate", "get_agent_info", "parallel_delegate", "consult_team_member"}
+
+    def _refresh_delegation_enums(self) -> None:
+        """Update the 'agent' enum in delegation tools from the live subagent registry."""
+        try:
+            from src.engine.chains.agents.base import subagent_registry
+            if not subagent_registry.is_initialized():
+                return
+            ids = subagent_registry.list_ids()
+            if not ids:
+                return
+            for tid in self._DELEGATION_TOOL_IDS:
+                tool = self.tools.get(tid)
+                if not tool:
+                    continue
+                props = tool.parameters.get("properties", {})
+                if "agent" in props:
+                    props["agent"]["enum"] = ids
+                tasks_items = (props.get("tasks", {}).get("items", {})
+                               .get("properties", {}).get("agent"))
+                if tasks_items:
+                    tasks_items["enum"] = ids
+        except Exception:
+            pass
+
     def get_tools_for_llm(self, tool_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Obtiene las herramientas en formato para el LLM.
@@ -128,6 +153,8 @@ class ToolRegistry:
         Returns:
             Lista de schemas de función en formato OpenAI
         """
+        self._refresh_delegation_enums()
+
         if tool_ids:
             tools = [self.tools[tid] for tid in tool_ids if tid in self.tools]
         else:

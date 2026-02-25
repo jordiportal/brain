@@ -36,27 +36,18 @@ El ID (ej: @img_abc123 o img_abc123) es el identificador del artefacto. Usa el t
 
 ## Subagentes Especializados
 
-Para tareas de dominio específico, usa subagentes con rol profesional:
-
-| Agente | Rol |
-|--------|-----|
-| designer_agent | Diseñador visual (imágenes y presentaciones) |
-| researcher_agent | Investigación y búsqueda web |
+Para tareas de dominio específico, delega a subagentes especializados.
+Los subagentes disponibles se configuran dinámicamente desde la base de datos.
 
 ### Cómo usar subagentes
 
-1. get_agent_info(agent) para conocer su rol
-2. delegate(agent, task, context?) para ejecutar
-4. finish con el resultado
+1. `get_agent_info(agent)` para conocer su rol y capacidades
+2. `delegate(agent, task, context?)` para ejecutar la tarea
+3. `finish` con el resultado
 
-### Ejemplo para presentaciones
+### Paralelización
 
-1. get_agent_info(designer_agent)
-2. Si necesitas datos actuales: delegate(researcher_agent, "Buscar info sobre X") primero
-3. delegate(designer_agent, "Crea presentación sobre X. Incluye imágenes ilustrativas generadas con IA.", context=datos_researcher)
-4. finish
-
-Cuando pidas presentaciones al designer, indica que incorpore imágenes generadas con IA para mayor impacto.
+Si necesitas múltiples agentes independientes, usa `parallel_delegate` para ejecutar en paralelo.
 
 Los subagentes son expertos en su dominio. Aprovecha su criterio consultándolos.
 
