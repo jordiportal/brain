@@ -44,10 +44,15 @@ import { RolesTabComponent } from './roles-tab.component';
     RolesTabComponent,
   ],
   template: `
-    <div class="users-container">
+    <div class="admin-page">
       <div class="page-header">
-        <h1>Gestión de Usuarios</h1>
-        <p class="subtitle">Administra usuarios, roles y permisos del sistema</p>
+        <div class="header-title">
+          <mat-icon>people</mat-icon>
+          <div>
+            <h1>Gestión de Usuarios</h1>
+            <p class="subtitle">Administra usuarios, roles y permisos del sistema</p>
+          </div>
+        </div>
       </div>
 
       @if (loading()) {
@@ -64,9 +69,9 @@ import { RolesTabComponent } from './roles-tab.component';
             </mat-card-content>
           </mat-card>
         }
-        <mat-card class="stat-card total">
+        <mat-card class="stat-card">
           <mat-card-content>
-            <div class="stat-value">{{ totalUsers() }}</div>
+            <div class="stat-value stat-value-purple">{{ totalUsers() }}</div>
             <div class="stat-label">Total</div>
           </mat-card-content>
         </mat-card>
@@ -89,7 +94,7 @@ import { RolesTabComponent } from './roles-tab.component';
               </button>
             </div>
 
-            <table mat-table [dataSource]="users()" class="users-table">
+            <table mat-table [dataSource]="users()" class="data-table">
               <ng-container matColumnDef="id">
                 <th mat-header-cell *matHeaderCellDef>ID</th>
                 <td mat-cell *matCellDef="let u">{{ u.id }}</td>
@@ -98,7 +103,7 @@ import { RolesTabComponent } from './roles-tab.component';
               <ng-container matColumnDef="email">
                 <th mat-header-cell *matHeaderCellDef>Email</th>
                 <td mat-cell *matCellDef="let u">
-                  <div class="user-email-cell">
+                  <div class="user-cell">
                     <mat-icon class="user-avatar">account_circle</mat-icon>
                     <div>
                       <div class="user-name">{{ u.firstname || '' }} {{ u.lastname || '' }}</div>
@@ -172,116 +177,7 @@ import { RolesTabComponent } from './roles-tab.component';
     </div>
   `,
   styles: [`
-    .users-container {
-      padding: 24px;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    .page-header h1 {
-      margin: 0;
-      font-size: 28px;
-      font-weight: 500;
-    }
-    .subtitle {
-      color: rgba(255,255,255,0.5);
-      margin: 4px 0 20px;
-    }
-    .stats-row {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-    }
-    .stat-card {
-      flex: 1;
-      min-width: 120px;
-      background: #1e1e2e !important;
-      text-align: center;
-    }
-    .stat-card.total {
-      background: #2d2d44 !important;
-    }
-    .stat-value {
-      font-size: 32px;
-      font-weight: 700;
-      color: #7c4dff;
-    }
-    .stat-label {
-      color: rgba(255,255,255,0.6);
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .tab-content {
-      padding: 20px 0;
-    }
-    .actions-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .users-table {
-      width: 100%;
-      background: transparent !important;
-    }
-    .user-email-cell {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .user-avatar {
-      font-size: 36px;
-      width: 36px;
-      height: 36px;
-      color: rgba(255,255,255,0.3);
-    }
-    .user-name {
-      font-weight: 500;
-    }
-    .user-email {
-      font-size: 12px;
-      color: rgba(255,255,255,0.5);
-    }
-    .role-chip {
-      padding: 4px 12px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .role-admin {
-      background: rgba(124, 77, 255, 0.2);
-      color: #b388ff;
-    }
-    .role-user {
-      background: rgba(0, 200, 83, 0.15);
-      color: #69f0ae;
-    }
-    .role-viewer {
-      background: rgba(255, 171, 0, 0.15);
-      color: #ffd740;
-    }
-    .status-chip {
-      padding: 3px 10px;
-      border-radius: 10px;
-      font-size: 12px;
-    }
-    .status-chip.active {
-      background: rgba(0, 200, 83, 0.15);
-      color: #69f0ae;
-    }
-    .status-chip.inactive {
-      background: rgba(255, 82, 82, 0.15);
-      color: #ff5252;
-    }
-    .delete-action {
-      color: #ff5252 !important;
-    }
-    ::ng-deep .mat-mdc-tab-body-wrapper {
-      padding-top: 8px;
-    }
+    .stat-card { flex: 1; min-width: 120px; }
   `]
 })
 export class UsersComponent implements OnInit {

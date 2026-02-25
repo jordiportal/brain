@@ -208,25 +208,38 @@ class ToolRegistry:
         Filtra los parámetros para incluir solo los definidos en el schema.
         
         Esto previene errores cuando el LLM inventa parámetros que no existen.
-        NOTA: Los parámetros que empiezan con _ son internos del sistema y siempre se pasan.
+        Parámetros internos (_prefixed) solo se pasan si la función los acepta
+        (tiene **kwargs o el parámetro explícito en su firma).
         """
-        # Obtener propiedades válidas del schema
+        import inspect
+        
         valid_props = set()
         if tool.parameters and "properties" in tool.parameters:
             valid_props = set(tool.parameters["properties"].keys())
         
         if not valid_props:
-            # Si no hay schema definido, pasar todos los kwargs
             return kwargs
         
-        # Filtrar solo parámetros válidos
+        handler_accepts_var_keyword = False
+        handler_params = set()
+        if tool.handler:
+            try:
+                sig = inspect.signature(tool.handler)
+                handler_params = set(sig.parameters.keys())
+                handler_accepts_var_keyword = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                )
+            except (ValueError, TypeError):
+                pass
+        
         filtered = {}
         invalid = []
         
         for key, value in kwargs.items():
-            # Parámetros internos (con _) siempre se pasan
             if key.startswith("_"):
-                filtered[key] = value
+                if handler_accepts_var_keyword or key in handler_params:
+                    filtered[key] = value
             elif key in valid_props:
                 filtered[key] = value
             else:

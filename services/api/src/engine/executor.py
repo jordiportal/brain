@@ -122,7 +122,8 @@ class ChainExecutor:
         self,
         chain_id: str,
         request: ChainInvokeRequest,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> ExecutionResult:
         """Ejecutar una cadena y devolver el resultado"""
         
@@ -188,7 +189,8 @@ class ChainExecutor:
                 execution_state=execution_state,
                 stream=False,
                 provider_type=request.llm_provider_type,
-                api_key=request.api_key
+                api_key=request.api_key,
+                user_id=user_id,
             ):
                 # El resultado viene como un dict con _result
                 if isinstance(event, dict) and "_result" in event:
@@ -257,7 +259,8 @@ class ChainExecutor:
         self,
         chain_id: str,
         request: ChainInvokeRequest,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Ejecutar una cadena con streaming de eventos"""
         
@@ -334,7 +337,8 @@ class ChainExecutor:
                 stream=True,
                 provider_type=request.llm_provider_type,
                 api_key=request.api_key,
-                emit_brain_events=request.emit_brain_events
+                emit_brain_events=request.emit_brain_events,
+                user_id=user_id,
             ):
                 # El builder puede devolver StreamEvent o dict
                 if isinstance(event, dict):

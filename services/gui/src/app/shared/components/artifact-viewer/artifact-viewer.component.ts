@@ -324,6 +324,7 @@ import { SpreadsheetViewerComponent } from './spreadsheet-viewer.component';
 })
 export class ArtifactViewerComponent implements OnInit {
   @Input() artifact?: Artifact;
+  @Input() contentOverrideUrl?: string;
   @Output() closed = new EventEmitter<void>();
   @Output() downloadRequested = new EventEmitter<Artifact>();
 
@@ -350,26 +351,19 @@ export class ArtifactViewerComponent implements OnInit {
     this.loading = true;
     console.log('[ArtifactViewer] Loading artifact:', this.artifact.artifact_id, 'type:', this.artifact.type);
 
-    // Para imágenes y videos, usar URL directa
+    const overrideUrl = this.contentOverrideUrl;
+
     if (this.artifact.type === 'image' || this.artifact.type === 'video') {
-      this.contentUrl = this.artifactService.getContentUrl(this.artifact.artifact_id);
+      this.contentUrl = overrideUrl || this.artifactService.getContentUrl(this.artifact.artifact_id);
       this.loading = false;
-    }
-    // Para HTML/presentaciones, usar viewer sandboxed
-    else if (this.artifact.type === 'html' || this.artifact.type === 'presentation') {
-      const viewerUrl = this.artifactService.getViewerUrl(this.artifact.artifact_id);
+    } else if (this.artifact.type === 'html' || this.artifact.type === 'presentation') {
+      const viewerUrl = overrideUrl || this.artifactService.getViewerUrl(this.artifact.artifact_id);
       this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(viewerUrl);
       this.loading = false;
-    }
-    // Para spreadsheets, usar componente nativo Syncfusion
-    else if (this.artifact.type === 'spreadsheet') {
-      console.log('[ArtifactViewer] Loading spreadsheet:', this.artifact.artifact_id);
-      this.contentUrl = this.artifactService.getContentUrl(this.artifact.artifact_id);
+    } else if (this.artifact.type === 'spreadsheet') {
+      this.contentUrl = overrideUrl || this.artifactService.getContentUrl(this.artifact.artifact_id);
       this.loading = false;
-      console.log('[ArtifactViewer] Spreadsheet viewer should render now, loading:', this.loading);
-    }
-    // Para otros, no hay preview directa
-    else {
+    } else {
       this.loading = false;
     }
   }

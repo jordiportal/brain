@@ -113,12 +113,12 @@ async def delegate(
     agent: str,
     task: str,
     context: Optional[str] = None,
-    # Contexto LLM heredado del Adaptive Agent
     _llm_url: Optional[str] = None,
     _model: Optional[str] = None,
     _provider_type: Optional[str] = None,
     _api_key: Optional[str] = None,
     _session_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Delega una tarea a un subagente especializado.
@@ -234,6 +234,7 @@ async def delegate(
             api_key=llm_config["api_key"],
             agent_context=agent_context,
             emit_brain_events=False,
+            user_id=_user_id,
         )
         
         tools_used = [tr["tool"] for tr in loop_result.tool_results]
@@ -319,7 +320,8 @@ async def consult_team_member(
     _llm_url: Optional[str] = None,
     _model: Optional[str] = None,
     _provider_type: Optional[str] = None,
-    _api_key: Optional[str] = None
+    _api_key: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Consulta a un miembro del equipo para obtener su opinión o propuesta (sin ejecutar la tarea completa).
@@ -470,7 +472,8 @@ async def parallel_delegate(
     _model: Optional[str] = None,
     _provider_type: Optional[str] = None,
     _api_key: Optional[str] = None,
-    _execution_id: Optional[str] = None
+    _execution_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Delega múltiples tareas a subagentes en paralelo.

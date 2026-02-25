@@ -173,8 +173,42 @@ async def list_recent_media(limit: int = 20, user_id: Optional[str] = Query(None
 
 @router.get("/sandboxes", dependencies=[Depends(require_role("admin"))])
 async def list_sandboxes():
-    """Lista todos los sandboxes de usuario (admin)."""
-    return {"sandboxes": await sandbox_manager.list_sandboxes()}
+    """Lista sandboxes con datos de brain_users cruzados."""
+    from src.db import get_db
+    db = get_db()
+
+    sandboxes = await sandbox_manager.list_sandboxes()
+
+    users = await db.fetch_all(
+        "SELECT id, email, firstname, lastname, role, is_active FROM brain_users ORDER BY id"
+    )
+    users_by_email = {u["email"]: dict(u) for u in users}
+
+    for s in sandboxes:
+        u = users_by_email.get(s["user_id"])
+        s["user_info"] = u
+
+    users_without_sandbox = []
+    sandbox_user_ids = {s["user_id"] for s in sandboxes}
+    for u in users:
+        if u["email"] not in sandbox_user_ids:
+            users_without_sandbox.append(dict(u))
+
+    return {
+        "sandboxes": sandboxes,
+        "users_without_sandbox": users_without_sandbox,
+    }
+
+
+@router.post("/sandboxes/{user_id:path}", dependencies=[Depends(require_role("admin"))])
+async def create_sandbox(user_id: str):
+    """Crea un sandbox para un usuario (admin)."""
+    try:
+        await sandbox_manager.get_or_create(user_id)
+        return {"status": "ok", "message": f"Sandbox de {user_id} creado"}
+    except Exception as e:
+        logger.error("Error creating sandbox", user=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/sandboxes/{user_id:path}", dependencies=[Depends(require_role("admin"))])

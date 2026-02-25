@@ -15,16 +15,16 @@ from src.db.repositories.user_task_results import UserTaskResultRepository
 
 logger = structlog.get_logger()
 
-DEFAULT_USER_ID = "jordip@khlloreda.com"
-
 VALID_TASK_TYPES = ["mail_digest", "calendar_briefing"]
 
 
 # ── Handlers ─────────────────────────────────────────────────────
 
-async def user_tasks_list(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def user_tasks_list(user_id: Optional[str] = None, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Lista todas las tareas programadas del usuario."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = user_id or _user_id
+    if not uid:
+        return {"success": False, "error": "No se pudo determinar el usuario. Inicia sesión."}
     try:
         tasks = await UserTaskRepository.get_all(uid)
         summary = [
@@ -52,6 +52,7 @@ async def user_tasks_create(
     cron_expression: str,
     config: Optional[Dict[str, Any]] = None,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Crea una nueva tarea programada."""
     if type not in VALID_TASK_TYPES:
@@ -59,7 +60,9 @@ async def user_tasks_create(
             "success": False,
             "error": f"Tipo '{type}' no valido. Tipos disponibles: {', '.join(VALID_TASK_TYPES)}",
         }
-    uid = user_id or DEFAULT_USER_ID
+    uid = user_id or _user_id
+    if not uid:
+        return {"success": False, "error": "No se pudo determinar el usuario. Inicia sesión."}
     try:
         task = await UserTaskRepository.create({
             "user_id": uid,

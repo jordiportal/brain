@@ -23,7 +23,9 @@ def _invalidate_cache():
     _connection_cache.clear()
 
 
-DEFAULT_USER_ID = "jordip@khlloreda.com"
+def _resolve_user_id(explicit: Optional[str], injected: Optional[str]) -> Optional[str]:
+    """Resolve user_id: explicit param > injected _user_id from session."""
+    return explicit or injected
 
 
 async def _get_proxy_config() -> Dict[str, str]:
@@ -96,10 +98,14 @@ async def m365_mail_list(
     page: Optional[int] = None,
     page_size: Optional[int] = None,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lista mensajes de correo del buzón."""
+    uid = _resolve_user_id(user_id, _user_id)
+    if not uid:
+        return {"error": "user_id requerido", "success": False}
     params: Dict[str, str] = {
-        "userId": user_id or DEFAULT_USER_ID,
+        "userId": uid,
         # Seleccionar solo campos necesarios para listado (evita incluir body HTML completo
         # que infla la respuesta a cientos de KB y supera el límite de contexto del LLM).
         # bodyPreview incluye los primeros ~255 chars del cuerpo, suficiente para listar correos.
@@ -118,30 +124,32 @@ async def m365_mail_list(
 async def m365_mail_get(
     message_id: str,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Obtiene el contenido completo de un correo por su ID (incluye cuerpo HTML/texto)."""
     return await _proxy_request(
         "GET",
         f"/api/mail/messages/{quote(message_id)}",
-        params={"userId": user_id or DEFAULT_USER_ID},
+        params={"userId": _resolve_user_id(user_id, _user_id)},
     )
 
 
 async def m365_mail_attachments(
     message_id: str,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lista los adjuntos de un correo."""
     return await _proxy_request(
         "GET",
         f"/api/mail/messages/{quote(message_id)}/attachments",
-        params={"userId": user_id or DEFAULT_USER_ID},
+        params={"userId": _resolve_user_id(user_id, _user_id)},
     )
 
 
-async def m365_mail_folders(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def m365_mail_folders(user_id: Optional[str] = None, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Lista carpetas de correo (Inbox, Sent, etc.)."""
-    return await _proxy_request("GET", "/api/mail/folders", params={"userId": user_id or DEFAULT_USER_ID})
+    return await _proxy_request("GET", "/api/mail/folders", params={"userId": _resolve_user_id(user_id, _user_id)})
 
 
 async def m365_mail_send(
@@ -150,10 +158,11 @@ async def m365_mail_send(
     to_recipients: List[str],
     content_type: str = "html",
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Envía un correo electrónico."""
     return await _proxy_request("POST", "/api/mail/send", json_body={
-        "userId": user_id or DEFAULT_USER_ID,
+        "userId": _resolve_user_id(user_id, _user_id),
         "subject": subject,
         "body": {"contentType": content_type, "content": body},
         "toRecipients": to_recipients,
@@ -162,9 +171,9 @@ async def m365_mail_send(
 
 # ── Calendar ──────────────────────────────────────────────────────
 
-async def m365_calendar_list(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def m365_calendar_list(user_id: Optional[str] = None, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Lista calendarios disponibles."""
-    return await _proxy_request("GET", "/api/calendar/calendars", params={"userId": user_id or DEFAULT_USER_ID})
+    return await _proxy_request("GET", "/api/calendar/calendars", params={"userId": _resolve_user_id(user_id, _user_id)})
 
 
 async def m365_calendar_events(
@@ -173,9 +182,10 @@ async def m365_calendar_events(
     page: Optional[int] = None,
     page_size: Optional[int] = None,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lista eventos del calendario."""
-    params: Dict[str, str] = {"userId": user_id or DEFAULT_USER_ID}
+    params: Dict[str, str] = {"userId": _resolve_user_id(user_id, _user_id)}
     if start_date_time:
         params["startDateTime"] = start_date_time
     if end_date_time:
@@ -194,9 +204,10 @@ async def m365_calendar_create_event(
     location: Optional[str] = None,
     attendees: Optional[List[str]] = None,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Crea un evento en el calendario."""
-    body: Dict[str, Any] = {"userId": user_id or DEFAULT_USER_ID, "subject": subject, "start": start, "end": end}
+    body: Dict[str, Any] = {"userId": _resolve_user_id(user_id, _user_id), "subject": subject, "start": start, "end": end}
     if location:
         body["location"] = location
     if attendees:
@@ -206,18 +217,19 @@ async def m365_calendar_create_event(
 
 # ── OneDrive ──────────────────────────────────────────────────────
 
-async def m365_onedrive_root(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def m365_onedrive_root(user_id: Optional[str] = None, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Obtiene información de la raíz de OneDrive."""
-    return await _proxy_request("GET", "/api/onedrive/root", params={"userId": user_id or DEFAULT_USER_ID})
+    return await _proxy_request("GET", "/api/onedrive/root", params={"userId": _resolve_user_id(user_id, _user_id)})
 
 
 async def m365_onedrive_list(
     page: Optional[int] = None,
     page_size: Optional[int] = None,
     user_id: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Lista archivos y carpetas de la raíz de OneDrive."""
-    params: Dict[str, str] = {"userId": user_id or DEFAULT_USER_ID}
+    params: Dict[str, str] = {"userId": _resolve_user_id(user_id, _user_id)}
     if page is not None:
         params["page"] = str(page)
     if page_size is not None:
@@ -232,14 +244,14 @@ async def m365_onedrive_search(q: str) -> Dict[str, Any]:
 
 # ── Teams ─────────────────────────────────────────────────────────
 
-async def m365_teams_list(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def m365_teams_list(user_id: Optional[str] = None, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Lista equipos de Microsoft Teams."""
-    return await _proxy_request("GET", "/api/teams", params={"userId": user_id or DEFAULT_USER_ID})
+    return await _proxy_request("GET", "/api/teams", params={"userId": _resolve_user_id(user_id, _user_id)})
 
 
-async def m365_teams_chats(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def m365_teams_chats(user_id: Optional[str] = None, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Lista chats del usuario en Teams."""
-    return await _proxy_request("GET", "/api/teams/chats", params={"userId": user_id or DEFAULT_USER_ID})
+    return await _proxy_request("GET", "/api/teams/chats", params={"userId": _resolve_user_id(user_id, _user_id)})
 
 
 async def m365_teams_channels(team_id: str) -> Dict[str, Any]:

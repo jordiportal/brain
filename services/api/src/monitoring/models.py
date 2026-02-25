@@ -80,6 +80,16 @@ class ChainStats(BaseModel):
     success_rate: float = 0.0
 
 
+class UserActivityStats(BaseModel):
+    """Estadísticas de actividad por usuario"""
+    active_users_today: int = 0
+    active_users_7d: int = 0
+    active_users_30d: int = 0
+    total_registered_users: int = 0
+    top_users: List[Dict[str, Any]] = Field(default_factory=list)
+    hourly_active_users: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class DashboardStats(BaseModel):
     """Estadísticas para el dashboard"""
     # Métricas en tiempo real

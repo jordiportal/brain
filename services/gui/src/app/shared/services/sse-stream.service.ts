@@ -1,5 +1,6 @@
-import { Injectable, WritableSignal } from '@angular/core';
+import { Injectable, WritableSignal, inject } from '@angular/core';
 import { ChatMessage, IntermediateStep, ImageData, VideoData, StepType } from '../components/chat';
+import { AuthService } from '../../core/services/auth.service';
 
 export interface SseStreamConfig {
   url: string;
@@ -62,6 +63,7 @@ function defaultBuildStepContent(step: IntermediateStep): string {
 
 @Injectable({ providedIn: 'root' })
 export class SseStreamService {
+  private authService = inject(AuthService);
 
   async stream(config: SseStreamConfig): Promise<SseStreamResult> {
     const finalNodeIds = new Set(config.finalResponseNodeIds ?? DEFAULT_FINAL_NODE_IDS);
@@ -70,9 +72,14 @@ export class SseStreamService {
 
     let response: Response;
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const token = this.authService.getToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       response = await fetch(config.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(config.payload)
       });
     } catch {

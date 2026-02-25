@@ -13,6 +13,7 @@ from .models import (
     ExecutionTrace,
     MonitoringAlert,
     DashboardStats,
+    UserActivityStats,
     ChainStats
 )
 
@@ -343,6 +344,31 @@ class MonitoringService:
             chain_stats=chain_stats,
             active_alerts=alerts_count['total'],
             critical_alerts=alerts_count['critical']
+        )
+    
+    # ============================================
+    # User Activity
+    # ============================================
+    
+    async def get_user_activity(self) -> UserActivityStats:
+        """Obtener estadísticas de actividad por usuario"""
+        from ..db.repositories.users import UserRepository
+        
+        activity = await MonitoringRepository.get_user_activity_stats()
+        
+        try:
+            role_counts = await UserRepository.count_by_role()
+            total_registered = sum(role_counts.values())
+        except Exception:
+            total_registered = 0
+        
+        return UserActivityStats(
+            active_users_today=activity['active_today'],
+            active_users_7d=activity['active_7d'],
+            active_users_30d=activity['active_30d'],
+            total_registered_users=total_registered,
+            top_users=activity['top_users'],
+            hourly_active_users=activity['hourly_active_users']
         )
     
     # ============================================

@@ -126,7 +126,8 @@ class AdaptiveExecutor:
         chain_config: ChainConfig,
         emit_brain_events: bool = False,
         is_continue_request: bool = False,
-        agent_context: Optional[AgentContext] = None
+        agent_context: Optional[AgentContext] = None,
+        user_id: Optional[str] = None,
     ):
         self.execution_id = execution_id
         self.llm_url = llm_url
@@ -139,6 +140,7 @@ class AdaptiveExecutor:
         self.emit_brain_events = emit_brain_events
         self.is_continue_request = is_continue_request
         self.agent_context = agent_context
+        self.user_id = user_id
         
         # Configurar límite de iteraciones (agent_context puede sobreescribir para child runs)
         base_max = (
@@ -436,12 +438,59 @@ class AdaptiveExecutor:
         
         # Preparar argumentos
         exec_args = handler.prepare_args(args)
+        if self.user_id:
+            exec_args["_user_id"] = self.user_id
         
         # Ejecutar tool
         raw_result = await tool_registry.execute(tool_name, **exec_args)
         
         # Procesar resultado con handler
         result = await handler.process_result(raw_result, args)
+        
+        # Auto-detect image/video results from tools (e.g. generate_image)
+        # that don't have a specific handler emitting media events
+        if isinstance(raw_result, dict) and raw_result.get("success"):
+            has_image_event = any(
+                hasattr(e, 'event_type') and e.event_type == "image"
+                for e in result.events
+            )
+            has_video_event = any(
+                hasattr(e, 'event_type') and e.event_type == "video"
+                for e in result.events
+            )
+            
+            if not has_image_event and (raw_result.get("image_url") or raw_result.get("image_base64")):
+                img_url = None
+                img_b64 = None
+                # Prefer base64 for inline display via SSE (works without proxy/auth)
+                if raw_result.get("image_base64"):
+                    img_b64 = raw_result["image_base64"]
+                elif raw_result.get("artifact_id"):
+                    img_url = f"/api/v1/artifacts/{raw_result['artifact_id']}/content"
+                elif raw_result.get("image_url"):
+                    img_url = raw_result["image_url"]
+                
+                result.events.append(self.stream_emitter.image(
+                    node_id=f"tool_{tool_name}_{self.iteration}",
+                    url=img_url,
+                    base64_data=img_b64,
+                    mime_type=raw_result.get("mime_type", "image/png"),
+                    alt_text=raw_result.get("prompt", "Generated image"),
+                    provider=raw_result.get("provider"),
+                    model=raw_result.get("model"),
+                ))
+            
+            if not has_video_event and (raw_result.get("video_url") or raw_result.get("video_base64")):
+                result.events.append(self.stream_emitter.video(
+                    node_id=f"tool_{tool_name}_{self.iteration}",
+                    url=raw_result.get("video_url"),
+                    base64_data=raw_result.get("video_base64"),
+                    mime_type=raw_result.get("mime_type", "video/mp4"),
+                    duration_seconds=raw_result.get("duration_seconds"),
+                    resolution=raw_result.get("resolution"),
+                    provider=raw_result.get("provider"),
+                    model=raw_result.get("model"),
+                ))
         
         # Emitir eventos del handler y capturar imágenes/vídeos
         for event in result.events:
@@ -624,6 +673,7 @@ async def run_session_loop(
     chain_config: Optional[ChainConfig] = None,
     complexity: Optional[ComplexityAnalysis] = None,
     emit_brain_events: bool = False,
+    user_id: Optional[str] = None,
 ) -> SessionLoopResult:
     """
     Ejecuta el mismo bucle iterativo que el agente principal (un único loop).
@@ -662,6 +712,7 @@ async def run_session_loop(
         emit_brain_events=emit_brain_events,
         is_continue_request=False,
         agent_context=agent_context,
+        user_id=user_id,
     )
     async for _ in executor.execute(messages, tools):
         pass
@@ -713,6 +764,7 @@ async def run_session_loop_stream(
     chain_config: Optional[ChainConfig] = None,
     complexity: Optional[ComplexityAnalysis] = None,
     emit_brain_events: bool = False,
+    user_id: Optional[str] = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Igual que run_session_loop pero yield-ea cada StreamEvent al caller
@@ -744,6 +796,7 @@ async def run_session_loop_stream(
         emit_brain_events=emit_brain_events,
         is_continue_request=False,
         agent_context=agent_context,
+        user_id=user_id,
     )
     async for event in executor.execute(messages, tools):
         yield event

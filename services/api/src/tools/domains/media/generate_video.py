@@ -405,12 +405,13 @@ async def generate_video(
     aspect_ratio: Optional[str] = None,
     resolution: Optional[str] = None,
     duration_seconds: Optional[int] = None,
-    image: Optional[str] = None,  # URL o base64 de imagen inicial
-    last_frame: Optional[str] = None,  # URL o base64 del último frame
-    reference_images: Optional[List[str]] = None,  # Lista de URLs o base64
+    image: Optional[str] = None,
+    last_frame: Optional[str] = None,
+    reference_images: Optional[List[str]] = None,
     person_generation: str = "allow_all",
     wait_for_completion: bool = True,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Genera un vídeo usando Veo 3.1 de Google.
@@ -694,7 +695,7 @@ async def check_video_status(
                 import uuid
                 ext = "mp4" if "mp4" in mime_type else "webm"
                 filename = f"video_{uuid.uuid4().hex[:12]}.{ext}"
-                workspace_path = _save_video_to_workspace(video_bytes, filename)
+                workspace_path = _save_video_to_workspace(video_bytes, filename, user_id=_user_id)
                 
                 if workspace_path:
                     video_url = f"/api/v1/workspace/files/{workspace_path}"
@@ -718,10 +719,11 @@ async def check_video_status(
 
 
 async def extend_video(
-    video: str,  # URL, base64, o data URL del vídeo a extender
+    video: str,
     prompt: str,
     model: str = "veo-3.1-generate-preview",
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extiende un vídeo generado previamente con Veo.
@@ -812,7 +814,7 @@ async def extend_video(
     import uuid
     ext = "mp4" if "mp4" in mime_type else "webm"
     filename = f"video_ext_{uuid.uuid4().hex[:12]}.{ext}"
-    workspace_path = _save_video_to_workspace(video_bytes, filename)
+    workspace_path = _save_video_to_workspace(video_bytes, filename, user_id=_user_id)
     
     if workspace_path:
         video_url = f"/api/v1/workspace/files/{workspace_path}"

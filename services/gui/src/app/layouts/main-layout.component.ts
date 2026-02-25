@@ -464,6 +464,7 @@ export class MainLayoutComponent {
 
   private allMenuItems: MenuItem[] = [
     { label: 'Dashboard', icon: 'dashboard', route: '/dashboard' },
+    { label: 'Mi Perfil', icon: 'person', route: '/profile', roles: ['admin', 'user'] },
     { label: 'Asistentes', icon: 'account_tree', route: '/chains' },
     { label: 'Agentes', icon: 'smart_toy', route: '/subagents' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
@@ -475,7 +476,6 @@ export class MainLayoutComponent {
     { label: 'Sandboxes', icon: 'dns', route: '/sandboxes', roles: ['admin'] },
     { label: 'Usuarios', icon: 'group', route: '/users', roles: ['admin'] },
     { label: 'Configuración', icon: 'settings', route: '/settings', roles: ['admin'] },
-    { label: 'Mi Perfil', icon: 'person', route: '/profile', roles: ['admin', 'user'] },
   ];
 
   menuItems = computed(() => {

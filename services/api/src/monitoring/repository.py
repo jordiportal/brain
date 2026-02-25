@@ -519,6 +519,80 @@ class MonitoringRepository:
         ]
     
     # ============================================
+    # User Activity Stats
+    # ============================================
+    
+    @staticmethod
+    async def get_user_activity_stats() -> Dict[str, Any]:
+        """Obtener estadísticas de actividad por usuario"""
+        db = get_db()
+        
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+        
+        query = """
+            SELECT
+                COUNT(DISTINCT user_id) FILTER (WHERE timestamp >= $1) as active_today,
+                COUNT(DISTINCT user_id) FILTER (WHERE timestamp >= $2) as active_7d,
+                COUNT(DISTINCT user_id) FILTER (WHERE timestamp >= $3) as active_30d
+            FROM api_metrics
+            WHERE user_id IS NOT NULL
+        """
+        
+        row = await db.fetch_one(query, today_start, seven_days_ago, thirty_days_ago)
+        
+        top_users_query = """
+            SELECT
+                user_id,
+                COUNT(*) as request_count,
+                MAX(timestamp) as last_active
+            FROM api_metrics
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+              AND user_id IS NOT NULL
+            GROUP BY user_id
+            ORDER BY request_count DESC
+            LIMIT 10
+        """
+        
+        top_rows = await db.fetch_all(top_users_query)
+        
+        hourly_query = """
+            SELECT
+                date_trunc('hour', timestamp) as hour,
+                COUNT(DISTINCT user_id) as active_users
+            FROM api_metrics
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+              AND user_id IS NOT NULL
+            GROUP BY date_trunc('hour', timestamp)
+            ORDER BY hour ASC
+        """
+        
+        hourly_rows = await db.fetch_all(hourly_query)
+        
+        return {
+            "active_today": row['active_today'] or 0 if row else 0,
+            "active_7d": row['active_7d'] or 0 if row else 0,
+            "active_30d": row['active_30d'] or 0 if row else 0,
+            "top_users": [
+                {
+                    "user_id": r['user_id'],
+                    "request_count": r['request_count'],
+                    "last_active": r['last_active'].isoformat() if r['last_active'] else None
+                }
+                for r in top_rows
+            ],
+            "hourly_active_users": [
+                {
+                    "hour": r['hour'].isoformat() if r['hour'] else None,
+                    "active_users": r['active_users'] or 0
+                }
+                for r in hourly_rows
+            ]
+        }
+    
+    # ============================================
     # Helper methods
     # ============================================
     

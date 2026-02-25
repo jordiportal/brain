@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -15,8 +15,9 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDividerModule } from '@angular/material/divider';
 import { ProfileService, UserProfile, UserTask, UserPreferences, WorkspaceFile } from '../../core/services/profile.service';
-
-const DEFAULT_USER_ID = 'jordip@khlloreda.com';
+import { ArtifactService, Artifact } from '../../core/services/artifact.service';
+import { ArtifactViewerComponent } from '../../shared/components/artifact-viewer/artifact-viewer.component';
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   standalone: true,
@@ -25,76 +26,94 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
     MatTabsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatButtonModule, MatSlideToggleModule, MatChipsModule, MatIconModule,
     MatCardModule, MatSnackBarModule, MatProgressSpinnerModule,
-    MatTooltipModule, MatDividerModule,
+    MatTooltipModule, MatDividerModule, ArtifactViewerComponent,
   ],
   selector: 'app-profile',
   template: `
-    <div style="padding: 24px; max-width: 900px; margin: auto;">
-      <h2 style="margin-bottom: 16px;">Mi Perfil</h2>
+    <div class="admin-page" style="max-width: 960px;">
+      <div class="page-header">
+        <div class="header-title">
+          <mat-icon>person</mat-icon>
+          <div>
+            <h1>Mi Perfil</h1>
+            <p class="subtitle">Configuración personal, tareas programadas y archivos del sandbox</p>
+          </div>
+        </div>
+      </div>
 
       <mat-tab-group>
         <!-- TAB: Mi Asistente -->
         <mat-tab label="Mi Asistente">
-          <div style="padding: 16px 0;">
+          <div class="tab-content">
             @if (loading()) {
-              <mat-spinner diameter="32"></mat-spinner>
+              <div class="loading-container">
+                <mat-spinner diameter="32"></mat-spinner>
+              </div>
             } @else {
-              <mat-form-field appearance="outline" style="width: 100%;">
-                <mat-label>Instrucciones personales para el LLM</mat-label>
-                <textarea matInput
-                  [ngModel]="personalPrompt()"
-                  (ngModelChange)="personalPrompt.set($event)"
-                  rows="5"
-                  placeholder="Ej: Tutéame, responde en catalán, soy director de IT..."></textarea>
-                <mat-hint>Se inyecta como instrucción adicional en cada conversación</mat-hint>
-              </mat-form-field>
+              <mat-card class="profile-section-card">
+                <mat-card-content>
+                  <mat-form-field appearance="outline" class="full-width">
+                    <mat-label>Instrucciones personales para el LLM</mat-label>
+                    <textarea matInput
+                      [ngModel]="personalPrompt()"
+                      (ngModelChange)="personalPrompt.set($event)"
+                      rows="5"
+                      placeholder="Ej: Tutéame, responde en catalán, soy director de IT..."></textarea>
+                    <mat-hint>Se inyecta como instrucción adicional en cada conversación</mat-hint>
+                  </mat-form-field>
 
-              <mat-form-field appearance="outline" style="margin-top: 16px;">
-                <mat-label>Zona horaria</mat-label>
-                <mat-select [ngModel]="timezone()" (ngModelChange)="timezone.set($event)">
-                  @for (tz of timezones; track tz) {
-                    <mat-option [value]="tz">{{ tz }}</mat-option>
-                  }
-                </mat-select>
-              </mat-form-field>
+                  <mat-form-field appearance="outline" class="mt-2">
+                    <mat-label>Zona horaria</mat-label>
+                    <mat-select [ngModel]="timezone()" (ngModelChange)="timezone.set($event)">
+                      @for (tz of timezones; track tz) {
+                        <mat-option [value]="tz">{{ tz }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                </mat-card-content>
+              </mat-card>
 
-              <h3 style="margin-top: 24px;">Remitentes importantes</h3>
-              <mat-chip-set>
-                @for (s of importantSenders(); track s; let i = $index) {
-                  <mat-chip (removed)="removeSender(i)">
-                    {{ s }}
-                    <button matChipRemove><mat-icon>cancel</mat-icon></button>
-                  </mat-chip>
-                }
-              </mat-chip-set>
-              <mat-form-field appearance="outline" style="margin-top: 8px;">
-                <mat-label>Añadir remitente</mat-label>
-                <input matInput
-                  [ngModel]="newSender()"
-                  (ngModelChange)="newSender.set($event)"
-                  (keydown.enter)="$event.preventDefault(); addSender()"
-                  placeholder="email@ejemplo.com" />
-              </mat-form-field>
+              <mat-card class="profile-section-card mt-3">
+                <mat-card-content>
+                  <h3>Remitentes importantes</h3>
+                  <mat-chip-set>
+                    @for (s of importantSenders(); track s; let i = $index) {
+                      <mat-chip (removed)="removeSender(i)">
+                        {{ s }}
+                        <button matChipRemove><mat-icon>cancel</mat-icon></button>
+                      </mat-chip>
+                    }
+                  </mat-chip-set>
+                  <mat-form-field appearance="outline" class="full-width mt-1">
+                    <mat-label>Añadir remitente</mat-label>
+                    <input matInput
+                      [ngModel]="newSender()"
+                      (ngModelChange)="newSender.set($event)"
+                      (keydown.enter)="$event.preventDefault(); addSender()"
+                      placeholder="email@ejemplo.com" />
+                  </mat-form-field>
 
-              <h3 style="margin-top: 16px;">Palabras clave de proyectos</h3>
-              <mat-chip-set>
-                @for (k of projectKeywords(); track k; let i = $index) {
-                  <mat-chip (removed)="removeKeyword(i)">
-                    {{ k }}
-                    <button matChipRemove><mat-icon>cancel</mat-icon></button>
-                  </mat-chip>
-                }
-              </mat-chip-set>
-              <mat-form-field appearance="outline" style="margin-top: 8px;">
-                <mat-label>Añadir palabra clave</mat-label>
-                <input matInput
-                  [ngModel]="newKeyword()"
-                  (ngModelChange)="newKeyword.set($event)"
-                  (keydown.enter)="$event.preventDefault(); addKeyword()"
-                  placeholder="proyecto-x" />
-              </mat-form-field>
+                  <h3 class="mt-2">Palabras clave de proyectos</h3>
+                  <mat-chip-set>
+                    @for (k of projectKeywords(); track k; let i = $index) {
+                      <mat-chip (removed)="removeKeyword(i)">
+                        {{ k }}
+                        <button matChipRemove><mat-icon>cancel</mat-icon></button>
+                      </mat-chip>
+                    }
+                  </mat-chip-set>
+                  <mat-form-field appearance="outline" class="full-width mt-1">
+                    <mat-label>Añadir palabra clave</mat-label>
+                    <input matInput
+                      [ngModel]="newKeyword()"
+                      (ngModelChange)="newKeyword.set($event)"
+                      (keydown.enter)="$event.preventDefault(); addKeyword()"
+                      placeholder="proyecto-x" />
+                  </mat-form-field>
+                </mat-card-content>
+              </mat-card>
 
-              <div style="margin-top: 24px;">
+              <div class="mt-3">
                 <button mat-raised-button color="primary" (click)="saveProfile()" [disabled]="saving()">
                   {{ saving() ? 'Guardando...' : 'Guardar perfil' }}
                 </button>
@@ -105,11 +124,11 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
 
         <!-- TAB: Tareas Programadas -->
         <mat-tab label="Tareas Programadas">
-          <div style="padding: 16px 0;">
-            <p style="color: #666;">Gestiona resúmenes de correo, agenda y otras tareas programadas.</p>
+          <div class="tab-content">
+            <p class="text-secondary">Gestiona resúmenes de correo, agenda y otras tareas programadas.</p>
 
             @for (task of tasks(); track task.id) {
-              <mat-card style="margin-bottom: 12px;">
+              <mat-card class="task-card">
                 <mat-card-header>
                   <mat-card-title>{{ task.name }}</mat-card-title>
                   <mat-card-subtitle>{{ task.type }} · {{ cronLabel(task.cron_expression) }}</mat-card-subtitle>
@@ -117,7 +136,7 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
                 <mat-card-content>
                   <mat-slide-toggle [checked]="task.is_active" (change)="toggleTask(task)">Activa</mat-slide-toggle>
                   @if (task.last_run_at) {
-                    <p style="font-size: 0.85rem; color: #888; margin-top: 8px;">
+                    <p class="task-last-run">
                       Última ejecución: {{ task.last_run_at | date:'short' }} — {{ task.last_status }}
                     </p>
                   }
@@ -130,87 +149,295 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
             }
 
             @if (tasks().length === 0) {
-              <p>No hay tareas programadas.</p>
+              <div class="empty-state">
+                <mat-icon>schedule</mat-icon>
+                <h3>No hay tareas programadas</h3>
+                <p>Las tareas de resumen de correo, agenda y otras tareas automáticas aparecerán aquí.</p>
+              </div>
             }
           </div>
         </mat-tab>
 
         <!-- TAB: Sandbox -->
         <mat-tab label="Sandbox">
-          <div style="padding: 16px 0;">
-            <!-- Breadcrumb -->
-            <div class="sandbox-breadcrumb">
-              <button mat-button (click)="navigateTo('')" [disabled]="currentPath() === ''">
-                <mat-icon>home</mat-icon> workspace
-              </button>
-              @for (crumb of breadcrumbs(); track crumb.path) {
-                <mat-icon style="vertical-align: middle; color: #999;">chevron_right</mat-icon>
-                <button mat-button (click)="navigateTo(crumb.path)">{{ crumb.name }}</button>
-              }
+          <div class="tab-content">
+            <!-- Toolbar: Breadcrumb + Actions -->
+            <div class="sandbox-toolbar">
+              <div class="sandbox-breadcrumb">
+                <button mat-icon-button (click)="navigateTo('')" [disabled]="currentPath() === ''" matTooltip="Inicio">
+                  <mat-icon>home</mat-icon>
+                </button>
+                @for (crumb of breadcrumbs(); track crumb.path) {
+                  <mat-icon class="breadcrumb-sep">chevron_right</mat-icon>
+                  <button mat-button class="breadcrumb-btn" (click)="navigateTo(crumb.path)">{{ crumb.name }}</button>
+                }
+              </div>
+              <div class="sandbox-toolbar-actions">
+                <span class="sandbox-count" *ngIf="wsFiles().length">{{ wsFiles().length }} elementos</span>
+                <button mat-icon-button (click)="toggleSandboxView()" [matTooltip]="sandboxView() === 'grid' ? 'Vista lista' : 'Vista cuadrícula'">
+                  <mat-icon>{{ sandboxView() === 'grid' ? 'view_list' : 'grid_view' }}</mat-icon>
+                </button>
+                <button mat-icon-button (click)="loadWorkspace(currentPath())" matTooltip="Refrescar">
+                  <mat-icon>refresh</mat-icon>
+                </button>
+              </div>
             </div>
 
             @if (wsLoading()) {
-              <mat-spinner diameter="28" style="margin: 24px auto;"></mat-spinner>
-            } @else {
-              <div class="sandbox-file-list">
-                @if (currentPath() !== '') {
-                  <div class="sandbox-file-row sandbox-dir-row" (click)="navigateUp()">
-                    <mat-icon class="sandbox-file-icon" style="color: #78909c;">subdirectory_arrow_left</mat-icon>
-                    <span class="sandbox-file-name">..</span>
-                    <span class="sandbox-file-meta"></span>
-                    <span class="sandbox-file-actions"></span>
-                  </div>
-                }
-
-                @for (f of wsFiles(); track f.name) {
-                  <div class="sandbox-file-row" [class.sandbox-dir-row]="f.is_directory"
-                       (click)="f.is_directory ? navigateTo(joinPath(currentPath(), f.name)) : null">
-                    <mat-icon class="sandbox-file-icon" [style.color]="f.is_directory ? '#ffa726' : '#90a4ae'">
-                      {{ f.is_directory ? 'folder' : fileIcon(f.name) }}
-                    </mat-icon>
-                    <span class="sandbox-file-name">{{ f.name }}</span>
-                    <span class="sandbox-file-meta">{{ f.is_directory ? '' : formatSize(f.size) }}</span>
-                    <span class="sandbox-file-actions">
-                      @if (!f.is_directory) {
-                        <button mat-icon-button matTooltip="Descargar"
-                                (click)="downloadFile(f); $event.stopPropagation()">
-                          <mat-icon>download</mat-icon>
-                        </button>
-                        <button mat-icon-button matTooltip="Eliminar" color="warn"
-                                (click)="deleteFile(f); $event.stopPropagation()">
-                          <mat-icon>delete</mat-icon>
-                        </button>
-                      }
-                    </span>
-                  </div>
-                }
-
-                @if (wsFiles().length === 0 && currentPath() === '') {
-                  <p style="text-align: center; color: #999; margin-top: 24px;">
-                    El sandbox está vacío.
-                  </p>
-                }
+              <div class="loading-container">
+                <mat-spinner diameter="36"></mat-spinner>
+                <p>Cargando archivos...</p>
               </div>
+            } @else if (wsFiles().length === 0 && currentPath() === '') {
+              <div class="empty-state">
+                <mat-icon>folder_open</mat-icon>
+                <h3>El sandbox está vacío</h3>
+                <p>Los archivos generados por los agentes aparecerán aquí.</p>
+              </div>
+            } @else {
+              <!-- Back row -->
+              @if (currentPath() !== '') {
+                <div class="sandbox-back-row" (click)="navigateUp()">
+                  <mat-icon>arrow_back</mat-icon>
+                  <span>Subir un nivel</span>
+                </div>
+              }
+
+              <!-- Grid view -->
+              @if (sandboxView() === 'grid') {
+                <div class="sandbox-grid">
+                  @for (f of wsFiles(); track f.name) {
+                    <div class="sandbox-card" [class.sandbox-card-dir]="f.is_directory"
+                         (click)="onFileClick(f)">
+                      <div class="sandbox-card-preview" [class]="f.is_directory ? 'folder' : getFileCategory(f.name)">
+                        @if (!f.is_directory && isImage(f.name)) {
+                          <img [src]="getFileThumbnailUrl(f)" [alt]="f.name" loading="lazy" />
+                        } @else if (!f.is_directory && isVideo(f.name)) {
+                          <mat-icon class="preview-icon">play_circle</mat-icon>
+                        } @else {
+                          <mat-icon class="preview-icon">{{ f.is_directory ? 'folder' : fileIcon(f.name) }}</mat-icon>
+                        }
+                      </div>
+                      <div class="sandbox-card-body">
+                        <span class="sandbox-card-name" [matTooltip]="f.name">{{ f.name }}</span>
+                        <span class="sandbox-card-meta">{{ f.is_directory ? 'Carpeta' : formatSize(f.size) }}</span>
+                      </div>
+                      @if (!f.is_directory) {
+                        <div class="sandbox-card-overlay" (click)="$event.stopPropagation()">
+                          <button mat-icon-button matTooltip="Ver" (click)="onFileClick(f)">
+                            <mat-icon>visibility</mat-icon>
+                          </button>
+                          <button mat-icon-button matTooltip="Descargar" (click)="downloadFile(f)">
+                            <mat-icon>download</mat-icon>
+                          </button>
+                          <button mat-icon-button matTooltip="Eliminar" (click)="deleteFile(f)">
+                            <mat-icon>delete</mat-icon>
+                          </button>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+
+              <!-- List view -->
+              @if (sandboxView() === 'list') {
+                <div class="sandbox-file-list">
+                  @for (f of wsFiles(); track f.name) {
+                    <div class="sandbox-file-row" [class.sandbox-dir-row]="f.is_directory"
+                         (click)="onFileClick(f)">
+                      @if (!f.is_directory && isImage(f.name)) {
+                        <img class="sandbox-list-thumb" [src]="getFileThumbnailUrl(f)" [alt]="f.name" loading="lazy" />
+                      } @else {
+                        <div class="sandbox-list-icon" [class]="f.is_directory ? 'folder' : getFileCategory(f.name)">
+                          <mat-icon>{{ f.is_directory ? 'folder' : fileIcon(f.name) }}</mat-icon>
+                        </div>
+                      }
+                      <div class="sandbox-list-info">
+                        <span class="sandbox-file-name">{{ f.name }}</span>
+                        <span class="sandbox-file-type">{{ f.is_directory ? 'Carpeta' : getFileExtLabel(f.name) }}</span>
+                      </div>
+                      <span class="sandbox-file-meta">{{ f.is_directory ? '' : formatSize(f.size) }}</span>
+                      <span class="sandbox-file-actions" (click)="$event.stopPropagation()">
+                        @if (!f.is_directory) {
+                          @if (isPreviewable(f.name)) {
+                            <button mat-icon-button matTooltip="Ver" (click)="onFileClick(f)">
+                              <mat-icon>visibility</mat-icon>
+                            </button>
+                          }
+                          <button mat-icon-button matTooltip="Descargar" (click)="downloadFile(f)">
+                            <mat-icon>download</mat-icon>
+                          </button>
+                          <button mat-icon-button matTooltip="Eliminar" color="warn" (click)="deleteFile(f)">
+                            <mat-icon>delete</mat-icon>
+                          </button>
+                        }
+                      </span>
+                    </div>
+                  }
+                </div>
+              }
             }
           </div>
+
+          <!-- File Viewer (reuses ArtifactViewerComponent) -->
+          @if (previewArtifact()) {
+            <app-artifact-viewer
+              [artifact]="previewArtifact()!"
+              [contentOverrideUrl]="previewContentUrl()"
+              (closed)="closePreview()"
+              (downloadRequested)="onPreviewDownload()">
+            </app-artifact-viewer>
+          }
         </mat-tab>
       </mat-tab-group>
     </div>
   `,
   styles: [`
+    /* --- Profile sections --- */
+    .profile-section-card {
+      margin-bottom: 0;
+    }
+    .task-card {
+      margin-bottom: 12px;
+    }
+    .task-last-run {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 8px;
+    }
+
+    /* --- Sandbox Toolbar --- */
+    .sandbox-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      background: #f8fafc;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+    }
     .sandbox-breadcrumb {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
       gap: 2px;
-      margin-bottom: 12px;
-      padding: 8px 4px;
-      background: #f5f5f5;
-      border-radius: 8px;
+      min-width: 0;
     }
-    .sandbox-file-list {
-      border: 1px solid #e0e0e0;
+    .breadcrumb-sep { font-size: 18px; width: 18px; height: 18px; color: #94a3b8; }
+    .breadcrumb-btn { min-width: unset; padding: 0 8px; font-size: 13px; }
+    .sandbox-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .sandbox-count { font-size: 12px; color: #64748b; margin-right: 4px; white-space: nowrap; }
+
+    /* --- Back row --- */
+    .sandbox-back-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      cursor: pointer;
       border-radius: 8px;
+      color: #64748b;
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+    .sandbox-back-row:hover { background: rgba(0, 0, 0, 0.04); }
+    .sandbox-back-row mat-icon { font-size: 20px; width: 20px; height: 20px; }
+
+    /* --- Grid View --- */
+    .sandbox-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 16px;
+    }
+    .sandbox-card {
+      position: relative;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      overflow: hidden;
+      cursor: pointer;
+      transition: box-shadow 0.2s, transform 0.15s;
+      background: white;
+    }
+    .sandbox-card:hover {
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      transform: translateY(-2px);
+    }
+    .sandbox-card-dir:hover { border-color: #f59e0b; }
+    .sandbox-card-preview {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #f1f5f9;
+    }
+    .sandbox-card-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .sandbox-card-preview .preview-icon {
+      font-size: 40px; width: 40px; height: 40px; color: #94a3b8;
+    }
+    .sandbox-card-preview.folder { background: #fefce8; }
+    .sandbox-card-preview.folder .preview-icon { color: #f59e0b; }
+    .sandbox-card-preview.media { background: #eff6ff; }
+    .sandbox-card-preview.media .preview-icon { color: #3b82f6; }
+    .sandbox-card-preview.video-file { background: #fdf2f8; }
+    .sandbox-card-preview.video-file .preview-icon { color: #ec4899; }
+    .sandbox-card-preview.code-file { background: #fff7ed; }
+    .sandbox-card-preview.code-file .preview-icon { color: #f97316; }
+    .sandbox-card-preview.doc-file { background: #f0fdf4; }
+    .sandbox-card-preview.doc-file .preview-icon { color: #22c55e; }
+
+    .sandbox-card-body {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .sandbox-card-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #1e293b;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sandbox-card-meta { font-size: 11px; color: #64748b; }
+
+    .sandbox-card-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .sandbox-card:hover .sandbox-card-overlay { opacity: 1; }
+    .sandbox-card-overlay button { color: #fff !important; }
+
+    /* --- List View --- */
+    .sandbox-file-list {
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 12px;
       overflow: hidden;
     }
     .sandbox-file-row {
@@ -218,39 +445,58 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
       align-items: center;
       padding: 10px 16px;
       gap: 12px;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      cursor: pointer;
       transition: background 0.15s;
     }
-    .sandbox-file-row:last-child {
-      border-bottom: none;
-    }
-    .sandbox-file-row:hover {
-      background: #fafafa;
-    }
-    .sandbox-dir-row {
-      cursor: pointer;
-    }
-    .sandbox-dir-row:hover {
-      background: #fff3e0;
-    }
-    .sandbox-file-icon {
+    .sandbox-file-row:last-child { border-bottom: none; }
+    .sandbox-file-row:hover { background: rgba(0, 0, 0, 0.02); }
+    .sandbox-dir-row:hover { background: #fefce8; }
+
+    .sandbox-list-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      object-fit: cover;
       flex-shrink: 0;
+      background: #f1f5f9;
+    }
+    .sandbox-list-icon {
+      width: 40px; height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: #f1f5f9;
+    }
+    .sandbox-list-icon.folder { background: #fefce8; color: #f59e0b; }
+    .sandbox-list-icon.media { background: #eff6ff; color: #3b82f6; }
+    .sandbox-list-icon.video-file { background: #fdf2f8; color: #ec4899; }
+    .sandbox-list-icon.code-file { background: #fff7ed; color: #f97316; }
+    .sandbox-list-icon.doc-file { background: #f0fdf4; color: #22c55e; }
+
+    .sandbox-list-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
     }
     .sandbox-file-name {
-      flex: 1;
       font-size: 14px;
       font-weight: 400;
+      color: #1e293b;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .sandbox-dir-row .sandbox-file-name {
-      font-weight: 500;
-    }
+    .sandbox-dir-row .sandbox-file-name { font-weight: 500; }
+    .sandbox-file-type { font-size: 11px; color: #94a3b8; text-transform: uppercase; }
     .sandbox-file-meta {
       flex-shrink: 0;
       font-size: 12px;
-      color: #999;
+      color: #64748b;
       min-width: 70px;
       text-align: right;
     }
@@ -262,7 +508,8 @@ const DEFAULT_USER_ID = 'jordip@khlloreda.com';
   `],
 })
 export class ProfileComponent implements OnInit {
-  userId = signal(DEFAULT_USER_ID);
+  private authService = inject(AuthService);
+  userId = signal(this.authService.currentUser()?.email || '');
   loading = signal(false);
   saving = signal(false);
   personalPrompt = signal('');
@@ -279,6 +526,11 @@ export class ProfileComponent implements OnInit {
   wsFiles = signal<WorkspaceFile[]>([]);
   wsLoading = signal(false);
   breadcrumbs = signal<{ name: string; path: string }[]>([]);
+  sandboxView = signal<'grid' | 'list'>('grid');
+  previewArtifact = signal<Artifact | undefined>(undefined);
+  previewContentUrl = signal('');
+
+  private artifactService = inject(ArtifactService);
 
   constructor(private profileService: ProfileService, private snack: MatSnackBar) {}
 
@@ -458,5 +710,102 @@ export class ProfileComponent implements OnInit {
       html: 'language', css: 'palette', sql: 'storage',
     };
     return icons[ext] ?? 'insert_drive_file';
+  }
+
+  // --- Enhanced Sandbox ---
+
+  private static IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+  private static VIDEO_EXTS = new Set(['mp4', 'webm', 'mov']);
+  private static CODE_EXTS = new Set(['py', 'js', 'ts', 'json', 'html', 'css', 'sql', 'sh', 'bash']);
+
+  private getExt(name: string): string {
+    return name.split('.').pop()?.toLowerCase() ?? '';
+  }
+
+  isImage(name: string): boolean {
+    return ProfileComponent.IMAGE_EXTS.has(this.getExt(name));
+  }
+
+  isVideo(name: string): boolean {
+    return ProfileComponent.VIDEO_EXTS.has(this.getExt(name));
+  }
+
+  isPreviewable(name: string): boolean {
+    return this.isImage(name) || this.isVideo(name);
+  }
+
+  getFileCategory(name: string): string {
+    if (this.isImage(name)) return 'media';
+    if (this.isVideo(name)) return 'video-file';
+    if (ProfileComponent.CODE_EXTS.has(this.getExt(name))) return 'code-file';
+    const ext = this.getExt(name);
+    if (['pdf', 'txt', 'md', 'log', 'doc', 'docx'].includes(ext)) return 'doc-file';
+    return '';
+  }
+
+  getFileExtLabel(name: string): string {
+    const ext = this.getExt(name);
+    return ext ? ext.toUpperCase() : 'Archivo';
+  }
+
+  getFileThumbnailUrl(f: WorkspaceFile): string {
+    const filePath = this.joinPath(this.currentPath(), f.name);
+    return this.profileService.getFileUrl(filePath, this.userId());
+  }
+
+  toggleSandboxView(): void {
+    this.sandboxView.set(this.sandboxView() === 'grid' ? 'list' : 'grid');
+  }
+
+  onFileClick(f: WorkspaceFile): void {
+    if (f.is_directory) {
+      this.navigateTo(this.joinPath(this.currentPath(), f.name));
+      return;
+    }
+    if (!this.isPreviewable(f.name)) {
+      this.downloadFile(f);
+      return;
+    }
+    const filePath = this.joinPath(this.currentPath(), f.name);
+    const fileUrl = this.profileService.getFileUrl(filePath, this.userId());
+    const fileType = this.isImage(f.name) ? 'image' : 'video';
+
+    const syntheticArtifact: Artifact = {
+      id: 0,
+      artifact_id: '',
+      type: fileType as Artifact['type'],
+      title: f.name,
+      file_name: f.name,
+      file_path: filePath,
+      file_size: f.size,
+      source: 'sandbox',
+      metadata: {},
+      version: 1,
+      is_latest: true,
+      status: 'active',
+      created_at: '',
+      updated_at: '',
+      accessed_at: '',
+    };
+
+    this.previewContentUrl.set(fileUrl);
+    this.previewArtifact.set(syntheticArtifact);
+  }
+
+  closePreview(): void {
+    this.previewArtifact.set(undefined);
+    this.previewContentUrl.set('');
+  }
+
+  onPreviewDownload(): void {
+    const art = this.previewArtifact();
+    if (art) {
+      const url = this.previewContentUrl();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = art.file_name;
+      a.target = '_blank';
+      a.click();
+    }
   }
 }

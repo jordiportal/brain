@@ -309,18 +309,55 @@ export class ConfigService {
   // System Stats - Nuevo endpoint
   // ===========================================
 
-  getSystemStats(): Observable<{ chains: number; llmProviders: number; mcpConnections: number; executions: number }> {
+  getSystemStats(): Observable<{ chains: number; llmProviders: number; mcpConnections: number; apiKeys: number; openApiConnections: number }> {
     return this.http.get<any>(`${this.API_URL}/config/stats`)
       .pipe(
         map(stats => ({
           chains: stats.chains || 0,
           llmProviders: stats.llmProviders || 0,
           mcpConnections: stats.mcpConnections || 0,
-          executions: 0 // No tenemos este dato aún
+          apiKeys: stats.apiKeys || 0,
+          openApiConnections: stats.openApiConnections || 0
         })),
         catchError(err => {
           console.error('Error loading system stats:', err);
-          return of({ chains: 0, llmProviders: 0, mcpConnections: 0, executions: 0 });
+          return of({ chains: 0, llmProviders: 0, mcpConnections: 0, apiKeys: 0, openApiConnections: 0 });
+        })
+      );
+  }
+
+  // ===========================================
+  // Dashboard Metrics - Monitoring endpoint
+  // ===========================================
+
+  getDashboardMetrics(): Observable<any> {
+    return this.http.get<any>(`${this.API_URL}/monitoring/dashboard`)
+      .pipe(
+        catchError(err => {
+          console.error('Error loading dashboard metrics:', err);
+          return of({
+            requests_per_minute: 0, avg_latency_ms: 0, error_rate: 0,
+            total_requests: 0, total_errors: 0, total_tokens: 0, total_cost_usd: 0,
+            active_alerts: 0, critical_alerts: 0,
+            hourly_requests: [], chain_stats: []
+          });
+        })
+      );
+  }
+
+  // ===========================================
+  // User Activity - Monitoring endpoint
+  // ===========================================
+
+  getUserActivity(): Observable<any> {
+    return this.http.get<any>(`${this.API_URL}/monitoring/user-activity`)
+      .pipe(
+        catchError(err => {
+          console.error('Error loading user activity:', err);
+          return of({
+            active_users_today: 0, active_users_7d: 0, active_users_30d: 0,
+            total_registered_users: 0, top_users: [], hourly_active_users: []
+          });
         })
       );
   }

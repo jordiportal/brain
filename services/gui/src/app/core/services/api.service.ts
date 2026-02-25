@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 
 @Injectable({
@@ -18,6 +19,15 @@ export class ApiService {
 
   getHealth(): Observable<{ status: string; version: string }> {
     return this.http.get<{ status: string; version: string }>(`${this.API_BASE}/health`);
+  }
+
+  getReadiness(): Observable<any> {
+    return this.http.get<any>(`${this.API_BASE}/health/ready`).pipe(
+      catchError(err => {
+        console.error('Error loading readiness:', err);
+        return of({ status: 'error', database: false, redis: false, tools_total: 0, mcp_connected: 0 });
+      })
+    );
   }
 
   // ===========================================

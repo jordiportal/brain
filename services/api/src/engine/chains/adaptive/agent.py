@@ -155,7 +155,8 @@ async def build_adaptive_agent(
         reasoning_config=reasoning_config,
         chain_config=config,
         emit_brain_events=emit_brain_events,
-        is_continue_request=is_continue_request
+        is_continue_request=is_continue_request,
+        user_id=user_id,
     )
     
     # Si es comando de continuar, emitir evento

@@ -29,38 +29,50 @@ async def _save_image_to_workspace(
     model: str,
     mime_type: str = "image/png",
     conversation_id: Optional[str] = None,
-    agent_id: Optional[str] = "designer_agent"
+    agent_id: Optional[str] = "designer_agent",
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Guarda la imagen en el workspace y registra como artifact.
+    Always saves to the API container (for artifact serving).
+    If user_id is provided, also copies to the user's sandbox container.
     
     Returns:
         Dict con file_path, file_name, image_url (local), artifact_id
     """
     try:
-        # Asegurar que el directorio existe
-        WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
-        
-        # Generar nombre de archivo único
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         safe_prompt = prompt[:30].replace(' ', '_').replace('/', '_').replace('\\', '_')
         file_name = f"{provider}_{safe_prompt}_{timestamp}.png"
-        file_path = WORKSPACE_PATH / file_name
-        
-        # Guardar archivo
+
+        # Always save to API container for artifact serving
+        workspace = WORKSPACE_PATH
+        workspace.mkdir(parents=True, exist_ok=True)
+        file_path = workspace / file_name
         with open(file_path, 'wb') as f:
             f.write(image_data)
+
+        # Additionally copy to the user's sandbox container
+        if user_id:
+            try:
+                from src.code_executor.sandbox_manager import sandbox_manager
+                executor = await sandbox_manager.get_or_create(user_id)
+                executor.write_binary_file(f"images/{file_name}", image_data)
+                logger.info("Image copied to user sandbox", user=user_id, file=file_name)
+            except Exception as exc:
+                logger.warning("Could not copy image to user sandbox", error=str(exc))
         
         file_size = len(image_data)
         
-        # Determinar dimensiones si es posible
+        # Determinar dimensiones desde bytes en memoria
         width, height = None, None
         try:
             from PIL import Image as PILImage
-            with PILImage.open(file_path) as img:
+            import io as _io
+            with PILImage.open(_io.BytesIO(image_data)) as img:
                 width, height = img.size
         except Exception:
-            pass  # No es crítico
+            pass
         
         # Crear registro en artifacts
         try:
@@ -70,7 +82,7 @@ async def _save_image_to_workspace(
                 type=ArtifactType.IMAGE,
                 title=f"Imagen generada: {prompt[:50]}...",
                 description=prompt,
-                file_path=f"/workspace/images/{file_name}",
+                file_path=str(file_path),
                 file_name=file_name,
                 mime_type=mime_type,
                 file_size=file_size,
@@ -82,7 +94,8 @@ async def _save_image_to_workspace(
                     "height": height,
                     "provider": provider,
                     "model": model,
-                    "prompt": prompt
+                    "prompt": prompt,
+                    "user_id": user_id,
                 }
             )
             
@@ -98,7 +111,7 @@ async def _save_image_to_workspace(
                 return {
                     "file_path": str(file_path),
                     "file_name": file_name,
-                    "local_url": f"/workspace/images/{file_name}",
+                    "local_url": f"/api/v1/artifacts/{artifact.artifact_id}/content",
                     "artifact_id": artifact.artifact_id,
                     "file_size": file_size,
                     "width": width,
@@ -106,12 +119,11 @@ async def _save_image_to_workspace(
                 }
         except Exception as e:
             logger.error(f"Error creating artifact record: {e}")
-            # Continuar sin registro de artifact si falla
         
         return {
             "file_path": str(file_path),
             "file_name": file_name,
-            "local_url": f"/workspace/images/{file_name}",
+            "local_url": f"/api/v1/workspace/files/images/{file_name}",
             "file_size": file_size
         }
         
@@ -223,7 +235,8 @@ async def generate_image(
     resolution: str = "1K",
     quality: str = "standard",
     style: Optional[str] = None,
-    negative_prompt: Optional[str] = None
+    negative_prompt: Optional[str] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Genera una imagen a partir de un prompt de texto.
@@ -343,13 +356,20 @@ async def generate_image(
                     mime_type = content_type.split(";")[0]
         
         if image_data:
+            # Ensure image_base64 is always in the result for SSE streaming
+            if not result.get("image_base64"):
+                result["image_base64"] = base64.b64encode(image_data).decode("utf-8")
+            if not result.get("mime_type"):
+                result["mime_type"] = mime_type
+            
             # Guardar en workspace y crear artifact
             save_result = await _save_image_to_workspace(
                 image_data=image_data,
                 prompt=prompt,
                 provider=provider,
                 model=result.get("model", model or "unknown"),
-                mime_type=mime_type
+                mime_type=mime_type,
+                user_id=_user_id,
             )
             
             # Enriquecer resultado con información del archivo guardado

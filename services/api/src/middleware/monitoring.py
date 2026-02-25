@@ -49,8 +49,21 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
             except ValueError:
                 pass
         
-        # Extraer user_id si está disponible (de headers o query params)
-        user_id = request.headers.get("X-User-ID") or request.query_params.get("user_id")
+        # Extraer user_id del JWT token (Authorization header) o fallback a X-User-ID
+        user_id = None
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                import jwt as pyjwt
+                import os
+                secret = os.environ.get("JWT_SECRET", "brain-secret-key-change-in-production")
+                token = auth_header.split(" ", 1)[1]
+                payload = pyjwt.decode(token, secret, algorithms=["HS256"])
+                user_id = payload.get("email") or payload.get("sub")
+            except Exception:
+                pass
+        if not user_id:
+            user_id = request.headers.get("X-User-ID") or request.query_params.get("user_id")
         
         # Ejecutar request
         error_message = None

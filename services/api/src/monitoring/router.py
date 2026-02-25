@@ -13,6 +13,7 @@ from .models import (
     ExecutionTrace,
     MonitoringAlert,
     DashboardStats,
+    UserActivityStats,
     AcknowledgeAlertRequest
 )
 
@@ -62,6 +63,20 @@ async def get_dashboard():
     - Alertas activas
     """
     return await monitoring_service.get_dashboard_stats()
+
+
+@router.get("/user-activity", response_model=UserActivityStats)
+async def get_user_activity():
+    """
+    Obtener estadísticas de actividad por usuario.
+    
+    Incluye:
+    - Usuarios activos hoy / 7d / 30d
+    - Total de usuarios registrados
+    - Top usuarios por requests (24h)
+    - Usuarios activos por hora (24h)
+    """
+    return await monitoring_service.get_user_activity()
 
 
 # ============================================

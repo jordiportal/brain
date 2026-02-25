@@ -93,7 +93,8 @@ async def build_team_coordinator(
         reasoning_config=reasoning_config,
         chain_config=config,
         emit_brain_events=emit_brain_events,
-        is_continue_request=False
+        is_continue_request=False,
+        user_id=kwargs.get("user_id"),
     )
 
     async for event in executor.execute(messages, tools):

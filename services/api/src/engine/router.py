@@ -4,9 +4,11 @@ Router de la API para cadenas y ejecuciones
 
 import json
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from src.auth.dependencies import optional_current_user
 
 from .models import (
     ChainInvokeRequest,
@@ -270,14 +272,17 @@ async def get_chain(chain_id: str):
 async def invoke_chain(
     chain_id: str,
     request: ChainInvokeRequest,
-    session_id: Optional[str] = Query(None, description="ID de sesión para memoria")
+    session_id: Optional[str] = Query(None, description="ID de sesión para memoria"),
+    current_user: Optional[dict] = Depends(optional_current_user),
 ):
     """Invocar una cadena (sin streaming)"""
     if not chain_registry.exists(chain_id):
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
     
+    user_id = current_user["email"] if current_user else None
+    
     try:
-        result = await chain_executor.invoke(chain_id, request, session_id)
+        result = await chain_executor.invoke(chain_id, request, session_id, user_id=user_id)
         
         return {
             "execution_id": result.execution_id,
@@ -305,15 +310,18 @@ async def invoke_chain(
 async def invoke_chain_stream(
     chain_id: str,
     request: ChainInvokeRequest,
-    session_id: Optional[str] = Query(None, description="ID de sesión para memoria")
+    session_id: Optional[str] = Query(None, description="ID de sesión para memoria"),
+    current_user: Optional[dict] = Depends(optional_current_user),
 ):
     """Invocar una cadena con streaming de eventos (SSE)"""
     if not chain_registry.exists(chain_id):
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
     
+    user_id = current_user["email"] if current_user else None
+    
     async def event_generator():
         try:
-            async for event in chain_executor.invoke_stream(chain_id, request, session_id):
+            async for event in chain_executor.invoke_stream(chain_id, request, session_id, user_id=user_id):
                 event_data = {
                     "event_type": event.event_type,
                     "execution_id": event.execution_id,
