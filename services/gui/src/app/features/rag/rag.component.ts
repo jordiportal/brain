@@ -133,7 +133,7 @@ interface SearchResult {
                        [class.dragging]="isDragging">
                     <input type="file" #fileInput 
                            (change)="onFileSelected($event)"
-                           accept=".pdf,.txt,.md,.docx,.html"
+                           accept=".pdf,.txt,.md,.docx,.html,.xlsx,.xls,.csv"
                            style="display: none">
                     
                     <mat-icon>cloud_upload</mat-icon>
@@ -141,7 +141,7 @@ interface SearchResult {
                     <button mat-raised-button color="primary" (click)="fileInput.click()">
                       Seleccionar Archivos
                     </button>
-                    <p class="hint">Formatos: PDF, TXT, MD, DOCX, HTML</p>
+                    <p class="hint">Formatos: PDF, TXT, MD, DOCX, HTML, XLSX, XLS, CSV</p>
                   </div>
 
                   @if (selectedFile()) {

@@ -25,7 +25,8 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { environment } from '../../../environments/environment';
 
 // Chat unificado
-import { ChatComponent, ChatMessage } from '../../shared/components/chat';
+import { ChatComponent, ChatMessage, ChatAttachment } from '../../shared/components/chat';
+import { AuthService } from '../../core/services/auth.service';
 import { LlmSelectorComponent, LlmSelectionService } from '../../shared/components/llm-selector';
 import { SseStreamService } from '../../shared/services/sse-stream.service';
 
@@ -332,7 +333,8 @@ interface TestRunResult {
                     [isLoading]="executing"
                     [placeholder]="'Describe la tarea para ' + executeAgent()?.name + '...'"
                     [emptyMessage]="'Envía un mensaje para comenzar la conversación con ' + executeAgent()?.name"
-                    (messageSent)="onChatMessageSent($event)">
+                    (messageSent)="onChatMessageSent($event)"
+                    (messageWithAttachments)="onChatMessageWithAttachments($event)">
                   </app-chat>
                 </div>
               </mat-card-content>
@@ -483,24 +485,66 @@ interface TestRunResult {
               <!-- Tab de Skills -->
               <mat-tab label="Skills">
                 <div class="tab-content">
+                  <div class="skills-toolbar">
+                    <div class="skills-info">
+                      <mat-icon>auto_awesome</mat-icon>
+                      <span>El LLM decide cuándo cargar cada skill según la tarea</span>
+                    </div>
+                    <button mat-raised-button color="primary" (click)="showAddSkillForm = !showAddSkillForm">
+                      <mat-icon>{{ showAddSkillForm ? 'close' : 'add' }}</mat-icon>
+                      {{ showAddSkillForm ? 'Cancelar' : 'Añadir Skill' }}
+                    </button>
+                  </div>
+
+                  @if (showAddSkillForm) {
+                    <mat-card class="add-skill-card">
+                      <mat-card-content>
+                        <div class="add-skill-form">
+                          <mat-form-field appearance="outline">
+                            <mat-label>ID del skill</mat-label>
+                            <input matInput [(ngModel)]="newSkill.id" placeholder="data_analysis">
+                            <mat-hint>Identificador único (snake_case)</mat-hint>
+                          </mat-form-field>
+                          <mat-form-field appearance="outline">
+                            <mat-label>Nombre</mat-label>
+                            <input matInput [(ngModel)]="newSkill.name" placeholder="Análisis de Datos">
+                          </mat-form-field>
+                          <mat-form-field appearance="outline" class="full-width">
+                            <mat-label>Descripción</mat-label>
+                            <input matInput [(ngModel)]="newSkill.description" placeholder="Cuándo debe el LLM cargar este skill...">
+                          </mat-form-field>
+                          <mat-form-field appearance="outline" class="full-width">
+                            <mat-label>Contenido (Markdown)</mat-label>
+                            <textarea matInput [(ngModel)]="newSkill.content" rows="8" placeholder="# Mi Skill\n\nInstrucciones..."></textarea>
+                          </mat-form-field>
+                          <div class="add-skill-actions">
+                            <button mat-raised-button color="primary"
+                                    [disabled]="!newSkill.id || !newSkill.name || addingSkill()"
+                                    (click)="addSkill()">
+                              @if (addingSkill()) {
+                                <mat-spinner diameter="18"></mat-spinner>
+                              } @else {
+                                <mat-icon>add</mat-icon>
+                              }
+                              Añadir
+                            </button>
+                          </div>
+                        </div>
+                      </mat-card-content>
+                    </mat-card>
+                  }
+
                   @if (loadingSkills()) {
                     <div class="loading-container">
                       <mat-spinner diameter="32"></mat-spinner>
                     </div>
-                  } @else if (agentSkills().length === 0) {
+                  } @else if (agentSkills().length === 0 && !showAddSkillForm) {
                     <div class="empty-skills">
                       <mat-icon>school</mat-icon>
                       <h3>Sin skills especializados</h3>
-                      <p>Este agente no tiene skills configurados</p>
+                      <p>Añade skills para dotar al agente de conocimiento específico</p>
                     </div>
                   } @else {
-                    <div class="skills-header">
-                      <div class="skills-info">
-                        <mat-icon>auto_awesome</mat-icon>
-                        <span>El LLM decide cuándo cargar cada skill según la tarea</span>
-                      </div>
-                    </div>
-
                     <div class="skills-list">
                       @for (skill of agentSkills(); track skill.id) {
                         <mat-expansion-panel class="skill-panel" [expanded]="expandedSkill === skill.id">
@@ -511,15 +555,19 @@ interface TestRunResult {
                             </mat-panel-title>
                             <mat-panel-description>
                               <span class="skill-id">{{ skill.id }}</span>
+                              <button mat-icon-button class="skill-delete-btn" matTooltip="Eliminar skill"
+                                      (click)="removeSkill(skill); $event.stopPropagation()">
+                                <mat-icon>delete_outline</mat-icon>
+                              </button>
                             </mat-panel-description>
                           </mat-expansion-panel-header>
-                          
+
                           <div class="skill-content">
                             <div class="skill-description">
                               <mat-icon>info</mat-icon>
                               <span>{{ skill.description }}</span>
                             </div>
-                            
+
                             @if (loadingSkillContent() === skill.id) {
                               <div class="skill-loading">
                                 <mat-spinner diameter="24"></mat-spinner>
@@ -533,6 +581,10 @@ interface TestRunResult {
                                     Contenido del Skill ({{ skill.id }}.md)
                                   </span>
                                   <div class="editor-actions">
+                                    <button mat-icon-button matTooltip="Guardar skill" (click)="saveSkillViaApi(skill)"
+                                            [disabled]="!dirtySkills.has(skill.id)">
+                                      <mat-icon [class.dirty]="dirtySkills.has(skill.id)">save</mat-icon>
+                                    </button>
                                     <button mat-icon-button matTooltip="Copiar contenido" (click)="copySkillContent(skill)">
                                       <mat-icon>content_copy</mat-icon>
                                     </button>
@@ -541,7 +593,7 @@ interface TestRunResult {
                                     </button>
                                   </div>
                                 </div>
-                                <textarea 
+                                <textarea
                                   class="skill-textarea"
                                   [class.expanded]="expandSkillEditor"
                                   [(ngModel)]="skill.content"
@@ -549,7 +601,9 @@ interface TestRunResult {
                                   placeholder="Contenido markdown del skill..."></textarea>
                                 <div class="editor-footer">
                                   <span class="char-count">{{ skill.content.length || 0 }} caracteres</span>
-                                  <span class="hint-save">Usa «Guardar» en la pestaña Configuración para guardar todos los cambios</span>
+                                  @if (dirtySkills.has(skill.id)) {
+                                    <span class="hint-unsaved">Cambios sin guardar</span>
+                                  }
                                 </div>
                               </div>
                             } @else {
@@ -1077,7 +1131,8 @@ interface TestRunResult {
                   [isLoading]="executing"
                   [placeholder]="'Describe la tarea para ' + executeAgent()?.name + '...'"
                   [emptyMessage]="'Envía un mensaje para comenzar la conversación con ' + executeAgent()?.name"
-                  (messageSent)="onChatMessageSent($event)">
+                  (messageSent)="onChatMessageSent($event)"
+                  (messageWithAttachments)="onChatMessageWithAttachments($event)">
                 </app-chat>
               </div>
             </mat-card-content>
@@ -2270,8 +2325,12 @@ interface TestRunResult {
       font-size: 14px;
     }
 
-    .skills-header {
+    .skills-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 16px;
+      gap: 16px;
     }
 
     .skills-info {
@@ -2283,10 +2342,62 @@ interface TestRunResult {
       border-radius: 8px;
       font-size: 13px;
       color: #667eea;
+      flex: 1;
     }
 
     .skills-info mat-icon {
       color: #667eea;
+    }
+
+    .add-skill-card {
+      margin-bottom: 16px;
+      border-radius: 12px !important;
+      border: 2px dashed #667eea;
+    }
+
+    .add-skill-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .add-skill-form .full-width {
+      grid-column: 1 / -1;
+    }
+
+    .add-skill-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .skill-delete-btn {
+      width: 28px !important;
+      height: 28px !important;
+      line-height: 28px !important;
+      margin-left: 8px;
+    }
+
+    .skill-delete-btn mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #999;
+      transition: color 0.2s;
+    }
+
+    .skill-delete-btn:hover mat-icon {
+      color: #f44336;
+    }
+
+    .dirty {
+      color: #ff9800 !important;
+    }
+
+    .hint-unsaved {
+      color: #ff9800;
+      font-size: 12px;
+      font-style: italic;
     }
 
     .skills-list {
@@ -2815,6 +2926,7 @@ export class SubagentsComponent implements OnInit {
   private snackBar = inject(MatSnackBar);
   private sanitizer = inject(DomSanitizer);
   private llmSelectionService = inject(LlmSelectionService);
+  private authService = inject(AuthService);
   private sseStream = inject(SseStreamService);
 
   subagents = signal<Subagent[]>([]);
@@ -2845,7 +2957,8 @@ export class SubagentsComponent implements OnInit {
     tokens: true,
     timestamps: true,
     clearButton: true,
-    configPanel: false
+    configPanel: false,
+    attachments: true
   };
 
   selectedAgent: Subagent | null = null;
@@ -2881,6 +2994,9 @@ export class SubagentsComponent implements OnInit {
   expandedSkill: string | null = null;
   expandSkillEditor = false;
   dirtySkills = new Set<string>();
+  showAddSkillForm = false;
+  addingSkill = signal(false);
+  newSkill = { id: '', name: '', description: '', content: '' };
 
   // Tests
   testCategories = signal<TestCategory[]>([]);
@@ -3429,12 +3545,15 @@ export class SubagentsComponent implements OnInit {
 
     this.executing.set(true);
 
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: this.executeTask,
-      timestamp: new Date()
-    };
-    this.messages.update(msgs => [...msgs, userMessage]);
+    if (!this.skipUserMessageInChat) {
+      const userMessage: ChatMessage = {
+        role: 'user',
+        content: this.executeTask,
+        timestamp: new Date()
+      };
+      this.messages.update(msgs => [...msgs, userMessage]);
+    }
+    this.skipUserMessageInChat = false;
 
     let sessionId = this.subagentSessionId();
     if (!sessionId) {
@@ -3484,9 +3603,64 @@ export class SubagentsComponent implements OnInit {
     }
   }
 
+  private skipUserMessageInChat = false;
+
   // Handler para mensajes del ChatComponent
   onChatMessageSent(message: string): void {
     this.executeTask = message;
+    this.executeSubagent();
+  }
+
+  onChatMessageWithAttachments(event: {message: string; attachments: ChatAttachment[]}): void {
+    const userEmail = this.authService.currentUser()?.email;
+    const uploadUrl = `${environment.apiUrl}/workspace/files/upload${userEmail ? '?user_id=' + encodeURIComponent(userEmail) : ''}`;
+
+    let completed = 0;
+    const total = event.attachments.length;
+    const uploadedPaths: string[] = [];
+
+    for (const att of event.attachments) {
+      att.uploadStatus = 'uploading';
+      const formData = new FormData();
+      formData.append('file', att.file);
+      formData.append('path', 'uploads');
+      this.http.post<any>(uploadUrl, formData).subscribe({
+        next: (res) => {
+          att.uploadStatus = 'done';
+          att.workspacePath = res.path;
+          uploadedPaths.push(res.path);
+          completed++;
+          if (completed === total) {
+            this.sendMessageWithAttachmentContext(event.message, event.attachments, uploadedPaths);
+          }
+        },
+        error: () => {
+          att.uploadStatus = 'error';
+          completed++;
+          if (completed === total) {
+            this.sendMessageWithAttachmentContext(event.message, event.attachments, uploadedPaths);
+          }
+        }
+      });
+    }
+  }
+
+  private sendMessageWithAttachmentContext(message: string, attachments: ChatAttachment[], paths: string[]): void {
+    const fileList = paths.map(p => `/workspace/${p}`).join(', ');
+    const prefix = paths.length === 1
+      ? `[Archivo adjunto: ${fileList}]\n`
+      : `[Archivos adjuntos: ${fileList}]\n`;
+    const fullMessage = prefix + (message || 'Analiza el archivo adjunto.');
+
+    this.messages.update(msgs => [...msgs, {
+      role: 'user' as const,
+      content: message || 'Analiza el archivo adjunto.',
+      timestamp: new Date(),
+      attachments
+    }]);
+
+    this.executeTask = fullMessage;
+    this.skipUserMessageInChat = true;
     this.executeSubagent();
   }
 
@@ -3624,9 +3798,76 @@ export class SubagentsComponent implements OnInit {
 
   copySkillContent(skill: Skill): void {
     if (!skill.content) return;
-    
+
     navigator.clipboard.writeText(skill.content).then(() => {
       this.snackBar.open('Contenido copiado', 'Cerrar', { duration: 2000 });
+    });
+  }
+
+  addSkill(): void {
+    if (!this.selectedAgent || !this.newSkill.id || !this.newSkill.name) return;
+
+    this.addingSkill.set(true);
+    const agentId = this.selectedAgent.id;
+
+    this.http.post<any>(
+      `${environment.apiUrl}/agent-definitions/${agentId}/skills`,
+      this.newSkill
+    ).subscribe({
+      next: () => {
+        this.agentSkills.update(skills => [...skills, { ...this.newSkill, loaded: true }]);
+        this.snackBar.open(`Skill "${this.newSkill.name}" añadido`, 'Cerrar', { duration: 3000 });
+        this.newSkill = { id: '', name: '', description: '', content: '' };
+        this.showAddSkillForm = false;
+        this.addingSkill.set(false);
+        this.loadSubagents();
+      },
+      error: (err) => {
+        const msg = err.error?.detail || 'Error añadiendo skill';
+        this.snackBar.open(msg, 'Cerrar', { duration: 4000 });
+        this.addingSkill.set(false);
+      }
+    });
+  }
+
+  removeSkill(skill: Skill): void {
+    if (!this.selectedAgent) return;
+    if (!confirm(`¿Eliminar el skill "${skill.name}" de este agente?`)) return;
+
+    const agentId = this.selectedAgent.id;
+
+    this.http.delete<any>(
+      `${environment.apiUrl}/agent-definitions/${agentId}/skills/${skill.id}`
+    ).subscribe({
+      next: () => {
+        this.agentSkills.update(skills => skills.filter(s => s.id !== skill.id));
+        this.snackBar.open(`Skill "${skill.name}" eliminado`, 'Cerrar', { duration: 3000 });
+        this.loadSubagents();
+      },
+      error: (err) => {
+        const msg = err.error?.detail || 'Error eliminando skill';
+        this.snackBar.open(msg, 'Cerrar', { duration: 3000 });
+      }
+    });
+  }
+
+  saveSkillViaApi(skill: Skill): void {
+    if (!this.selectedAgent || !skill.content) return;
+
+    const agentId = this.selectedAgent.id;
+
+    this.http.put<any>(
+      `${environment.apiUrl}/agent-definitions/${agentId}/skills/${skill.id}`,
+      { content: skill.content }
+    ).subscribe({
+      next: () => {
+        this.dirtySkills.delete(skill.id);
+        this.snackBar.open(`Skill "${skill.name}" guardado`, 'Cerrar', { duration: 3000 });
+      },
+      error: (err) => {
+        const msg = err.error?.detail || 'Error guardando skill';
+        this.snackBar.open(msg, 'Cerrar', { duration: 3000 });
+      }
     });
   }
 

@@ -103,10 +103,10 @@ async def ingest_file(
     """
     Ingestar un archivo subido directamente
     
-    Formatos soportados: PDF, TXT, MD, DOCX, HTML
+    Formatos soportados: PDF, TXT, MD, DOCX, HTML, XLSX, XLS, CSV
     """
     # Verificar extensión
-    allowed_extensions = {".pdf", ".txt", ".md", ".docx", ".html"}
+    allowed_extensions = {".pdf", ".txt", ".md", ".docx", ".html", ".xlsx", ".xls", ".csv"}
     file_ext = os.path.splitext(file.filename)[1].lower()
     
     if file_ext not in allowed_extensions:

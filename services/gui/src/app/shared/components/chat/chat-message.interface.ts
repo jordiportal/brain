@@ -86,6 +86,8 @@ export interface ChatMessage {
   currentIteration?: number;
   /** Total de iteraciones máximas */
   maxIterations?: number;
+  /** Archivos adjuntos del mensaje de usuario */
+  attachments?: ChatAttachment[];
 }
 
 /**
@@ -115,6 +117,8 @@ export interface ChatFeatures {
   clearButton: boolean;
   /** Panel de configuración lateral (testing) */
   configPanel: boolean;
+  /** Permitir adjuntar archivos */
+  attachments?: boolean;
 }
 
 /**
@@ -130,11 +134,24 @@ export interface ChatLLMConfig {
 }
 
 /**
+ * Archivo adjunto subido al workspace
+ */
+export interface ChatAttachment {
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  workspacePath?: string;
+  uploadStatus?: 'pending' | 'uploading' | 'done' | 'error';
+}
+
+/**
  * Evento de mensaje enviado
  */
 export interface MessageSentEvent {
   content: string;
   config?: ChatLLMConfig;
+  attachments?: ChatAttachment[];
 }
 
 /**

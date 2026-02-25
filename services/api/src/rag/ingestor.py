@@ -21,7 +21,7 @@ logger = structlog.get_logger()
 class DocumentIngestor:
     """Ingestor de documentos con soporte para múltiples formatos"""
     
-    SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".html"}
+    SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".html", ".xlsx", ".xls", ".csv"}
     
     def __init__(
         self,
@@ -216,6 +216,12 @@ class DocumentIngestor:
         elif extension == ".html":
             return await self._extract_html(path.read_text(encoding="utf-8"))
         
+        elif extension == ".csv":
+            return await self._extract_csv(path)
+        
+        elif extension in (".xlsx", ".xls"):
+            return await self._extract_excel(path)
+        
         else:
             raise ValueError(f"Extractor no implementado para {extension}")
     
@@ -232,6 +238,12 @@ class DocumentIngestor:
         
         elif extension == ".html":
             return await self._extract_html(content.decode("utf-8"))
+        
+        elif extension == ".csv":
+            return await self._extract_csv_bytes(content)
+        
+        elif extension in (".xlsx", ".xls"):
+            return await self._extract_excel_bytes(content)
         
         else:
             raise ValueError(f"Extractor no implementado para {extension}")
@@ -293,6 +305,64 @@ class DocumentIngestor:
             text = re.sub(r'<[^>]+>', ' ', html)
             return re.sub(r'\s+', ' ', text).strip()
     
+    async def _extract_csv(self, path: Path) -> str:
+        """Extraer texto de CSV preservando estructura tabular"""
+        import csv
+        rows = []
+        with open(path, newline='', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                rows.append(" | ".join(row))
+        return "\n".join(rows)
+
+    async def _extract_csv_bytes(self, content: bytes) -> str:
+        """Extraer texto de CSV desde bytes"""
+        import csv
+        text = content.decode("utf-8-sig")
+        rows = []
+        reader = csv.reader(io.StringIO(text))
+        for row in reader:
+            rows.append(" | ".join(row))
+        return "\n".join(rows)
+
+    async def _extract_excel(self, path: Path) -> str:
+        """Extraer texto de Excel preservando estructura tabular"""
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(str(path), read_only=True, data_only=True)
+            sheets_text = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                rows = []
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    rows.append(" | ".join(cells))
+                if rows:
+                    sheets_text.append(f"## Hoja: {sheet_name}\n\n" + "\n".join(rows))
+            wb.close()
+            return "\n\n".join(sheets_text)
+        except ImportError:
+            raise ImportError("openpyxl no instalado. Ejecuta: pip install openpyxl")
+
+    async def _extract_excel_bytes(self, content: bytes) -> str:
+        """Extraer texto de Excel desde bytes"""
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            sheets_text = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                rows = []
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    rows.append(" | ".join(cells))
+                if rows:
+                    sheets_text.append(f"## Hoja: {sheet_name}\n\n" + "\n".join(rows))
+            wb.close()
+            return "\n\n".join(sheets_text)
+        except ImportError:
+            raise ImportError("openpyxl no instalado")
+
     def _detect_extension(self, content_type: str, file_name: str) -> str:
         """Detectar extensión del archivo"""
         # Por content-type
@@ -301,7 +371,10 @@ class DocumentIngestor:
             "text/plain": ".txt",
             "text/markdown": ".md",
             "text/html": ".html",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx"
+            "text/csv": ".csv",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+            "application/vnd.ms-excel": ".xls"
         }
         
         for mime, ext in type_map.items():

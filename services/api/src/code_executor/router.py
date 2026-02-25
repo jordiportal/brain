@@ -3,6 +3,7 @@ Router para el Code Executor y Workspace
 
 Endpoints (todos aceptan ?user_id para scoping per-user sandbox):
 - GET /workspace/files/{path} - Sirve archivos del workspace
+- POST /workspace/files/upload - Sube archivo al workspace del usuario
 - GET /workspace/list/{path} - Lista archivos de un directorio
 - DELETE /workspace/files/{path} - Elimina un archivo
 - GET /workspace/media/recent - Lista archivos multimedia recientes
@@ -11,7 +12,7 @@ Endpoints (todos aceptan ?user_id para scoping per-user sandbox):
 
 import subprocess
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from src.auth import require_role
 from pathlib import Path
@@ -60,6 +61,37 @@ async def get_workspace_file(file_path: str, user_id: Optional[str] = Query(None
             "Content-Length": str(len(data)),
         },
     )
+
+
+@router.post("/files/upload")
+async def upload_workspace_file(
+    file: UploadFile = File(...),
+    path: str = Form("uploads"),
+    user_id: Optional[str] = Query(None),
+):
+    """Sube un archivo al workspace del sandbox del usuario."""
+    executor = await _get_executor(user_id)
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+
+    safe_name = Path(file.filename).name
+    target_path = f"{path}/{safe_name}"
+
+    success = executor.write_binary_file(target_path, content)
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Error guardando archivo: {target_path}")
+
+    logger.info("File uploaded to workspace", path=target_path, size=len(content), user=user_id)
+
+    return {
+        "status": "ok",
+        "file_name": safe_name,
+        "path": target_path,
+        "size": len(content),
+        "url": f"/api/v1/workspace/files/{target_path}",
+    }
 
 
 @router.get("/list/{dir_path:path}")

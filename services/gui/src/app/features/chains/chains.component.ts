@@ -20,6 +20,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { ApiService } from '../../core/services/api.service';
+import { AuthService } from '../../core/services/auth.service';
 import { StrapiService } from '../../core/services/config.service';
 import { LlmProvider } from '../../core/models';
 import { ChainEditorComponent } from './chain-editor/chain-editor.component';
@@ -28,7 +29,7 @@ import { ArtifactSidebarComponent } from '../../shared/components/artifact-sideb
 import { environment } from '../../../environments/environment';
 
 // Chat unificado
-import { ChatComponent, ChatMessage, IntermediateStep } from '../../shared/components/chat';
+import { ChatComponent, ChatMessage, IntermediateStep, ChatAttachment } from '../../shared/components/chat';
 import { SseStreamService } from '../../shared/services/sse-stream.service';
 
 interface EngineChain {
@@ -310,6 +311,7 @@ interface ExecutionStep {
                     [emptyMessage]="'Selecciona un asistente y envía un mensaje para comenzar'"
                     [currentStepName]="currentStepName"
                     (messageSent)="onChatMessageSent($event)"
+                    (messageWithAttachments)="onChatMessageWithAttachments($event)"
                     (presentationOpened)="openPresentation($event)">
                   </app-chat>
 
@@ -723,6 +725,7 @@ export class ChainsComponent implements OnInit {
   private snackBar = inject(MatSnackBar);
   private sanitizer = inject(DomSanitizer);
   private sseStream = inject(SseStreamService);
+  private authService = inject(AuthService);
 
   @ViewChild(MatTabGroup) tabGroup!: MatTabGroup;
   @ViewChild('messagesContainer') messagesContainer!: ElementRef;
@@ -772,7 +775,8 @@ export class ChainsComponent implements OnInit {
     tokens: true,
     timestamps: false,
     clearButton: true,
-    configPanel: false
+    configPanel: false,
+    attachments: true
   };
 
   currentStepName = signal<string | null>(null);
@@ -973,13 +977,18 @@ export class ChainsComponent implements OnInit {
     });
   }
 
+  private skipUserMessageInChat = false;
+
   async executeChain(): Promise<void> {
     if (!this.selectedChain() || !this.userInput.trim()) return;
 
     const chain = this.selectedChain()!;
     const userMessage = this.userInput.trim();
-    
-    this.messages.update(msgs => [...msgs, { role: 'user', content: userMessage }]);
+
+    if (!this.skipUserMessageInChat) {
+      this.messages.update(msgs => [...msgs, { role: 'user', content: userMessage }]);
+    }
+    this.skipUserMessageInChat = false;
     this.userInput = '';
     this.isExecuting.set(true);
     this.currentStep.set(null);
@@ -1002,6 +1011,60 @@ export class ChainsComponent implements OnInit {
   // Handler para mensajes del ChatComponent
   onChatMessageSent(message: string): void {
     this.userInput = message;
+    this.executeChain();
+  }
+
+  onChatMessageWithAttachments(event: {message: string; attachments: ChatAttachment[]}): void {
+    const userEmail = this.authService.currentUser()?.email;
+    const uploadUrl = `${environment.apiUrl}/workspace/files/upload${userEmail ? '?user_id=' + encodeURIComponent(userEmail) : ''}`;
+
+    let completed = 0;
+    const total = event.attachments.length;
+    const uploadedPaths: string[] = [];
+
+    for (const att of event.attachments) {
+      att.uploadStatus = 'uploading';
+      const formData = new FormData();
+      formData.append('file', att.file);
+      formData.append('path', 'uploads');
+      this.http.post<any>(uploadUrl, formData).subscribe({
+        next: (res) => {
+          att.uploadStatus = 'done';
+          att.workspacePath = res.path;
+          uploadedPaths.push(res.path);
+          completed++;
+          if (completed === total) {
+            this.sendMessageWithAttachmentContext(event.message, event.attachments, uploadedPaths);
+          }
+        },
+        error: () => {
+          att.uploadStatus = 'error';
+          completed++;
+          if (completed === total) {
+            this.sendMessageWithAttachmentContext(event.message, event.attachments, uploadedPaths);
+          }
+        }
+      });
+    }
+  }
+
+  private sendMessageWithAttachmentContext(message: string, attachments: ChatAttachment[], paths: string[]): void {
+    const fileList = paths.map(p => `/workspace/${p}`).join(', ');
+    const prefix = paths.length === 1
+      ? `[Archivo adjunto: ${fileList}]\n`
+      : `[Archivos adjuntos: ${fileList}]\n`;
+    const fullMessage = prefix + (message || 'Analiza el archivo adjunto.');
+
+    const msgs = this.messages();
+    this.messages.set([...msgs, {
+      role: 'user',
+      content: message || 'Analiza el archivo adjunto.',
+      timestamp: new Date(),
+      attachments
+    }]);
+
+    this.userInput = fullMessage;
+    this.skipUserMessageInChat = true;
     this.executeChain();
   }
 

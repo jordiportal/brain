@@ -54,6 +54,19 @@ class AgentDefinitionUpdate(BaseModel):
     change_reason: Optional[str] = None
 
 
+class AddSkillRequest(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    content: str = ""
+
+
+class UpdateSkillRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    content: Optional[str] = None
+
+
 class RestoreVersionRequest(BaseModel):
     changed_by: Optional[str] = None
 
@@ -161,6 +174,73 @@ async def restore_agent_version(agent_id: str, version_number: int, body: Option
         "version_restored": version_number,
         "definition": defn.model_dump(mode="json"),
     }
+
+
+# ── Skill management endpoints ────────────────────────────────────
+
+@router.post("/{agent_id}/skills", status_code=201)
+async def add_skill(agent_id: str, body: AddSkillRequest):
+    """Añade un skill a un agente existente."""
+    defn = await AgentDefinitionRepository.get_by_agent_id(agent_id)
+    if not defn:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    skills = list(defn.skills or [])
+    if any(s.get("id") == body.id for s in skills):
+        raise HTTPException(status_code=409, detail=f"Skill '{body.id}' already exists in agent '{agent_id}'")
+
+    skills.append(body.model_dump())
+    updated = await AgentDefinitionRepository.update(agent_id, {
+        "skills": skills,
+        "change_reason": f"Added skill '{body.id}'"
+    })
+    await _reload_registry()
+    return {"status": "added", "skill": body.model_dump(), "total_skills": len(skills)}
+
+
+@router.put("/{agent_id}/skills/{skill_id}")
+async def update_skill(agent_id: str, skill_id: str, body: UpdateSkillRequest):
+    """Actualiza un skill existente de un agente."""
+    defn = await AgentDefinitionRepository.get_by_agent_id(agent_id)
+    if not defn:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    skills = list(defn.skills or [])
+    idx = next((i for i, s in enumerate(skills) if s.get("id") == skill_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found in agent '{agent_id}'")
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    skills[idx] = {**skills[idx], **updates}
+
+    await AgentDefinitionRepository.update(agent_id, {
+        "skills": skills,
+        "change_reason": f"Updated skill '{skill_id}'"
+    })
+    await _reload_registry()
+    return {"status": "updated", "skill": skills[idx]}
+
+
+@router.delete("/{agent_id}/skills/{skill_id}")
+async def remove_skill(agent_id: str, skill_id: str):
+    """Elimina un skill de un agente."""
+    defn = await AgentDefinitionRepository.get_by_agent_id(agent_id)
+    if not defn:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    skills = list(defn.skills or [])
+    original_len = len(skills)
+    skills = [s for s in skills if s.get("id") != skill_id]
+
+    if len(skills) == original_len:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found in agent '{agent_id}'")
+
+    await AgentDefinitionRepository.update(agent_id, {
+        "skills": skills,
+        "change_reason": f"Removed skill '{skill_id}'"
+    })
+    await _reload_registry()
+    return {"status": "removed", "skill_id": skill_id, "remaining_skills": len(skills)}
 
 
 # ── Helpers ───────────────────────────────────────────────────────

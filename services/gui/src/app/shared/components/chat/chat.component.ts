@@ -26,7 +26,8 @@ import {
   ChatFeatures, 
   IntermediateStep,
   ImageData,
-  VideoData
+  VideoData,
+  ChatAttachment
 } from './chat-message.interface';
 import { MarkdownPipe } from './markdown.pipe';
 
@@ -70,6 +71,17 @@ import { MarkdownPipe } from './markdown.pipe';
 
               @if (msg.role === 'user') {
                 <div class="message-text">{{ msg.content }}</div>
+                @if (msg.attachments && msg.attachments.length > 0) {
+                  <div class="message-attachments">
+                    @for (att of msg.attachments; track att.name) {
+                      <div class="attachment-chip">
+                        <mat-icon>{{ getFileIcon(att.name) }}</mat-icon>
+                        <span>{{ att.name }}</span>
+                        <span class="att-size">{{ formatSize(att.size) }}</span>
+                      </div>
+                    }
+                  </div>
+                }
               } @else {
 
                 <!-- Pasos intermedios (inline) -->
@@ -260,8 +272,30 @@ import { MarkdownPipe } from './markdown.pipe';
         }
       </div>
 
+      <!-- Pending attachments preview -->
+      @if (pendingFiles.length > 0) {
+        <div class="pending-attachments">
+          @for (pf of pendingFiles; track pf.name) {
+            <div class="pending-file" [class.uploading]="pf.uploadStatus === 'uploading'">
+              <mat-icon>{{ getFileIcon(pf.name) }}</mat-icon>
+              <span class="pf-name">{{ pf.name }}</span>
+              <span class="pf-size">{{ formatSize(pf.size) }}</span>
+              <button mat-icon-button class="pf-remove" (click)="removePendingFile(pf)">
+                <mat-icon>close</mat-icon>
+              </button>
+            </div>
+          }
+        </div>
+      }
+
       <!-- Input area -->
       <div class="input-area">
+        @if (features.attachments) {
+          <input type="file" #fileAttach (change)="onFilesSelected($event)" multiple style="display:none">
+          <button mat-icon-button matTooltip="Adjuntar archivo" (click)="fileAttach.click()" [disabled]="isLoading()">
+            <mat-icon>attach_file</mat-icon>
+          </button>
+        }
         <mat-form-field appearance="outline" class="message-input">
           <textarea matInput 
                     [(ngModel)]="newMessageText" 
@@ -273,7 +307,7 @@ import { MarkdownPipe } from './markdown.pipe';
         </mat-form-field>
         <button mat-fab color="primary" 
                 (click)="sendMessage()" 
-                [disabled]="isLoading() || !newMessageText.trim()">
+                [disabled]="isLoading() || (!newMessageText.trim() && pendingFiles.length === 0)">
           @if (isLoading()) {
             <mat-spinner diameter="24" color="accent"></mat-spinner>
           } @else {
@@ -767,6 +801,92 @@ import { MarkdownPipe } from './markdown.pipe';
       border-top: 1px solid #f0f0f0;
       background: #fafafa;
     }
+
+    /* ===== Attachments in user messages ===== */
+    .message-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .attachment-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 12px;
+      font-size: 12px;
+    }
+
+    .attachment-chip mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+    }
+
+    .att-size {
+      opacity: 0.7;
+      font-size: 11px;
+    }
+
+    /* ===== Pending attachments bar ===== */
+    .pending-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 16px;
+      border-top: 1px solid #eee;
+      background: #fafafa;
+    }
+
+    .pending-file {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px 4px 10px;
+      background: #e8eaf6;
+      border-radius: 8px;
+      font-size: 13px;
+      transition: opacity 0.2s;
+    }
+
+    .pending-file.uploading {
+      opacity: 0.6;
+    }
+
+    .pending-file mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      color: #5c6bc0;
+    }
+
+    .pf-name {
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pf-size {
+      font-size: 11px;
+      color: #888;
+    }
+
+    .pf-remove {
+      width: 20px !important;
+      height: 20px !important;
+      line-height: 20px !important;
+    }
+
+    .pf-remove mat-icon {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      color: #999;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
@@ -791,10 +911,12 @@ export class ChatComponent {
   @Input() currentStepName: Signal<string | null> = signal(null);
 
   @Output() messageSent = new EventEmitter<string>();
+  @Output() messageWithAttachments = new EventEmitter<{message: string; attachments: ChatAttachment[]}>();
   @Output() chatCleared = new EventEmitter<void>();
   @Output() presentationOpened = new EventEmitter<string>();
 
   newMessageText = '';
+  pendingFiles: ChatAttachment[] = [];
 
   private expandedMessages = new Set<number>();
   private expandedSteps = new Set<string>();
@@ -839,11 +961,63 @@ export class ChatComponent {
   // --- Helpers ---
 
   sendMessage(): void {
-    if (!this.newMessageText.trim() || this.isLoading()) return;
+    const hasText = this.newMessageText.trim().length > 0;
+    const hasFiles = this.pendingFiles.length > 0;
+    if ((!hasText && !hasFiles) || this.isLoading()) return;
+
     const message = this.newMessageText.trim();
     this.newMessageText = '';
-    this.messageSent.emit(message);
+
+    if (hasFiles) {
+      const attachments = [...this.pendingFiles];
+      this.pendingFiles = [];
+      this.messageWithAttachments.emit({ message, attachments });
+    } else {
+      this.messageSent.emit(message);
+    }
     this.scrollToBottom();
+  }
+
+  onFilesSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files) return;
+    for (let i = 0; i < input.files.length; i++) {
+      const file = input.files[i];
+      this.pendingFiles.push({
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        uploadStatus: 'pending'
+      });
+    }
+    input.value = '';
+  }
+
+  removePendingFile(att: ChatAttachment): void {
+    this.pendingFiles = this.pendingFiles.filter(f => f !== att);
+  }
+
+  formatSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  getFileIcon(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    const iconMap: Record<string, string> = {
+      xlsx: 'table_chart', xls: 'table_chart', csv: 'table_chart',
+      pdf: 'picture_as_pdf',
+      doc: 'description', docx: 'description',
+      png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
+      mp4: 'movie', webm: 'movie',
+      txt: 'text_snippet', md: 'text_snippet',
+      html: 'code', json: 'data_object', xml: 'code',
+      zip: 'folder_zip', rar: 'folder_zip',
+      py: 'terminal', js: 'javascript', ts: 'javascript',
+    };
+    return iconMap[ext] || 'insert_drive_file';
   }
 
   clearChat(): void {

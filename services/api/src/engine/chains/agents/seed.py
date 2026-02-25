@@ -80,6 +80,8 @@ def get_default_agents() -> List[Dict[str, Any]]:
              "description": "P&L, márgenes, ratios financieros, comparativas"},
             {"id": "sales_analysis", "name": "Análisis de Ventas",
              "description": "Ventas por segmento, canal, marca, evolución temporal"},
+            {"id": "data_analysis", "name": "Análisis de Datos Tabulares",
+             "description": "Técnicas para analizar archivos Excel/CSV con pandas: lectura, transformación, gráficos, exportación"},
         ]),
         "version": "4.0.0",
         "icon": "analytics",
