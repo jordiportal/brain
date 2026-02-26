@@ -27,7 +27,8 @@ async def generate_spreadsheet(
     file_name: Optional[str] = None,
     conversation_id: Optional[str] = None,
     agent_id: Optional[str] = "data_agent",
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Genera un archivo Excel (.xlsx) a partir de datos tabulares.
@@ -206,7 +207,7 @@ async def generate_spreadsheet(
                 }
             )
             
-            artifact = await ArtifactRepository.create(artifact_data)
+            artifact = await ArtifactRepository.create(_user_id or "default", artifact_data)
             
             if artifact:
                 logger.info(

@@ -1,21 +1,26 @@
-"""Repository for user_tasks table."""
+"""Repository for user_tasks — per-user SQLite."""
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from src.db import get_db
+from src.db.user_db import user_db, row_to_dict
 
 _COLUMNS = (
-    "id, user_id, type, name, cron_expression, is_active, config, "
+    "id, type, name, cron_expression, is_active, config, "
     "llm_provider_id, llm_model, last_run_at, last_status, next_run_at, "
     "created_at, updated_at"
 )
 
 
-def _row_to_dict(row) -> Dict[str, Any]:
+def _normalise(row: dict) -> dict:
     d = dict(row)
     if isinstance(d.get("config"), str):
-        d["config"] = json.loads(d["config"])
+        try:
+            d["config"] = json.loads(d["config"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    d["is_active"] = bool(d.get("is_active"))
     return d
 
 
@@ -23,88 +28,92 @@ class UserTaskRepository:
 
     @staticmethod
     async def get_all(user_id: str) -> List[Dict[str, Any]]:
-        db = get_db()
-        rows = await db.fetch_all(
-            f"SELECT {_COLUMNS} FROM user_tasks WHERE user_id = $1 ORDER BY created_at DESC",
-            user_id,
-        )
-        return [_row_to_dict(r) for r in rows]
+        conn = await user_db.get_connection(user_id)
+        async with conn.execute(
+            f"SELECT {_COLUMNS} FROM user_tasks ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_normalise(row_to_dict(r)) for r in rows]
 
     @staticmethod
-    async def get(task_id: int) -> Optional[Dict[str, Any]]:
-        db = get_db()
-        row = await db.fetch_one(f"SELECT {_COLUMNS} FROM user_tasks WHERE id = $1", task_id)
-        return _row_to_dict(row) if row else None
+    async def get(user_id: str, task_id: int) -> Optional[Dict[str, Any]]:
+        conn = await user_db.get_connection(user_id)
+        async with conn.execute(
+            f"SELECT {_COLUMNS} FROM user_tasks WHERE id = ?", (task_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return _normalise(row_to_dict(row)) if row else None
 
     @staticmethod
-    async def get_active_tasks() -> List[Dict[str, Any]]:
-        db = get_db()
-        rows = await db.fetch_all(
-            f"SELECT {_COLUMNS} FROM user_tasks WHERE is_active = true ORDER BY next_run_at ASC NULLS FIRST"
-        )
-        return [_row_to_dict(r) for r in rows]
-
-    @staticmethod
-    async def create(data: Dict[str, Any]) -> Dict[str, Any]:
-        db = get_db()
+    async def create(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        conn = await user_db.get_connection(user_id)
         config_json = json.dumps(data.get("config") or {})
-        row = await db.fetch_one(
+        async with conn.execute(
             f"""
-            INSERT INTO user_tasks (user_id, type, name, cron_expression, is_active, config, llm_provider_id, llm_model)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-            RETURNING {_COLUMNS}
+            INSERT INTO user_tasks (type, name, cron_expression, is_active, config, llm_provider_id, llm_model)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            data["user_id"],
-            data["type"],
-            data["name"],
-            data["cron_expression"],
-            data.get("is_active", True),
-            config_json,
-            data.get("llm_provider_id"),
-            data.get("llm_model"),
-        )
-        return _row_to_dict(row)
+            (
+                data["type"],
+                data["name"],
+                data["cron_expression"],
+                1 if data.get("is_active", True) else 0,
+                config_json,
+                data.get("llm_provider_id"),
+                data.get("llm_model"),
+            ),
+        ) as cur:
+            last_id = cur.lastrowid
+        await conn.commit()
+        return await UserTaskRepository.get(user_id, last_id)  # type: ignore[return-value]
 
     @staticmethod
-    async def update(task_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        db = get_db()
-        updates, values, n = [], [], 1
+    async def update(user_id: str, task_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        conn = await user_db.get_connection(user_id)
+        updates: list[str] = []
+        values: list[Any] = []
         for field, col in [
-            ("name", "name"), ("cron_expression", "cron_expression"),
-            ("is_active", "is_active"), ("last_status", "last_status"),
+            ("name", "name"),
+            ("cron_expression", "cron_expression"),
+            ("last_status", "last_status"),
         ]:
             if field in data and data[field] is not None:
-                updates.append(f"{col} = ${n}")
+                updates.append(f"{col} = ?")
                 values.append(data[field])
-                n += 1
+        if "is_active" in data and data["is_active"] is not None:
+            updates.append("is_active = ?")
+            values.append(1 if data["is_active"] else 0)
         if "config" in data and data["config"] is not None:
-            updates.append(f"config = ${n}::jsonb")
+            updates.append("config = ?")
             values.append(json.dumps(data["config"]))
-            n += 1
         if "last_run_at" in data:
-            updates.append(f"last_run_at = ${n}")
-            values.append(data["last_run_at"])
-            n += 1
+            updates.append("last_run_at = ?")
+            val = data["last_run_at"]
+            values.append(val.isoformat() if isinstance(val, datetime) else val)
         if not updates:
-            return await UserTaskRepository.get(task_id)
-        updates.append("updated_at = NOW()")
+            return await UserTaskRepository.get(user_id, task_id)
+        updates.append("updated_at = datetime('now')")
         values.append(task_id)
-        row = await db.fetch_one(
-            f"UPDATE user_tasks SET {', '.join(updates)} WHERE id = ${n} RETURNING {_COLUMNS}",
-            *values,
+        await conn.execute(
+            f"UPDATE user_tasks SET {', '.join(updates)} WHERE id = ?",
+            values,
         )
-        return _row_to_dict(row) if row else None
+        await conn.commit()
+        return await UserTaskRepository.get(user_id, task_id)
 
     @staticmethod
-    async def delete(task_id: int) -> bool:
-        db = get_db()
-        result = await db.execute("DELETE FROM user_tasks WHERE id = $1", task_id)
-        return result == "DELETE 1"
+    async def delete(user_id: str, task_id: int) -> bool:
+        conn = await user_db.get_connection(user_id)
+        cur = await conn.execute("DELETE FROM user_tasks WHERE id = ?", (task_id,))
+        await conn.commit()
+        return cur.rowcount > 0
 
     @staticmethod
-    async def request_run_now(task_id: int) -> None:
-        db = get_db()
-        await db.execute(
-            "INSERT INTO user_task_run_now (task_id) VALUES ($1) ON CONFLICT (task_id) DO UPDATE SET requested_at = NOW()",
-            task_id,
+    async def request_run_now(user_id: str, task_id: int) -> None:
+        conn = await user_db.get_connection(user_id)
+        await conn.execute(
+            "INSERT INTO user_task_run_now (task_id) VALUES (?) "
+            "ON CONFLICT (task_id) DO UPDATE SET requested_at = datetime('now')",
+            (task_id,),
         )
+        await conn.commit()

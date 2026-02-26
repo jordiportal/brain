@@ -2,15 +2,13 @@
 
 import json
 
-import asyncpg
-
 from .base import call_llm, call_proxy365, get_user_profile, save_result
 
 MAIL_SELECT = "id,subject,from,toRecipients,receivedDateTime,isRead,hasAttachments,bodyPreview,importance"
 
 
-async def run_mail_digest(pool: asyncpg.Pool, task_id: int, user_id: str, name: str) -> None:
-    profile = await get_user_profile(pool, user_id)
+async def run_mail_digest(db_path: str, task_id: int, user_id: str, name: str) -> None:
+    profile = await get_user_profile(db_path, user_id)
     prefs = (profile or {}).get("preferences") or {}
     if isinstance(prefs, str):
         prefs = json.loads(prefs) if prefs else {}
@@ -22,7 +20,7 @@ async def run_mail_digest(pool: asyncpg.Pool, task_id: int, user_id: str, name: 
     messages = data.get("data") or data.get("value") or data.get("messages") or []
 
     if not messages:
-        await save_result(pool, task_id, user_id, "mail_summary", "Resumen de correo", "No hay correos nuevos.")
+        await save_result(db_path, task_id, user_id, "mail_summary", "Resumen de correo", "No hay correos nuevos.")
         return
 
     lines = []
@@ -46,4 +44,4 @@ async def run_mail_digest(pool: asyncpg.Pool, task_id: int, user_id: str, name: 
         "Sé conciso (máximo 1 página)."
     )
     content = await call_llm(user_id, system_content, user_content)
-    await save_result(pool, task_id, user_id, "mail_summary", "Resumen de correo", content or "Sin contenido.")
+    await save_result(db_path, task_id, user_id, "mail_summary", "Resumen de correo", content or "Sin contenido.")

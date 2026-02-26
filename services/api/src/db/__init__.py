@@ -1,9 +1,10 @@
 # ===========================================
 # Brain Database Module
-# Direct PostgreSQL access
+# PostgreSQL (shared) + per-user SQLite
 # ===========================================
 
 from .connection import Database, get_db
+from .user_db import UserDatabase, user_db
 from .models import (
     BrainChain,
     LLMProvider,
@@ -16,6 +17,8 @@ from .models import (
 __all__ = [
     "Database",
     "get_db",
+    "UserDatabase",
+    "user_db",
     "BrainChain",
     "LLMProvider", 
     "BrainApiKey",

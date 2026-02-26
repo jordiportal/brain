@@ -1,4 +1,4 @@
-"""Task executor registry. Signature: (pool, task_id, user_id, name)."""
+"""Task executor registry. Signature: (db_path, task_id, user_id, name)."""
 
 from .mail_digest import run_mail_digest
 from .calendar_briefing import run_calendar_briefing

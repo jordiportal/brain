@@ -469,7 +469,6 @@ export class MainLayoutComponent {
     { label: 'Agentes', icon: 'smart_toy', route: '/subagents' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
     { label: 'API Externa', icon: 'api', route: '/external-api', roles: ['admin'] },
-    { label: 'Artefactos', icon: 'folder_special', route: '/artifacts' },
     { label: 'Testing LLM', icon: 'science', route: '/testing', roles: ['admin', 'user'] },
     { label: 'Monitorización', icon: 'monitoring', route: '/monitoring' },
     { label: 'RAG / Documentos', icon: 'description', route: '/rag' },

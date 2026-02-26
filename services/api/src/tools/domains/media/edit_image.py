@@ -33,7 +33,8 @@ async def _save_edited_image(
     model: str,
     mime_type: str = "image/png",
     conversation_id: Optional[str] = None,
-    agent_id: Optional[str] = "designer_agent"
+    agent_id: Optional[str] = "designer_agent",
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Guarda la imagen editada en el workspace y registra como artifact.
@@ -92,7 +93,7 @@ async def _save_edited_image(
                 }
             )
             
-            artifact = await ArtifactRepository.create(artifact_data)
+            artifact = await ArtifactRepository.create(user_id or "default", artifact_data)
             
             if artifact:
                 logger.info(
@@ -150,7 +151,7 @@ async def _get_gemini_api_key() -> Optional[str]:
     return None
 
 
-async def _load_image_from_artifact(artifact_id: str) -> Optional[Dict[str, Any]]:
+async def _load_image_from_artifact(artifact_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Carga una imagen desde un artifact existente.
     
@@ -166,8 +167,7 @@ async def _load_image_from_artifact(artifact_id: str) -> Optional[Dict[str, Any]
         
         from src.artifacts import ArtifactRepository
         
-        # Buscar el artifact
-        artifact = await ArtifactRepository.get_by_id(clean_id)
+        artifact = await ArtifactRepository.get_by_id(user_id or "default", clean_id)
         
         if not artifact:
             logger.warning(f"Artifact not found: {clean_id}")
@@ -326,7 +326,8 @@ async def edit_image(
     artifact_id: str,
     prompt: str,
     model: str = "gemini-2.5-flash-image",
-    provider: Literal["gemini", "auto"] = "auto"
+    provider: Literal["gemini", "auto"] = "auto",
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Edita una imagen existente usando IA.
@@ -383,7 +384,7 @@ async def edit_image(
             }
     
     # Cargar la imagen desde el artifact
-    image_info = await _load_image_from_artifact(artifact_id)
+    image_info = await _load_image_from_artifact(artifact_id, user_id=_user_id)
     
     if not image_info:
         return {
@@ -424,7 +425,8 @@ async def edit_image(
                 prompt=prompt,
                 provider=provider,
                 model=result.get("model", model),
-                mime_type=mime_type
+                mime_type=mime_type,
+                user_id=_user_id,
             )
             
             # Enriquecer resultado con información del archivo guardado

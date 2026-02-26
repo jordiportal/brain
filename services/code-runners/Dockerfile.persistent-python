@@ -46,6 +46,7 @@ RUN pip install --no-cache-dir \
     # Database
     psycopg2-binary \
     asyncpg \
+    aiosqlite \
     redis \
     # HTTP client avanzado
     httpx \

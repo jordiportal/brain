@@ -37,7 +37,8 @@ async def _save_video_as_artifact(
     aspect_ratio: str,
     resolution: str,
     conversation_id: Optional[str] = None,
-    agent_id: Optional[str] = "designer_agent"
+    agent_id: Optional[str] = "designer_agent",
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Guarda el video en el workspace y registra como artifact.
@@ -86,7 +87,7 @@ async def _save_video_as_artifact(
                 }
             )
             
-            artifact = await ArtifactRepository.create(artifact_data)
+            artifact = await ArtifactRepository.create(user_id or "default", artifact_data)
             
             if artifact:
                 logger.info(
@@ -556,7 +557,8 @@ async def generate_video(
         mime_type=mime_type,
         duration_seconds=duration_seconds or VEO_CONFIG["default_duration"],
         aspect_ratio=aspect_ratio or VEO_CONFIG["default_aspect_ratio"],
-        resolution=resolution or VEO_CONFIG["default_resolution"]
+        resolution=resolution or VEO_CONFIG["default_resolution"],
+        user_id=_user_id,
     )
     
     if "error" not in save_result:

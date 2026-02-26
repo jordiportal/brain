@@ -64,8 +64,7 @@ async def user_tasks_create(
     if not uid:
         return {"success": False, "error": "No se pudo determinar el usuario. Inicia sesión."}
     try:
-        task = await UserTaskRepository.create({
-            "user_id": uid,
+        task = await UserTaskRepository.create(uid, {
             "type": type,
             "name": name,
             "cron_expression": cron_expression,
@@ -84,8 +83,12 @@ async def user_tasks_update(
     cron_expression: Optional[str] = None,
     is_active: Optional[bool] = None,
     config: Optional[Dict[str, Any]] = None,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Modifica una tarea programada existente."""
+    uid = _user_id
+    if not uid:
+        return {"success": False, "error": "No se pudo determinar el usuario."}
     data: Dict[str, Any] = {}
     if name is not None:
         data["name"] = name
@@ -98,7 +101,7 @@ async def user_tasks_update(
     if not data:
         return {"success": False, "error": "No se proporcionaron campos a actualizar."}
     try:
-        task = await UserTaskRepository.update(task_id, data)
+        task = await UserTaskRepository.update(uid, task_id, data)
         if not task:
             return {"success": False, "error": f"Tarea {task_id} no encontrada."}
         return {"success": True, "task": task}
@@ -107,10 +110,13 @@ async def user_tasks_update(
         return {"success": False, "error": str(e)}
 
 
-async def user_tasks_delete(task_id: int) -> Dict[str, Any]:
+async def user_tasks_delete(task_id: int, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Elimina una tarea programada."""
+    uid = _user_id
+    if not uid:
+        return {"success": False, "error": "No se pudo determinar el usuario."}
     try:
-        ok = await UserTaskRepository.delete(task_id)
+        ok = await UserTaskRepository.delete(uid, task_id)
         if not ok:
             return {"success": False, "error": f"Tarea {task_id} no encontrada."}
         return {"success": True, "deleted": True, "task_id": task_id}
@@ -119,13 +125,16 @@ async def user_tasks_delete(task_id: int) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-async def user_tasks_run_now(task_id: int) -> Dict[str, Any]:
+async def user_tasks_run_now(task_id: int, _user_id: Optional[str] = None) -> Dict[str, Any]:
     """Solicita la ejecucion inmediata de una tarea."""
+    uid = _user_id
+    if not uid:
+        return {"success": False, "error": "No se pudo determinar el usuario."}
     try:
-        task = await UserTaskRepository.get(task_id)
+        task = await UserTaskRepository.get(uid, task_id)
         if not task:
             return {"success": False, "error": f"Tarea {task_id} no encontrada."}
-        await UserTaskRepository.request_run_now(task_id)
+        await UserTaskRepository.request_run_now(uid, task_id)
         return {
             "success": True,
             "message": f"Tarea '{task['name']}' encolada para ejecucion inmediata. El resultado estara disponible en breve.",
@@ -139,13 +148,17 @@ async def user_tasks_run_now(task_id: int) -> Dict[str, Any]:
 async def user_tasks_results(
     task_id: int,
     limit: int = 5,
+    _user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Consulta los ultimos resultados de una tarea."""
+    uid = _user_id
+    if not uid:
+        return {"success": False, "error": "No se pudo determinar el usuario."}
     try:
-        task = await UserTaskRepository.get(task_id)
+        task = await UserTaskRepository.get(uid, task_id)
         if not task:
             return {"success": False, "error": f"Tarea {task_id} no encontrada."}
-        results = await UserTaskResultRepository.get_by_task(task_id, limit=limit)
+        results = await UserTaskResultRepository.get_by_task(uid, task_id, limit=limit)
         summary = [
             {
                 "id": r["id"],

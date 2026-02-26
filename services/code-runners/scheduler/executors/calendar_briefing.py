@@ -2,12 +2,10 @@
 
 from datetime import date, timedelta
 
-import asyncpg
-
 from .base import call_llm, call_proxy365, save_result
 
 
-async def run_calendar_briefing(pool: asyncpg.Pool, task_id: int, user_id: str, name: str) -> None:
+async def run_calendar_briefing(db_path: str, task_id: int, user_id: str, name: str) -> None:
     today = date.today()
     tomorrow = today + timedelta(days=1)
     params = {
@@ -19,7 +17,7 @@ async def run_calendar_briefing(pool: asyncpg.Pool, task_id: int, user_id: str, 
     events = data.get("data") or data.get("value") or data.get("events") or []
 
     if not events:
-        await save_result(pool, task_id, user_id, "calendar_briefing", "Agenda", "No hay eventos para hoy ni mañana.")
+        await save_result(db_path, task_id, user_id, "calendar_briefing", "Agenda", "No hay eventos para hoy ni mañana.")
         return
 
     lines = []
@@ -35,4 +33,4 @@ async def run_calendar_briefing(pool: asyncpg.Pool, task_id: int, user_id: str, 
         "agrupa por día, destaca reuniones importantes. Máximo 1 página."
     )
     content = await call_llm(user_id, system_content, user_content)
-    await save_result(pool, task_id, user_id, "calendar_briefing", "Agenda", content or "Sin contenido.")
+    await save_result(db_path, task_id, user_id, "calendar_briefing", "Agenda", content or "Sin contenido.")

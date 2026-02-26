@@ -14,8 +14,11 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatTableModule } from '@angular/material/table';
+import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatMenuModule } from '@angular/material/menu';
 import { ProfileService, UserProfile, UserTask, UserPreferences, WorkspaceFile } from '../../core/services/profile.service';
-import { ArtifactService, Artifact } from '../../core/services/artifact.service';
+import { ArtifactService, Artifact, ArtifactListResponse } from '../../core/services/artifact.service';
 import { ArtifactViewerComponent } from '../../shared/components/artifact-viewer/artifact-viewer.component';
 import { AuthService } from '../../core/services/auth.service';
 
@@ -26,7 +29,8 @@ import { AuthService } from '../../core/services/auth.service';
     MatTabsModule, MatFormFieldModule, MatInputModule, MatSelectModule,
     MatButtonModule, MatSlideToggleModule, MatChipsModule, MatIconModule,
     MatCardModule, MatSnackBarModule, MatProgressSpinnerModule,
-    MatTooltipModule, MatDividerModule, ArtifactViewerComponent,
+    MatTooltipModule, MatDividerModule, MatTableModule, MatPaginatorModule,
+    MatMenuModule, ArtifactViewerComponent,
   ],
   selector: 'app-profile',
   template: `
@@ -36,7 +40,7 @@ import { AuthService } from '../../core/services/auth.service';
           <mat-icon>person</mat-icon>
           <div>
             <h1>Mi Perfil</h1>
-            <p class="subtitle">Configuración personal, tareas programadas y archivos del sandbox</p>
+            <p class="subtitle">Configuración personal, tareas, artefactos y archivos del sandbox</p>
           </div>
         </div>
       </div>
@@ -156,6 +160,100 @@ import { AuthService } from '../../core/services/auth.service';
               </div>
             }
           </div>
+        </mat-tab>
+
+        <!-- TAB: Artefactos -->
+        <mat-tab label="Artefactos">
+          <div class="tab-content">
+            <!-- Filters -->
+            <div class="artifacts-toolbar">
+              <mat-form-field appearance="outline" class="filter-field">
+                <mat-label>Tipo</mat-label>
+                <mat-select [ngModel]="artifactType()" (ngModelChange)="artifactType.set($event); loadArtifacts()">
+                  <mat-option value="all">Todos</mat-option>
+                  <mat-option value="image">Imágenes</mat-option>
+                  <mat-option value="video">Videos</mat-option>
+                  <mat-option value="spreadsheet">Hojas de cálculo</mat-option>
+                  <mat-option value="presentation">Presentaciones</mat-option>
+                  <mat-option value="document">Documentos</mat-option>
+                  <mat-option value="code">Código</mat-option>
+                  <mat-option value="html">HTML</mat-option>
+                </mat-select>
+              </mat-form-field>
+              <span class="artifacts-count">{{ artifactTotal() }} artefactos</span>
+              <span style="flex:1"></span>
+              <button mat-icon-button (click)="loadArtifacts()" matTooltip="Refrescar">
+                <mat-icon>refresh</mat-icon>
+              </button>
+            </div>
+
+            @if (artifactLoading()) {
+              <div class="loading-container"><mat-spinner diameter="32"></mat-spinner></div>
+            } @else if (artifactList().length === 0) {
+              <div class="empty-state">
+                <mat-icon>folder_open</mat-icon>
+                <h3>No hay artefactos</h3>
+                <p>Los archivos generados por los agentes aparecerán aquí.</p>
+              </div>
+            } @else {
+              <table mat-table [dataSource]="artifactList()" class="artifacts-table">
+                <ng-container matColumnDef="icon">
+                  <th mat-header-cell *matHeaderCellDef></th>
+                  <td mat-cell *matCellDef="let a">
+                    <div class="artifact-icon" [class]="a.type">
+                      <mat-icon>{{ getArtifactIcon(a.type) }}</mat-icon>
+                    </div>
+                  </td>
+                </ng-container>
+                <ng-container matColumnDef="name">
+                  <th mat-header-cell *matHeaderCellDef>Nombre</th>
+                  <td mat-cell *matCellDef="let a">
+                    <span class="artifact-name-text">{{ a.title || a.file_name }}</span>
+                    <span class="artifact-type-badge">{{ a.type }}</span>
+                  </td>
+                </ng-container>
+                <ng-container matColumnDef="size">
+                  <th mat-header-cell *matHeaderCellDef>Tamaño</th>
+                  <td mat-cell *matCellDef="let a">{{ formatSize(a.file_size) }}</td>
+                </ng-container>
+                <ng-container matColumnDef="created">
+                  <th mat-header-cell *matHeaderCellDef>Fecha</th>
+                  <td mat-cell *matCellDef="let a">{{ artifactService.formatDate(a.created_at) }}</td>
+                </ng-container>
+                <ng-container matColumnDef="actions">
+                  <th mat-header-cell *matHeaderCellDef></th>
+                  <td mat-cell *matCellDef="let a">
+                    <button mat-icon-button [matMenuTriggerFor]="artMenu" (click)="$event.stopPropagation()">
+                      <mat-icon>more_vert</mat-icon>
+                    </button>
+                    <mat-menu #artMenu="matMenu">
+                      <button mat-menu-item (click)="previewArtifactItem(a)"><mat-icon>visibility</mat-icon> Ver</button>
+                      <button mat-menu-item (click)="copyArtifactId(a)"><mat-icon>content_copy</mat-icon> Copiar ID</button>
+                      <button mat-menu-item (click)="downloadArtifact(a)"><mat-icon>download</mat-icon> Descargar</button>
+                      <mat-divider></mat-divider>
+                      <button mat-menu-item (click)="deleteArtifact(a)"><mat-icon color="warn">delete</mat-icon> Eliminar</button>
+                    </mat-menu>
+                  </td>
+                </ng-container>
+                <tr mat-header-row *matHeaderRowDef="artifactColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: artifactColumns;" (click)="previewArtifactItem(row)" class="artifact-row"></tr>
+              </table>
+              <mat-paginator
+                [pageSizeOptions]="[10, 25, 50]"
+                [pageSize]="artifactPageSize()"
+                [length]="artifactTotal()"
+                (page)="onArtifactPage($event)">
+              </mat-paginator>
+            }
+          </div>
+
+          @if (previewArtifact()) {
+            <app-artifact-viewer
+              [artifact]="previewArtifact()!"
+              (closed)="previewArtifact.set(undefined)"
+              (downloadRequested)="downloadArtifact($event)">
+            </app-artifact-viewer>
+          }
         </mat-tab>
 
         <!-- TAB: Sandbox -->
@@ -505,6 +603,43 @@ import { AuthService } from '../../core/services/auth.service';
       display: flex;
       gap: 2px;
     }
+
+    /* --- Artifacts Tab --- */
+    .artifacts-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 4px 0;
+    }
+    .artifacts-toolbar .filter-field {
+      width: 160px;
+    }
+    .artifacts-count {
+      font-size: 13px;
+      color: #64748b;
+    }
+    .artifacts-table { width: 100%; }
+    .artifact-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: #f1f5f9;
+    }
+    .artifact-icon.image { background: #e0f2fe; color: #0284c7; }
+    .artifact-icon.video { background: #fce7f3; color: #db2777; }
+    .artifact-icon.presentation { background: #f3e8ff; color: #9333ea; }
+    .artifact-icon.spreadsheet { background: #dcfce7; color: #16a34a; }
+    .artifact-icon.document { background: #ecfdf5; color: #059669; }
+    .artifact-icon.code { background: #fff7ed; color: #ea580c; }
+    .artifact-icon.html { background: #f0fdfa; color: #0d9488; }
+    .artifact-name-text { font-weight: 500; display: block; color: #1e293b; }
+    .artifact-type-badge { font-size: 11px; color: #94a3b8; text-transform: uppercase; }
+    .artifact-row { cursor: pointer; transition: background 0.15s; }
+    .artifact-row:hover { background: rgba(0,0,0,0.02); }
   `],
 })
 export class ProfileComponent implements OnInit {
@@ -521,6 +656,15 @@ export class ProfileComponent implements OnInit {
   tasks = signal<UserTask[]>([]);
   timezones = ['Europe/Madrid', 'Europe/London', 'UTC', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo'];
 
+  // Artifacts tab
+  artifactList = signal<Artifact[]>([]);
+  artifactTotal = signal(0);
+  artifactLoading = signal(false);
+  artifactType = signal('all');
+  artifactPageSize = signal(25);
+  artifactPage = signal(0);
+  artifactColumns = ['icon', 'name', 'size', 'created', 'actions'];
+
   // Sandbox explorer
   currentPath = signal('');
   wsFiles = signal<WorkspaceFile[]>([]);
@@ -530,13 +674,14 @@ export class ProfileComponent implements OnInit {
   previewArtifact = signal<Artifact | undefined>(undefined);
   previewContentUrl = signal('');
 
-  private artifactService = inject(ArtifactService);
+  artifactService = inject(ArtifactService);
 
   constructor(private profileService: ProfileService, private snack: MatSnackBar) {}
 
   ngOnInit(): void {
     this.loadProfile();
     this.loadTasks();
+    this.loadArtifacts();
     this.loadWorkspace('');
   }
 
@@ -616,6 +761,65 @@ export class ProfileComponent implements OnInit {
     if (min === '0' && hour === '8' && dow === '1-5') return 'L-V a las 8:00';
     if (min === '0' && hour === '9' && dow === '*') return 'Cada día a las 9:00';
     return cron;
+  }
+
+  // --- Artifacts ---
+
+  loadArtifacts(): void {
+    this.artifactLoading.set(true);
+    const type = this.artifactType() === 'all' ? undefined : this.artifactType() as any;
+    this.artifactService.listArtifacts(undefined, type, undefined, this.artifactPageSize(), this.artifactPage() * this.artifactPageSize())
+      .subscribe({
+        next: (r: ArtifactListResponse) => {
+          this.artifactList.set(r.artifacts);
+          this.artifactTotal.set(r.total);
+          this.artifactLoading.set(false);
+        },
+        error: () => {
+          this.artifactList.set([]);
+          this.artifactLoading.set(false);
+        },
+      });
+  }
+
+  onArtifactPage(event: any): void {
+    this.artifactPage.set(event.pageIndex);
+    this.artifactPageSize.set(event.pageSize);
+    this.loadArtifacts();
+  }
+
+  previewArtifactItem(a: Artifact): void {
+    this.previewContentUrl.set('');
+    this.previewArtifact.set(a);
+  }
+
+  downloadArtifact(a: Artifact): void {
+    this.artifactService.downloadArtifact(a.artifact_id).subscribe(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const el = document.createElement('a');
+      el.href = url;
+      el.download = a.file_name;
+      el.click();
+      window.URL.revokeObjectURL(url);
+    });
+  }
+
+  deleteArtifact(a: Artifact): void {
+    if (!confirm(`¿Eliminar "${a.title || a.file_name}"?`)) return;
+    this.artifactService.deleteArtifact(a.artifact_id).subscribe(() => {
+      this.snack.open('Artefacto eliminado', 'OK', { duration: 2000 });
+      this.loadArtifacts();
+    });
+  }
+
+  copyArtifactId(a: Artifact): void {
+    navigator.clipboard.writeText(`@${a.artifact_id}`).then(() => {
+      this.snack.open(`ID copiado: @${a.artifact_id}`, 'OK', { duration: 2000 });
+    });
+  }
+
+  getArtifactIcon(type: string): string {
+    return this.artifactService.getIconForType(type as any);
   }
 
   // --- Sandbox Explorer ---

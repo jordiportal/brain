@@ -61,10 +61,6 @@ export const routes: Routes = [
         loadComponent: () => import('./features/external-api/external-api.component').then(m => m.ExternalApiComponent)
       },
       {
-        path: 'artifacts',
-        loadComponent: () => import('./features/artifacts/artifacts.component').then(m => m.ArtifactsComponent)
-      },
-      {
         path: 'profile',
         canActivate: [roleGuard('admin', 'user')],
         loadComponent: () => import('./features/profile/profile.component').then(m => m.ProfileComponent)

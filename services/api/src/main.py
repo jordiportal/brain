@@ -165,6 +165,11 @@ async def lifespan(app: FastAPI):
     await browser_service.shutdown()
     logger.info("Servicio de navegador cerrado")
     
+    # Cerrar conexiones SQLite per-user
+    from src.db.user_db import user_db
+    await user_db.close_all()
+    logger.info("Conexiones SQLite de usuario cerradas")
+
     # Cerrar conexión a base de datos
     await db.disconnect()
     logger.info("Conexión a PostgreSQL cerrada")

@@ -133,6 +133,7 @@ services:
     restart: unless-stopped
     environment:
       - WORKSPACE=/workspace
+      - WORKSPACES_BASE=/workspaces
       - DATABASE_URL=postgresql://${POSTGRES_USER:-brain}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-brain_db}
       - REDIS_URL=redis://redis:6379
       - API_URL=http://api:8000
@@ -141,6 +142,7 @@ services:
       - BRAIN_API_KEY=${BRAIN_API_KEY:-}
     volumes:
       - workspace_shared:/workspace
+      - ${SANDBOX_WORKSPACE_BASE:-/opt/brain/workspace/users}:/workspaces:rw
     networks:
       - brain-network
     depends_on:

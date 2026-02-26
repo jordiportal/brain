@@ -99,7 +99,7 @@ async def _save_image_to_workspace(
                 }
             )
             
-            artifact = await ArtifactRepository.create(artifact_data)
+            artifact = await ArtifactRepository.create(user_id or "default", artifact_data)
             
             if artifact:
                 logger.info(
