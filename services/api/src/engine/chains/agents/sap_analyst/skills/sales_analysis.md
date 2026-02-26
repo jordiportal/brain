@@ -44,11 +44,26 @@ Las 21 medidas incluyen:
 ```
 bi_execute_query(
   query="ZBOKCOPA/PBI_SEG_CLI_VNE_Q002",
-  measures=["ZVNETAEST", "PBI_PREV_MESACT", "PBI_OBJ_MESACT"],
+  measures=["PBI_VNETA_ACUM_MC", "PBI_PREV_ACUM", "PBI_OBJ_ACUM"],
   filters={"0CALMONTH": "YYYYMM"}
 )
 ```
-Compara VN estimada vs previsión y objetivo. Calcula % cumplimiento.
+Compara VN real vs previsión y objetivo. Calcula % cumplimiento.
+
+### Comparación año-sobre-año (YoY)
+**RECOMENDADO**: Usa `PBI_CIERRE_VN` que devuelve VN Real + VN Anterior + % Crec directamente:
+```
+bi_execute_query(
+  query="ZBOKCOPA/PBI_CIERRE_VN",
+  dimension="ZSEGMEN",
+  filters={"0CALMONTH2": "01"}
+)
+```
+Devuelve YoY desglosado con real, anterior y % crecimiento por segmento en una sola llamada.
+
+Para histórico multi-año, usa `VTAS_HIST_MENS_OPT` con `dimension="0CALYEAR"`.
+
+**Nota**: Las medidas "AA"/"Anterior" de Q002/Q004 devuelven 0 (no tienen customer exits). Para YoY siempre prefiere `PBI_CIERRE_VN`.
 
 ### Evolución mensual del año
 ```
@@ -71,15 +86,19 @@ bi_execute_query(
 
 ## Cierre de ventas (PBI_CIERRE_VN)
 
-Para análisis de cierre con márgenes incluidos:
+Query recomendada para YoY y cierre con márgenes. El proxy auto-gestiona las variables SAP:
+- `0CALMONTH2` se enruta a la variable `MESOBLI` (customer exit)
+- `0CALYEAR` se elimina del WHERE automáticamente (el customer exit usa fecha del sistema)
+- `0CALMONTH` compuesto ("202601") se descompone automáticamente
+
 ```
 bi_execute_query(
   query="ZBOKCOPA/PBI_CIERRE_VN",
   dimension="ZSEGMEN",
-  filters={"0CALYEAR": "2025", "0CALMONTH2": "06"}
+  filters={"0CALMONTH2": "06"}
 )
 ```
-El filtro `0CALMONTH2` indica "hasta qué mes" va el cierre. Se auto-enruta a la variable SAP `MESOBLI`.
+Devuelve por segmento: VN Real (2026 hasta junio), VN Anterior (2025 hasta junio), % Crec, márgenes, etc.
 
 ## Stock e Inventario
 
