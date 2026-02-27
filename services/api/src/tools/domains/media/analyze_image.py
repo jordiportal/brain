@@ -15,19 +15,40 @@ from pathlib import Path
 logger = structlog.get_logger()
 
 
+async def _resolve_artifact_path(artifact_ref: str) -> Optional[str]:
+    """Resolve an artifact ID or URL to a local file path."""
+    clean = artifact_ref.strip().lstrip("@")
+    if clean.startswith("/api/v1/artifacts/"):
+        clean = clean.split("/api/v1/artifacts/")[1].split("/")[0]
+    if not clean or clean.startswith(("http://", "https://", "data:", "/")):
+        return None
+    try:
+        from src.artifacts.repository import ArtifactRepository
+        from src.db import user_db
+        dbs = await user_db.list_databases()
+        for uid in dbs:
+            artifact = await ArtifactRepository.get_by_id(uid, clean)
+            if artifact and artifact.file_path:
+                p = Path(artifact.file_path)
+                if p.exists():
+                    return str(p)
+    except Exception as e:
+        logger.debug(f"Artifact resolution failed for {clean}: {e}")
+    return None
+
+
 async def _encode_image_to_base64(image_source: str) -> tuple[str, str]:
     """
     Codifica una imagen a base64.
     
     Args:
-        image_source: URL, path local, o base64 existente
+        image_source: URL, path local, artifact ID, o base64 existente
         
     Returns:
         Tuple de (base64_data, media_type)
     """
     # Si ya es base64
     if image_source.startswith("data:image"):
-        # Extraer el tipo y los datos
         parts = image_source.split(",", 1)
         media_type = parts[0].split(":")[1].split(";")[0]
         return parts[1], media_type
@@ -45,18 +66,17 @@ async def _encode_image_to_base64(image_source: str) -> tuple[str, str]:
     if path.exists():
         with open(path, "rb") as f:
             data = base64.b64encode(f.read()).decode()
-        
-        # Detectar tipo por extensión
         ext = path.suffix.lower()
         media_types = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".gif": "image/gif",
-            ".webp": "image/webp"
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".webp": "image/webp",
         }
-        media_type = media_types.get(ext, "image/png")
-        return data, media_type
+        return data, media_types.get(ext, "image/png")
+    
+    # Try resolving as artifact ID (e.g. "image_gemini_..." or "@img_...")
+    resolved = await _resolve_artifact_path(image_source)
+    if resolved:
+        return await _encode_image_to_base64(resolved)
     
     raise ValueError(f"No se puede procesar la imagen: {image_source}")
 
