@@ -9,23 +9,37 @@ import { environment } from '../../../environments/environment';
 })
 export class ApiService {
   private readonly API_URL = environment.apiUrl;
-  private readonly API_BASE = environment.apiUrl.replace('/api/v1', '');
+  private readonly API_BASE = this.resolveApiBase();
 
   constructor(private http: HttpClient) {}
+
+  private resolveApiBase(): string {
+    const apiUrl = environment.apiUrl;
+    if (apiUrl.startsWith('http')) {
+      return apiUrl.replace('/api/v1', '');
+    }
+    // Relative URL in production (nginx proxies /health → API)
+    return '';
+  }
 
   // ===========================================
   // Health Check
   // ===========================================
 
   getHealth(): Observable<{ status: string; version: string }> {
-    return this.http.get<{ status: string; version: string }>(`${this.API_BASE}/health`);
+    return this.http.get<{ status: string; version: string }>(`${this.API_BASE}/health`).pipe(
+      catchError(err => {
+        console.error('Error loading health:', err);
+        return of({ status: 'error', version: 'unknown' });
+      })
+    );
   }
 
   getReadiness(): Observable<any> {
     return this.http.get<any>(`${this.API_BASE}/health/ready`).pipe(
       catchError(err => {
         console.error('Error loading readiness:', err);
-        return of({ status: 'error', database: false, redis: false, tools_total: 0, mcp_connected: 0 });
+        return of({ status: 'error', database: 'error', redis: 'error', tools_total: 0, mcp_connected: 0, mcp_connections: 0 });
       })
     );
   }

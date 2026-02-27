@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
-from src.auth import get_current_user, optional_current_user
+from src.auth import get_current_user, optional_current_user, get_current_user_flexible
 
 from .models import (
     ArtifactCreate, ArtifactUpdate, ArtifactResponse, 
@@ -101,7 +101,7 @@ async def list_artifacts(
     agent_id: Optional[str] = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user_flexible),
 ):
     uid = _uid(user)
     artifacts = await ArtifactRepository.list_artifacts(
@@ -112,7 +112,7 @@ async def list_artifacts(
 
 
 @router.get("/recent", response_model=ArtifactListResponse)
-async def get_recent_artifacts(limit: int = Query(20, ge=1, le=50), user: dict = Depends(get_current_user)):
+async def get_recent_artifacts(limit: int = Query(20, ge=1, le=50), user: dict = Depends(get_current_user_flexible)):
     uid = _uid(user)
     artifacts = await ArtifactRepository.get_recent(uid, limit=limit)
     return ArtifactListResponse(artifacts=artifacts, total=len(artifacts), page=1, page_size=limit)
@@ -123,7 +123,7 @@ async def get_conversation_artifacts(
     conversation_id: str,
     type: Optional[ArtifactType] = None,
     limit: int = Query(50, ge=1, le=100),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user_flexible),
 ):
     uid = _uid(user)
     artifacts = await ArtifactRepository.list_artifacts(uid, conversation_id=conversation_id, artifact_type=type, limit=limit)
@@ -131,7 +131,7 @@ async def get_conversation_artifacts(
 
 
 @router.get("/{artifact_id}", response_model=ArtifactResponse)
-async def get_artifact(artifact_id: str, user: dict = Depends(get_current_user)):
+async def get_artifact(artifact_id: str, user: dict = Depends(get_current_user_flexible)):
     uid = _uid(user)
     artifact = await ArtifactRepository.get_by_id(uid, artifact_id)
     if not artifact:
@@ -158,10 +158,8 @@ async def delete_artifact(artifact_id: str, soft: bool = Query(True), user: dict
 
 
 @router.get("/{artifact_id}/content")
-async def get_artifact_content(artifact_id: str, user: Optional[dict] = Depends(optional_current_user)):
-    uid = _uid(user) if user else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+async def get_artifact_content(artifact_id: str, user: dict = Depends(get_current_user_flexible)):
+    uid = _uid(user)
     artifact = await ArtifactRepository.get_by_id(uid, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -182,10 +180,8 @@ async def get_artifact_content(artifact_id: str, user: Optional[dict] = Depends(
 
 
 @router.get("/{artifact_id}/view", response_class=HTMLResponse)
-async def get_artifact_viewer(artifact_id: str, user: Optional[dict] = Depends(optional_current_user)):
-    uid = _uid(user) if user else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+async def get_artifact_viewer(artifact_id: str, user: dict = Depends(get_current_user_flexible)):
+    uid = _uid(user)
     artifact = await ArtifactRepository.get_by_id(uid, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")

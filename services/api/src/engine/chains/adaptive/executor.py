@@ -229,6 +229,16 @@ class AdaptiveExecutor:
             yield self.stream_emitter.iteration_start(self.iteration, self.max_iterations)
             
             try:
+                logger.debug(
+                    "LLM call",
+                    iteration=self.iteration,
+                    llm_url=self.llm_url,
+                    model=self.model,
+                    provider_type=self.provider_type,
+                    num_tools=len(tools),
+                    num_messages=len(messages),
+                    agent_type=getattr(self.agent_context, "agent_type", None) if self.agent_context else None,
+                )
                 # Llamar al LLM
                 response = await call_llm_with_tools(
                     llm_url=self.llm_url,
@@ -270,8 +280,13 @@ class AdaptiveExecutor:
                 )
                 
             except Exception as e:
-                logger.error(f"Error in iteration {self.iteration}: {e}", exc_info=True)
-                yield self.stream_emitter.error(str(e), f"iteration_{self.iteration}")
+                logger.error(
+                    f"Error in iteration {self.iteration}",
+                    error=str(e) or repr(e),
+                    error_type=type(e).__name__,
+                    exc_info=True,
+                )
+                yield self.stream_emitter.error(str(e) or repr(e), f"iteration_{self.iteration}")
                 continue
     
     def _extract_answer(self, content: str) -> str:
@@ -492,6 +507,27 @@ class AdaptiveExecutor:
                     model=raw_result.get("model"),
                 ))
         
+        # Emit Brain Event for artifacts with URL (for OpenWebUI artifact panel)
+        if raw_result.get("artifact_id"):
+            _art_type_map = {
+                "image/png": "image", "image/jpeg": "image", "image/webp": "image",
+                "video/mp4": "video", "video/webm": "video",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "spreadsheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation": "slides",
+                "text/html": "website",
+            }
+            _mime = raw_result.get("mime_type", "")
+            _art_type = raw_result.get("artifact_type") or _art_type_map.get(_mime, "file")
+            brain_art_event = self.brain_emitter.artifact_url(
+                artifact_type=_art_type,
+                title=raw_result.get("title", raw_result.get("prompt", tool_name)),
+                url=f"/api/v1/artifacts/{raw_result['artifact_id']}/content",
+                artifact_id=raw_result["artifact_id"],
+                mime_type=_mime or None,
+            )
+            if brain_art_event:
+                yield brain_art_event
+
         # Emitir eventos del handler y capturar imágenes/vídeos
         for event in result.events:
             yield event
@@ -555,7 +591,15 @@ class AdaptiveExecutor:
         )
         
         # Agregar resultado a mensajes (SIEMPRE, para no romper la secuencia de tool_call_id para OpenAI)
-        result_str = json.dumps(raw_result, ensure_ascii=False, default=str)
+        # Strip heavy binary/base64 fields before injecting into LLM context
+        _llm_result = raw_result
+        if isinstance(raw_result, dict):
+            _heavy_keys = {"image_base64", "video_base64", "image_data", "video_data"}
+            if _heavy_keys & raw_result.keys():
+                _llm_result = {k: v for k, v in raw_result.items() if k not in _heavy_keys}
+            if _llm_result.get("image_url", "").startswith("data:"):
+                _llm_result = {**_llm_result, "image_url": "[generated – see artifact]"}
+        result_str = json.dumps(_llm_result, ensure_ascii=False, default=str)
         # Leer límite desde BD (caché 60 s); fallback al valor de config.py si BD no disponible
         _max_chars = await BrainSettingsRepository.get_int(
             "tool_result_max_chars",

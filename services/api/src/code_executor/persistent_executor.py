@@ -348,30 +348,61 @@ class PersistentCodeExecutor:
     
     def read_binary_file(self, file_path: str) -> Optional[bytes]:
         """
-        Lee un archivo binario del workspace del contenedor.
-        
-        Args:
-            file_path: Ruta relativa al workspace
-            
-        Returns:
-            Bytes del archivo o None si hay error
+        Lee un archivo binario del workspace. Intenta primero via host mount
+        (rapido, no requiere container running), fallback a docker cp.
         """
+        data = self.read_binary_file_from_host(file_path)
+        if data is not None:
+            return data
+        return self._read_binary_file_docker_cp(file_path)
+
+    def read_binary_file_from_host(self, file_path: str) -> Optional[bytes]:
+        """
+        Lee directamente del bind-mount en el host, sin docker cp.
+        Requires SANDBOX_WORKSPACE_BASE env var and a user_id-based path.
+        """
+        import os
+        host_base = os.getenv("SANDBOX_WORKSPACE_BASE", "")
+        if not host_base:
+            return None
+
+        from .sandbox_manager import sandbox_manager
+        # container_name is brain-sandbox-{hash} or brain-persistent-runner
+        # Reverse-lookup: try to find the host workspace from the container volumes
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "-f", "{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}", self.container_name],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                for mount in result.stdout.strip().split():
+                    parts = mount.split(":")
+                    if len(parts) == 2 and parts[1] == "/workspace":
+                        host_path = Path(parts[0]) / file_path
+                        if host_path.exists():
+                            return host_path.read_bytes()
+        except Exception:
+            pass
+
+        return None
+
+    def _read_binary_file_docker_cp(self, file_path: str) -> Optional[bytes]:
+        """Fallback: read via docker cp (requires container running)."""
         import tempfile
-        
+
         try:
             full_path = f"{self.WORKSPACE_PATH}/{file_path}"
-            
-            # Copiar desde el contenedor a archivo temporal
+
             with tempfile.NamedTemporaryFile(delete=False) as tmp:
                 tmp_path = tmp.name
-            
+
             try:
                 result = subprocess.run(
                     ["docker", "cp", f"{self.container_name}:{full_path}", tmp_path],
                     capture_output=True,
                     timeout=60
                 )
-                
+
                 if result.returncode == 0:
                     with open(tmp_path, 'rb') as f:
                         return f.read()
@@ -382,7 +413,7 @@ class PersistentCodeExecutor:
                 import os
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-        
+
         except Exception as e:
             logger.error(f"Error leyendo archivo binario: {e}")
             return None

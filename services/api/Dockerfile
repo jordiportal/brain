@@ -47,10 +47,18 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar e instalar dependencias de Python
+# Instalar pip y dependencias pesadas en capas separadas
+RUN pip install --no-cache-dir --upgrade pip
+
+# Capa 1: PyTorch (la más pesada ~2GB)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Capa 2: ML/NLP (transformers, sentence-transformers, scikit-learn)
+RUN pip install --no-cache-dir transformers sentence-transformers scikit-learn
+
+# Capa 3: Resto de dependencias
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Instalar Playwright y navegador Chromium SOLO en amd64
 # En arm64 skip porque Chromium no está disponible oficialmente

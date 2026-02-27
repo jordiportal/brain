@@ -12,6 +12,7 @@ from ....brain_events import (
     create_action_event,
     create_sources_event,
     create_artifact_event,
+    create_artifact_url_event,
     get_action_type_for_tool,
     get_action_title_for_tool
 )
@@ -123,7 +124,8 @@ class BrainEmitter:
         """
         action_type = get_action_type_for_tool(
             tool_name,
-            agent=args.get("agent") if tool_name == "delegate" else None
+            agent=args.get("agent") if tool_name == "delegate" else None,
+            task=args.get("task") if tool_name == "delegate" else None,
         )
         title = get_action_title_for_tool(tool_name, args)
         
@@ -206,6 +208,29 @@ class BrainEmitter:
         )
         return self._wrap_in_stream_event(marker, f"brain_artifact_{artifact_type}")
     
+    def artifact_url(
+        self,
+        artifact_type: str,
+        title: str,
+        url: str,
+        artifact_id: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ) -> Optional[StreamEvent]:
+        """
+        Emite evento de artifact con URL (sin contenido inline).
+        OpenWebUI descargará el contenido via proxy.
+        """
+        marker = create_artifact_url_event(
+            artifact_type=artifact_type,
+            title=title,
+            url=url,
+            artifact_id=artifact_id,
+            mime_type=mime_type,
+            metadata=metadata,
+        )
+        return self._wrap_in_stream_event(marker, f"brain_artifact_{artifact_type}")
+
     # ========== Helpers ==========
     
     def get_results_count(self, tool_name: str, result: dict) -> Optional[int]:

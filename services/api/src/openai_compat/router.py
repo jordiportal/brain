@@ -238,6 +238,9 @@ async def create_chat_completion(
     
     # Resolve user_id: explicit in request > auth-resolved > key default
     user_id = request.user or auth.get("user_id")
+
+    # Resolve conversation_id from chat_id (sent by OpenWebUI)
+    conversation_id = getattr(request, "chat_id", None) or None
     
     if request.stream:
         return StreamingResponse(
@@ -249,6 +252,7 @@ async def create_chat_completion(
                 api_key=api_key,
                 key_data=key_data,
                 user_id=user_id,
+                conversation_id=conversation_id,
             ),
             media_type="text/event-stream",
             headers={
@@ -265,7 +269,8 @@ async def create_chat_completion(
         backend_config=config.backend_llm,
         api_key=api_key,
         key_data=key_data,
-        user_id=user_id
+        user_id=user_id,
+        conversation_id=conversation_id,
     )
 
 
@@ -277,6 +282,7 @@ async def execute_chat_completion(
     api_key: str,
     key_data: dict,
     user_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
 ) -> ChatCompletionResponse:
     """Ejecuta una chat completion sin streaming"""
     
@@ -331,12 +337,13 @@ async def execute_chat_completion(
             llm_url=backend_config.url,
             model=backend_config.model,
             input_data=chain_input,
-            memory=messages[:-1],  # Todos los mensajes excepto el último
+            memory=messages[:-1],
             execution_id=completion_id,
             stream=False,
             provider_type=backend_config.provider,
             api_key=backend_config.api_key,
             user_id=user_id,
+            conversation_id=conversation_id,
         ):
             # Capturar resultado
             if isinstance(event, dict) and "_result" in event:
@@ -411,6 +418,7 @@ async def stream_chat_completion(
     api_key: str,
     key_data: dict,
     user_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """Genera streaming de chat completion en formato SSE"""
     
@@ -487,6 +495,7 @@ async def stream_chat_completion(
             api_key=backend_config.api_key,
             emit_brain_events=emit_brain_events,
             user_id=user_id,
+            conversation_id=conversation_id,
         ):
             # Streaming de tokens
             if hasattr(event, 'event_type') and event.event_type == "token" and event.content:

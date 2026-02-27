@@ -2,8 +2,8 @@
 Handler para la tool `delegate`.
 
 Maneja delegación a subagentes especializados:
-- media_agent: Generación de imágenes
-- slides_agent: Generación de presentaciones (legacy, usar generate_slides)
+- designer_agent: Generación de imágenes, vídeos, presentaciones
+- researcher_agent: Investigación y búsqueda
 """
 
 from .base import ToolHandler, ToolResult
@@ -25,7 +25,6 @@ class DelegateHandler(ToolHandler):
         """Inyecta configuración LLM para el subagente."""
         prepared = args.copy()
         
-        # Inyectar config LLM si está disponible
         if self.llm_config:
             prepared["_llm_url"] = self.llm_config.get("url")
             prepared["_model"] = self.llm_config.get("model")
@@ -34,13 +33,23 @@ class DelegateHandler(ToolHandler):
         
         return prepared
     
+    def _extract_artifact_from_tool_results(self, result: dict) -> dict | None:
+        """Extract artifact info from subagent tool_results."""
+        tool_results = result.get("data", {}).get("tool_results", [])
+        for tr in tool_results:
+            raw = tr.get("result", {})
+            if isinstance(raw, dict) and raw.get("artifact_id"):
+                return raw
+        return None
+
     async def process_result(self, result: dict, args: dict) -> ToolResult:
         """
         Procesa el resultado de delegación.
         
         Maneja casos especiales:
-        - Imágenes de media_agent
+        - Imágenes de media_agent / designer_agent
         - Brain Events de slides_agent
+        - Artifact propagation
         """
         events = []
         brain_events = []
@@ -55,6 +64,14 @@ class DelegateHandler(ToolHandler):
             )
         
         agent_name = args.get("agent", "unknown")
+        
+        # Extract artifact info from subagent tool_results for propagation
+        artifact_info = self._extract_artifact_from_tool_results(result)
+        if artifact_info:
+            result["artifact_id"] = artifact_info.get("artifact_id")
+            result["mime_type"] = artifact_info.get("mime_type", "")
+            result["artifact_type"] = artifact_info.get("artifact_type")
+            result["title"] = artifact_info.get("title") or artifact_info.get("prompt", "")
         
         # Manejar imágenes de media_agent / designer_agent
         if result.get("images"):
@@ -83,7 +100,6 @@ class DelegateHandler(ToolHandler):
                         }
                     ))
             
-            # Si hay imágenes, es terminal - la tarea está completa
             is_terminal = True
             num_images = len(result["images"])
             final_answer = result.get("response", f"He generado {num_images} imagen(es).")
@@ -117,7 +133,6 @@ class DelegateHandler(ToolHandler):
                         }
                     ))
             
-            # Si hay vídeos, es terminal - la tarea está completa
             is_terminal = True
             num_videos = len(result["videos"])
             final_answer = result.get("response", f"He generado {num_videos} vídeo(s).")
@@ -125,19 +140,22 @@ class DelegateHandler(ToolHandler):
         # Manejar Brain Events de slides_agent (legacy)
         response_text = result.get("response", "")
         if "<!--BRAIN_EVENT:" in response_text:
-            # Emitir directamente al stream
             events.append(self.create_token_event(
                 response_text,
                 node_id=f"subagent_{result.get('agent_id', agent_name)}"
             ))
             
-            # Es terminal si contiene presentación
             is_terminal = True
             title = result.get("data", {}).get("title", "Sin título")
             slides_count = result.get("data", {}).get("slides_count", "?")
             final_answer = f"Presentación generada: {title} ({slides_count} slides)"
             
             events.append(self.create_token_event(final_answer))
+        
+        # If no specific terminal condition but we have artifact_id, mark as terminal
+        if not is_terminal and artifact_info:
+            is_terminal = True
+            final_answer = result.get("response") or f"Tarea completada por {agent_name}."
         
         return ToolResult(
             success=True,

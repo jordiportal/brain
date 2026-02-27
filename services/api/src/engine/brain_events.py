@@ -140,6 +140,32 @@ def create_artifact_event(
     )
 
 
+def create_artifact_url_event(
+    artifact_type: str,
+    title: str,
+    url: str,
+    artifact_id: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Crea evento de artifact con URL (sin contenido inline).
+    OpenWebUI cargará el contenido via proxy desde la URL.
+    """
+    kwargs: Dict[str, Any] = {
+        "artifact_type": artifact_type,
+        "title": title,
+        "url": url,
+    }
+    if artifact_id:
+        kwargs["artifact_id"] = artifact_id
+    if mime_type:
+        kwargs["mime_type"] = mime_type
+    if metadata:
+        kwargs["metadata"] = metadata
+    return create_brain_event_marker("artifact", **kwargs)
+
+
 # ============================================
 # Funciones para crear StreamEvents con Brain Events
 # ============================================
@@ -251,6 +277,30 @@ def emit_artifact(
     )
 
 
+def emit_artifact_url(
+    execution_id: str,
+    artifact_type: str,
+    title: str,
+    url: str,
+    artifact_id: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> StreamEvent:
+    """Helper para emitir artifact URL event."""
+    return brain_event_stream(
+        execution_id=execution_id,
+        brain_event_marker=create_artifact_url_event(
+            artifact_type=artifact_type,
+            title=title,
+            url=url,
+            artifact_id=artifact_id,
+            mime_type=mime_type,
+            metadata=metadata,
+        ),
+        node_id=f"artifact_{artifact_type}"
+    )
+
+
 # ============================================
 # Mapeo de tools a action_types
 # ============================================
@@ -267,22 +317,33 @@ TOOL_TO_ACTION_TYPE = {
     "delegate": "data",  # Generic, se sobrescribe según el subagente
 }
 
-def get_action_type_for_tool(tool_name: str, agent: Optional[str] = None) -> str:
+AGENT_TO_ACTION_TYPE = {
+    "designer_agent": "image",
+    "researcher_agent": "search",
+    "communication_agent": "data",
+    "sap_analyst": "data",
+}
+
+def get_action_type_for_tool(tool_name: str, agent: Optional[str] = None, task: Optional[str] = None) -> str:
     """
     Obtiene el action_type para una tool.
     
     Args:
         tool_name: Nombre de la tool
         agent: Si es delegate, el subagente destino
+        task: Texto de la tarea (para inferir tipo en delegaciones)
     
     Returns:
         action_type para el Brain Event
     """
     if tool_name == "delegate" and agent:
-        if agent == "designer_agent":
-            return "slides"  # Imágenes y presentaciones
-        else:
-            return "data"
+        if agent == "designer_agent" and task:
+            t = task.lower()
+            if any(w in t for w in ("presentaci", "slides", "diapositiva")):
+                return "slides"
+            if any(w in t for w in ("vídeo", "video", "clip", "animaci")):
+                return "image"
+        return AGENT_TO_ACTION_TYPE.get(agent, "data")
     
     return TOOL_TO_ACTION_TYPE.get(tool_name, "data")
 
@@ -316,7 +377,7 @@ def get_action_title_for_tool(tool_name: str, args: Dict[str, Any]) -> str:
         "shell": lambda a: f"Ejecutando: {a.get('command', '')[:30]}",
         "javascript": lambda a: "Ejecutando JavaScript",
         "generate_image": lambda a: f"Generando imagen: {a.get('prompt', '')[:40]}",
-        "delegate": lambda a: f"Delegando a {a.get('agent', 'subagente')}",
+        "delegate": lambda a: a.get('task', '')[:60] or f"Delegando a {a.get('agent', 'subagente')}",
         "think": lambda a: f"💭 {_get_reasoning_preview(a, 'thought')}" if _get_reasoning_preview(a, 'thought') else "Analizando...",
         "plan": lambda a: f"📋 {_get_reasoning_preview(a, 'plan')}" if _get_reasoning_preview(a, 'plan') else "Planificando...",
         "reflect": lambda a: f"🔍 {_get_reasoning_preview(a, 'reflection')}" if _get_reasoning_preview(a, 'reflection') else "Reflexionando...",

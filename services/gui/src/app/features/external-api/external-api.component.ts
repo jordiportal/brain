@@ -996,7 +996,13 @@ export class ExternalApiComponent implements OnInit {
   }
 
   getBaseUrl(): string {
-    return window.location.origin.replace(':4200', ':8000');
+    const apiUrl = environment.apiUrl;
+    if (apiUrl.startsWith('http')) {
+      try {
+        return new URL(apiUrl).origin;
+      } catch { /* fallback below */ }
+    }
+    return window.location.origin;
   }
 
   activeKeysCount(): number {
@@ -1064,12 +1070,17 @@ export class ExternalApiComponent implements OnInit {
   }
 
   checkApiStatus(): void {
-    this.http.get<any>(`${this.getBaseUrl()}/v1/brain/status`).subscribe({
+    const statusUrl = `${this.getBaseUrl()}/v1/brain/status`;
+    this.http.get<any>(statusUrl).subscribe({
       next: (response) => {
-        this.apiStatus.set(response.status);
+        this.apiStatus.set(response.status === 'online' ? 'online' : response.status);
       },
       error: () => {
-        this.apiStatus.set('offline');
+        // Fallback: check via internal API health
+        this.http.get<any>(`${environment.apiUrl}/config/api-keys`).subscribe({
+          next: () => this.apiStatus.set('online'),
+          error: () => this.apiStatus.set('offline')
+        });
       }
     });
   }

@@ -63,10 +63,15 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = Field(default=0, ge=-2, le=2)
     logit_bias: Optional[Dict[str, float]] = None
     user: Optional[str] = None
+    chat_id: Optional[str] = None
+    session_id: Optional[str] = None
     tools: Optional[List[ToolDefinition]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     response_format: Optional[ResponseFormat] = None
     seed: Optional[int] = None
+
+    class Config:
+        extra = "allow"
 
 
 # ============================================

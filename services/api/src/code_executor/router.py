@@ -14,9 +14,9 @@ import subprocess
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
-from src.auth import require_role
+from src.auth import require_role, get_current_user_flexible
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 import mimetypes
 import io
 
@@ -36,9 +36,14 @@ async def _get_executor(user_id: Optional[str] = None):
     return PersistentCodeExecutor(FALLBACK_CONTAINER)
 
 
+def _uid(user: Dict[str, Any]) -> str:
+    return user.get("email") or str(user["id"])
+
+
 @router.get("/files/{file_path:path}")
-async def get_workspace_file(file_path: str, user_id: Optional[str] = Query(None)):
+async def get_workspace_file(file_path: str, user: dict = Depends(get_current_user_flexible)):
     """Sirve un archivo del workspace del sandbox del usuario."""
+    user_id = _uid(user)
     executor = await _get_executor(user_id)
 
     data = executor.read_binary_file(file_path)
@@ -67,9 +72,10 @@ async def get_workspace_file(file_path: str, user_id: Optional[str] = Query(None
 async def upload_workspace_file(
     file: UploadFile = File(...),
     path: str = Form("uploads"),
-    user_id: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user_flexible),
 ):
     """Sube un archivo al workspace del sandbox del usuario."""
+    user_id = _uid(user)
     executor = await _get_executor(user_id)
 
     content = await file.read()
@@ -95,8 +101,9 @@ async def upload_workspace_file(
 
 
 @router.get("/list/{dir_path:path}")
-async def list_workspace_directory(dir_path: str = "", user_id: Optional[str] = Query(None)):
+async def list_workspace_directory(dir_path: str = "", user: dict = Depends(get_current_user_flexible)):
     """Lista archivos de un directorio del workspace del sandbox del usuario."""
+    user_id = _uid(user)
     executor = await _get_executor(user_id)
     full_path = f"{executor.WORKSPACE_PATH}/{dir_path}" if dir_path else executor.WORKSPACE_PATH
 
@@ -145,8 +152,9 @@ async def list_workspace_directory(dir_path: str = "", user_id: Optional[str] = 
 
 
 @router.delete("/files/{file_path:path}")
-async def delete_workspace_file(file_path: str, user_id: Optional[str] = Query(None)):
+async def delete_workspace_file(file_path: str, user: dict = Depends(get_current_user_flexible)):
     """Elimina un archivo del workspace del sandbox del usuario."""
+    user_id = _uid(user)
     executor = await _get_executor(user_id)
 
     if executor.delete_file(file_path):
@@ -156,8 +164,9 @@ async def delete_workspace_file(file_path: str, user_id: Optional[str] = Query(N
 
 
 @router.get("/media/recent")
-async def list_recent_media(limit: int = 20, user_id: Optional[str] = Query(None)):
+async def list_recent_media(limit: int = 20, user: dict = Depends(get_current_user_flexible)):
     """Lista los archivos multimedia más recientes del sandbox del usuario."""
+    user_id = _uid(user)
     executor = await _get_executor(user_id)
 
     try:

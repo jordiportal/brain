@@ -107,12 +107,18 @@ class OAuthValidator:
             _ISSUER_V1_TEMPLATE.format(tenant_id=cfg.tenant_id),
         ]
 
+        # Accept both plain client_id and Application ID URI as valid audiences
+        valid_audiences = [
+            cfg.client_id,
+            f"api://{cfg.client_id}",
+        ]
+
         try:
             decoded = jwt.decode(
                 token,
                 signing_key.key,
                 algorithms=["RS256"],
-                audience=cfg.client_id,
+                audience=valid_audiences,
                 issuer=valid_issuers,
                 options={
                     "verify_exp": True,

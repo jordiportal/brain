@@ -541,51 +541,47 @@ export class DashboardComponent implements OnInit {
   }
 
   private loadAllData(): void {
+    // Load stats independently so partial failures don't break everything
+    this.strapiService.getSystemStats().subscribe(stats => this.stats.set(stats));
+    this.strapiService.getDashboardMetrics().subscribe(metrics => this.metrics.set(metrics));
+    this.strapiService.getUserActivity().subscribe(activity => this.userActivity.set(activity));
+
+    // Health & readiness together for status cards
     forkJoin({
-      stats: this.strapiService.getSystemStats(),
-      metrics: this.strapiService.getDashboardMetrics(),
-      activity: this.strapiService.getUserActivity(),
       health: this.apiService.getHealth(),
       readiness: this.apiService.getReadiness()
-    }).subscribe({
-      next: ({ stats, metrics, activity, health, readiness }) => {
-        this.stats.set(stats);
-        this.metrics.set(metrics);
-        this.userActivity.set(activity);
-        this.readiness.set(readiness);
+    }).subscribe(({ health, readiness }) => {
+      this.readiness.set(readiness);
 
+      if (health.status === 'error') {
+        this.apiStatus.set({ icon: 'error', message: 'No disponible', class: 'offline' });
+      } else {
         this.apiStatus.set({
           icon: 'check_circle',
           message: `Online - v${health.version}`,
           class: 'online'
         });
-
-        this.dbStatus.set({
-          icon: readiness.database === 'connected' ? 'check_circle' : 'error',
-          message: readiness.database === 'connected' ? 'Conectada' : 'No disponible',
-          class: readiness.database === 'connected' ? 'online' : 'offline'
-        });
-
-        this.redisStatus.set({
-          icon: readiness.redis === 'connected' ? 'check_circle' : 'error',
-          message: readiness.redis === 'connected' ? 'Conectado' : 'No disponible',
-          class: readiness.redis === 'connected' ? 'online' : 'offline'
-        });
-
-        const mcpConn = readiness.mcp_connected || 0;
-        const mcpTotal = readiness.mcp_connections || 0;
-        this.mcpStatus.set({
-          icon: mcpConn > 0 ? 'check_circle' : (mcpTotal > 0 ? 'error' : 'remove_circle_outline'),
-          message: mcpTotal > 0 ? `${mcpConn}/${mcpTotal} conectados` : 'Sin conexiones',
-          class: mcpConn > 0 ? 'online' : (mcpTotal > 0 ? 'offline' : 'checking')
-        });
-      },
-      error: () => {
-        this.apiStatus.set({ icon: 'error', message: 'No disponible', class: 'offline' });
-        this.dbStatus.set({ icon: 'error', message: 'No disponible', class: 'offline' });
-        this.redisStatus.set({ icon: 'error', message: 'No disponible', class: 'offline' });
-        this.mcpStatus.set({ icon: 'error', message: 'No disponible', class: 'offline' });
       }
+
+      this.dbStatus.set({
+        icon: readiness.database === 'connected' ? 'check_circle' : 'error',
+        message: readiness.database === 'connected' ? 'Conectada' : 'No disponible',
+        class: readiness.database === 'connected' ? 'online' : 'offline'
+      });
+
+      this.redisStatus.set({
+        icon: readiness.redis === 'connected' ? 'check_circle' : 'error',
+        message: readiness.redis === 'connected' ? 'Conectado' : 'No disponible',
+        class: readiness.redis === 'connected' ? 'online' : 'offline'
+      });
+
+      const mcpConn = readiness.mcp_connected || 0;
+      const mcpTotal = readiness.mcp_connections || 0;
+      this.mcpStatus.set({
+        icon: mcpConn > 0 ? 'check_circle' : (mcpTotal > 0 ? 'error' : 'remove_circle_outline'),
+        message: mcpTotal > 0 ? `${mcpConn}/${mcpTotal} conectados` : 'Sin conexiones',
+        class: mcpConn > 0 ? 'online' : (mcpTotal > 0 ? 'offline' : 'checking')
+      });
     });
   }
 
