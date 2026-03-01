@@ -53,6 +53,7 @@ interface Subagent {
   expertise?: string;
   task_requirements?: string;
   core_tools_enabled?: boolean;
+  excluded_core_tools?: string[];
   is_enabled?: boolean;
   icon_name?: string;
   settings?: Record<string, unknown>;
@@ -126,6 +127,16 @@ interface SubagentTest {
     status: string;
     timestamp: string;
     notes?: string;
+    lastExecution?: {
+      duration_ms: number;
+      tools_used?: string[];
+      has_html?: boolean;
+      has_images?: boolean;
+      success?: boolean;
+      response_preview?: string;
+      error?: string;
+      timestamp?: string;
+    };
   };
 }
 
@@ -144,12 +155,19 @@ interface TestRunResult {
   status: string;
   duration_ms: number;
   result?: any;
+  html?: string;
+  artifact_urls?: { id: string; url: string; type: string; title: string }[];
   error?: string;
   expected: {
     type: string;
     criteria: string[];
   };
   criteria: string[];
+  evaluation?: {
+    overall: string;
+    criteria_results: { criterion: string; passed: boolean; reason: string }[];
+    examiner_model?: string;
+  };
 }
 
 @Component({
@@ -471,10 +489,29 @@ interface TestRunResult {
                             </div>
                           }
 
-                          <mat-slide-toggle [(ngModel)]="selectedAgent.core_tools_enabled" color="primary"
-                                            class="core-tools-toggle">
-                            Core tools (reflect, plan, delegate, finish)
-                          </mat-slide-toggle>
+                          <div class="core-tools-section">
+                            <mat-slide-toggle [(ngModel)]="selectedAgent.core_tools_enabled" color="primary"
+                                              class="core-tools-toggle">
+                              Core tools habilitadas
+                            </mat-slide-toggle>
+                            @if (selectedAgent.core_tools_enabled) {
+                              <div class="core-tools-grid">
+                                @for (tool of getCoreTools(); track tool.id) {
+                                  <div class="core-tool-chip" [class.excluded]="isCoreToolExcluded(tool.id)"
+                                       (click)="toggleCoreToolExclusion(tool.id)"
+                                       [matTooltip]="tool.description">
+                                    <mat-icon class="ct-icon">{{ isCoreToolExcluded(tool.id) ? 'block' : 'check_circle' }}</mat-icon>
+                                    <span class="ct-name">{{ tool.name || tool.id }}</span>
+                                  </div>
+                                }
+                              </div>
+                              @if ((selectedAgent.excluded_core_tools || []).length > 0) {
+                                <div class="excluded-hint">
+                                  {{ (selectedAgent.excluded_core_tools || []).length }} core tool(s) excluida(s)
+                                </div>
+                              }
+                            }
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -660,6 +697,28 @@ interface TestRunResult {
                             }
                             Todos
                           </button>
+                          <button mat-stroked-button color="accent" (click)="evaluateAllTests()" [disabled]="evaluatingAll()" matTooltip="Auto-evaluar todos con LLM examinador">
+                            @if (evaluatingAll()) {
+                              <mat-spinner diameter="18"></mat-spinner>
+                            } @else {
+                              <mat-icon>auto_fix_high</mat-icon>
+                            }
+                            Evaluar
+                          </button>
+                        </div>
+
+                        <div class="examiner-config-row">
+                          <span class="examiner-label">Examinador:</span>
+                          <select class="examiner-select" [(ngModel)]="examinerProviderId" (ngModelChange)="onExaminerProviderChange()">
+                            @for (p of dbProviders(); track p.id) {
+                              <option [value]="p.id">{{ p.name }}</option>
+                            }
+                          </select>
+                          <select class="examiner-select" [(ngModel)]="examinerModel">
+                            @for (m of examinerModelList(); track m) {
+                              <option [value]="m">{{ m }}</option>
+                            }
+                          </select>
                         </div>
 
                         <div class="tests-categories">
@@ -691,6 +750,14 @@ interface TestRunResult {
                                     <div class="test-info">
                                       <span class="test-id">{{ test.id }}</span>
                                       <span class="test-name">{{ test.name }}</span>
+                                      @if (test.lastRun?.lastExecution; as exec) {
+                                        <span class="exec-hint">
+                                          {{ exec.duration_ms }}ms
+                                          @if (exec.tools_used?.length) {
+                                            · {{ exec.tools_used!.length }} tools
+                                          }
+                                        </span>
+                                      }
                                     </div>
                                     <button mat-icon-button matTooltip="Ejecutar" 
                                             (click)="runTest(test); $event.stopPropagation()" 
@@ -737,36 +804,72 @@ interface TestRunResult {
                           @if (currentTestResult()) {
                             <div class="detail-section result-section">
                               <h4>
-                                Resultado 
+                                Resultado
                                 <span class="duration">({{ currentTestResult()!.duration_ms }}ms)</span>
+                                @if (currentTestResult()!.result?.success === false) {
+                                  <mat-icon class="status-fail">error</mat-icon>
+                                } @else if (currentTestResult()!.status === 'executed') {
+                                  <mat-icon class="status-ok">check_circle</mat-icon>
+                                }
                               </h4>
-                              
+
                               @if (currentTestResult()!.error) {
                                 <div class="output-error">
                                   <mat-icon>error</mat-icon>
                                   {{ currentTestResult()!.error }}
                                 </div>
                               } @else {
+                                @if (currentTestResult()!.result?.tools_used?.length) {
+                                  <div class="output-tools">
+                                    <span class="tools-label">Tools:</span>
+                                    @for (tool of currentTestResult()!.result.tools_used; track $index) {
+                                      <span class="tool-chip-sm">{{ tool }}</span>
+                                    }
+                                  </div>
+                                }
+
                                 @if (currentTestResult()!.result?.images?.length) {
                                   <div class="output-images">
                                     @for (img of currentTestResult()!.result.images; track $index) {
-                                      @if (img.url) {
-                                        <img [src]="sanitizeImageUrl(img.url)" 
+                                      @if (img.base64) {
+                                        <img [src]="'data:' + (img.mime_type || 'image/png') + ';base64,' + img.base64"
+                                             class="result-image" alt="Generated image">
+                                      } @else if (img.url) {
+                                        <img [src]="sanitizeImageUrl(img.url)"
                                              class="result-image" alt="Generated image">
                                       }
                                     }
                                   </div>
                                 }
-                                @if (currentTestResult()!.result?.data?.html) {
-                                  <button mat-stroked-button (click)="previewHtml(currentTestResult()!.result.data.html)">
+
+                                @if (getTestResultHtml()) {
+                                  <button mat-stroked-button (click)="previewHtml(getTestResultHtml()!)">
                                     <mat-icon>preview</mat-icon>
                                     Ver presentación
                                   </button>
                                 }
+
+                                @if (currentTestResult()!.artifact_urls?.length) {
+                                  <div class="output-artifacts">
+                                    <span class="tools-label">Artefactos:</span>
+                                    @for (art of currentTestResult()!.artifact_urls; track art.id) {
+                                      <a class="artifact-link" [href]="art.url" target="_blank">
+                                        <mat-icon>{{ art.type === 'image' ? 'image' : 'attachment' }}</mat-icon>
+                                        {{ art.title || art.id }}
+                                      </a>
+                                    }
+                                  </div>
+                                }
+
                                 @if (currentTestResult()!.result?.response) {
-                                  <div class="output-response">
+                                  <div class="output-response" [class.expanded]="responseExpanded">
                                     {{ currentTestResult()!.result.response }}
                                   </div>
+                                  @if (currentTestResult()!.result.response.length > 300) {
+                                    <button mat-button class="expand-btn" (click)="responseExpanded = !responseExpanded">
+                                      {{ responseExpanded ? 'Menos' : 'Más' }}
+                                    </button>
+                                  }
                                 }
                               }
                             </div>
@@ -782,6 +885,47 @@ interface TestRunResult {
                                 }
                                 Ejecutar Test
                               </button>
+                            </div>
+                          }
+
+                          @if (currentTestResult()) {
+                            <div class="detail-section evaluation-section">
+                              <div class="eval-header">
+                                <h4>Auto-evaluación</h4>
+                                <button mat-stroked-button (click)="evaluateCurrentTest()" [disabled]="evaluatingTest()">
+                                  @if (evaluatingTest()) {
+                                    <mat-spinner diameter="16"></mat-spinner>
+                                  } @else {
+                                    <mat-icon>auto_fix_high</mat-icon>
+                                  }
+                                  Evaluar
+                                </button>
+                              </div>
+                              @if (currentEvaluation()) {
+                                <div class="eval-overall" [class]="currentEvaluation()!.overall">
+                                  <mat-icon>{{ currentEvaluation()!.overall === 'pass' ? 'check_circle' : currentEvaluation()!.overall === 'fail' ? 'cancel' : 'error' }}</mat-icon>
+                                  <span>{{ currentEvaluation()!.overall | uppercase }}</span>
+                                  @if (currentEvaluation()!.examiner_model) {
+                                    <span class="eval-model">{{ currentEvaluation()!.examiner_model }}</span>
+                                  }
+                                </div>
+                                @if (currentEvaluation()!.criteria_results?.length) {
+                                  <div class="eval-criteria-list">
+                                    @for (cr of currentEvaluation()!.criteria_results; track cr.criterion) {
+                                      <div class="eval-criterion" [class.passed]="cr.passed" [class.failed]="!cr.passed">
+                                        <mat-icon>{{ cr.passed ? 'check' : 'close' }}</mat-icon>
+                                        <div class="eval-criterion-text">
+                                          <span class="criterion-name">{{ cr.criterion }}</span>
+                                          <span class="criterion-reason">{{ cr.reason }}</span>
+                                        </div>
+                                      </div>
+                                    }
+                                  </div>
+                                }
+                                @if (currentEvaluation()!.error) {
+                                  <div class="output-error">{{ currentEvaluation()!.error }}</div>
+                                }
+                              }
                             </div>
                           }
 
@@ -1535,9 +1679,53 @@ interface TestRunResult {
       font-size: 13px;
     }
 
-    .core-tools-toggle {
+    .core-tools-section {
       margin-top: 12px;
+      border-top: 1px solid #e0e0e0;
+      padding-top: 12px;
+    }
+
+    .core-tools-toggle {
       font-size: 13px;
+    }
+
+    .core-tools-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .core-tool-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 12px;
+      cursor: pointer;
+      background: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #c8e6c9;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .core-tool-chip:hover { background: #c8e6c9; }
+    .core-tool-chip.excluded {
+      background: #fce4ec;
+      color: #c62828;
+      border-color: #ef9a9a;
+      text-decoration: line-through;
+    }
+    .core-tool-chip.excluded:hover { background: #f8bbd0; }
+    .core-tool-chip .ct-icon { font-size: 16px; width: 16px; height: 16px; }
+    .core-tool-chip .ct-name { font-weight: 500; }
+
+    .excluded-hint {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #c62828;
+      font-style: italic;
     }
 
     /* Tool picker */
@@ -2738,6 +2926,11 @@ interface TestRunResult {
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .exec-hint {
+      font-size: 10px;
+      color: #999;
+      font-weight: 400;
+    }
 
     .run-btn {
       opacity: 0;
@@ -2863,6 +3056,46 @@ interface TestRunResult {
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 
+    .output-tools {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .tools-label { font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; }
+    .tool-chip-sm {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .output-artifacts {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin: 8px 0;
+    }
+    .artifact-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      background: #f3e5f5;
+      color: #7b1fa2;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .artifact-link mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .artifact-link:hover { background: #e1bee7; }
+
     .output-response {
       white-space: pre-wrap;
       font-size: 14px;
@@ -2871,9 +3104,79 @@ interface TestRunResult {
       background: white;
       border-radius: 8px;
       margin-top: 12px;
-      max-height: 200px;
-      overflow-y: auto;
+      max-height: 150px;
+      overflow: hidden;
+      transition: max-height 0.3s;
     }
+    .output-response.expanded { max-height: none; }
+    .expand-btn { font-size: 12px; padding: 0; min-width: 0; color: #1976d2; }
+
+    .status-ok { color: #388e3c; font-size: 18px; margin-left: 6px; }
+    .status-fail { color: #d32f2f; font-size: 18px; margin-left: 6px; }
+
+    .examiner-config-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .examiner-label { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
+    .examiner-select {
+      flex: 1;
+      padding: 4px 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 12px;
+      background: white;
+    }
+
+    .evaluation-section {
+      background: #fafafa;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 8px;
+    }
+    .eval-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .eval-header h4 { margin: 0; font-size: 14px; }
+    .eval-overall {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .eval-overall.pass { background: #e8f5e9; color: #2e7d32; }
+    .eval-overall.fail { background: #ffebee; color: #c62828; }
+    .eval-overall.error { background: #fff3e0; color: #e65100; }
+    .eval-model { font-weight: 400; font-size: 11px; color: #888; margin-left: auto; }
+    .eval-criteria-list { display: flex; flex-direction: column; gap: 4px; }
+    .eval-criterion {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .eval-criterion.passed { background: #e8f5e9; }
+    .eval-criterion.failed { background: #ffebee; }
+    .eval-criterion mat-icon { font-size: 16px; width: 16px; height: 16px; margin-top: 2px; }
+    .eval-criterion.passed mat-icon { color: #388e3c; }
+    .eval-criterion.failed mat-icon { color: #d32f2f; }
+    .eval-criterion-text { display: flex; flex-direction: column; }
+    .criterion-name { font-weight: 500; }
+    .criterion-reason { color: #666; font-size: 11px; margin-top: 2px; }
 
     .no-result {
       text-align: center;
@@ -2967,7 +3270,7 @@ export class SubagentsComponent implements OnInit {
   /** Session ID para memoria conversacional del agente (misma conversación = mismo session_id) */
   subagentSessionId = signal<string | null>(null);
   activeTabIndex = 0; // 0 = Agentes, 1 = Configuración, 2 = Ejecutar
-  availableToolsList = signal<{ id: string; name: string; description: string }[]>([]);
+  availableToolsList = signal<{ id: string; name: string; description: string; is_core?: boolean }[]>([]);
   agentVersions = signal<{ id: number; version_number: number; created_at: string; change_reason?: string }[]>([]);
   loadingVersions = signal(false);
   restoringVersion = signal(false);
@@ -3009,6 +3312,13 @@ export class SubagentsComponent implements OnInit {
   criteriaChecks: boolean[] = [];
   testNotes = '';
 
+  evaluatingTest = signal(false);
+  evaluatingAll = signal(false);
+  currentEvaluation = signal<any>(null);
+  examinerProviderId: string | number | null = null;
+  examinerModel = '';
+  examinerModelList = signal<string[]>([]);
+
   // Execute form - sincronizado con configuración del agente
   executeTask = '';
   executeContext = '';
@@ -3028,15 +3338,50 @@ export class SubagentsComponent implements OnInit {
     this.loadSubagents();
     this.loadProviders();
     this.loadAvailableTools();
+    this.loadExaminerConfig();
+  }
+
+  loadExaminerConfig(): void {
+    this.http.get<any>(`${environment.apiUrl}/subagents/config/test-examiner`).subscribe({
+      next: (cfg) => {
+        if (cfg?.provider_id) {
+          this.examinerProviderId = cfg.provider_id;
+          this.examinerModel = cfg.model || '';
+          this.onExaminerProviderChange();
+          if (cfg.model) this.examinerModel = cfg.model;
+        }
+      },
+      error: () => {}
+    });
   }
 
   loadAvailableTools(): void {
-    this.http.get<{ tools: { id: string; name: string; description: string }[] }>(
+    this.http.get<{ tools: { id: string; name: string; description: string; is_core?: boolean }[] }>(
       `${environment.apiUrl}/agent-definitions/meta/available-tools`
     ).subscribe({
       next: (res) => this.availableToolsList.set(res.tools || []),
       error: () => {}
     });
+  }
+
+  getCoreTools(): { id: string; name: string; description: string }[] {
+    return this.availableToolsList().filter(t => t.is_core);
+  }
+
+  isCoreToolExcluded(toolId: string): boolean {
+    return (this.selectedAgent?.excluded_core_tools || []).includes(toolId);
+  }
+
+  toggleCoreToolExclusion(toolId: string): void {
+    if (!this.selectedAgent) return;
+    const excluded = [...(this.selectedAgent.excluded_core_tools || [])];
+    const idx = excluded.indexOf(toolId);
+    if (idx >= 0) {
+      excluded.splice(idx, 1);
+    } else {
+      excluded.push(toolId);
+    }
+    this.selectedAgent.excluded_core_tools = excluded;
   }
 
   // --- Tool grid helpers ---
@@ -3128,6 +3473,7 @@ export class SubagentsComponent implements OnInit {
       expertise: d.expertise,
       task_requirements: d.task_requirements,
       core_tools_enabled: d.core_tools_enabled !== false,
+      excluded_core_tools: d.excluded_core_tools || [],
       is_enabled: d.is_enabled !== false,
       settings: d.settings || {}
     };
@@ -3242,10 +3588,13 @@ export class SubagentsComponent implements OnInit {
           if (this.agentConfig.llm_provider) {
             this.loadModelsForProvider(this.agentConfig.llm_provider);
           }
+
+          this._syncLlmFromConfig();
         },
         error: (err) => {
           console.error('Error loading config:', err);
           this.loadingConfig.set(false);
+          this._syncLlmFromConfig();
         }
       });
   }
@@ -3259,10 +3608,14 @@ export class SubagentsComponent implements OnInit {
           this.dbProviders.set(providers);
           this.loadingProviders.set(false);
           
-          // Si no hay proveedor seleccionado, usar el por defecto
           if (!this.agentConfig.llm_provider && providers.length > 0) {
             const defaultProvider = providers.find(p => p.isDefault) || providers[0];
             this.agentConfig.llm_provider = defaultProvider.id.toString();
+          }
+          if (!this.examinerProviderId && providers.length > 0) {
+            const def = providers.find(p => p.isDefault) || providers[0];
+            this.examinerProviderId = def.id;
+            this.onExaminerProviderChange();
           }
         },
         error: (err) => {
@@ -3404,6 +3757,7 @@ export class SubagentsComponent implements OnInit {
       system_prompt: this.selectedAgent.system_prompt || '',
       domain_tools: this.selectedAgent.domain_tools || [],
       core_tools_enabled: this.selectedAgent.core_tools_enabled !== false,
+      excluded_core_tools: this.selectedAgent.excluded_core_tools || [],
       skills,
       is_enabled: this.selectedAgent.is_enabled !== false,
       version,
@@ -3518,22 +3872,41 @@ export class SubagentsComponent implements OnInit {
   }
 
   /**
-   * Helper para obtener la configuración LLM actual (para tests y ejecución)
+   * Resuelve la configuración LLM para tests y ejecución.
+   * Busca en: 1) selección manual, 2) config del agente, 3) provider por defecto.
    */
   private getExecutionLlmConfig(): { llm_url: string; model: string; provider_type: string; api_key?: string } | null {
-    const config = this.llmSelectionService.buildExecutionConfig(
-      this.executeProviderId,
-      this.executeModel
+    if (!this.executeProviderId) {
+      this._syncLlmFromConfig();
+    }
+
+    const provider = this.dbProviders().find(p =>
+      p.id.toString() === this.executeProviderId?.toString()
     );
-    
-    if (!config) return null;
-    
-    return {
-      llm_url: config.provider_url,
-      model: config.model,
-      provider_type: config.provider_type,
-      api_key: config.api_key
-    };
+
+    if (provider) {
+      return {
+        llm_url: provider.baseUrl,
+        model: this.executeModel || provider.defaultModel || '',
+        provider_type: provider.type || 'ollama',
+        api_key: provider.apiKey
+      };
+    }
+
+    // Último fallback: primer provider disponible
+    const fallback = this.dbProviders().find(p => p.isDefault) || this.dbProviders()[0];
+    if (fallback) {
+      this.executeProviderId = fallback.id;
+      this.executeModel = fallback.defaultModel || '';
+      return {
+        llm_url: fallback.baseUrl,
+        model: fallback.defaultModel || '',
+        provider_type: fallback.type || 'ollama',
+        api_key: fallback.apiKey
+      };
+    }
+
+    return null;
   }
 
   async executeSubagent(): Promise<void> {
@@ -3568,10 +3941,7 @@ export class SubagentsComponent implements OnInit {
     };
 
     if (!this.useSavedConfig()) {
-      const llmConfig = this.llmSelectionService.buildExecutionConfig(
-        this.executeProviderId,
-        this.executeModel
-      );
+      const llmConfig = this.getExecutionLlmConfig();
       if (!llmConfig) {
         this.executing.set(false);
         this.snackBar.open('Selecciona un proveedor LLM válido', 'Cerrar', { duration: 3000 });
@@ -3579,7 +3949,7 @@ export class SubagentsComponent implements OnInit {
       }
       payload = {
         ...payload,
-        llm_url: llmConfig.provider_url,
+        llm_url: llmConfig.llm_url,
         model: llmConfig.model,
         provider_type: llmConfig.provider_type,
         api_key: llmConfig.api_key
@@ -3936,6 +4306,8 @@ export class SubagentsComponent implements OnInit {
     this.criteriaChecks = test.expected.criteria.map(() => false);
     this.testNotes = test.lastRun?.notes || '';
     this.currentTestResult.set(null);
+    this.currentEvaluation.set((test.lastRun as any)?.evaluation || null);
+    this.responseExpanded = false;
   }
 
   runTest(test: SubagentTest): void {
@@ -3944,6 +4316,7 @@ export class SubagentsComponent implements OnInit {
     this.runningTest.set(test.id);
     this.selectedTest = test;
     this.criteriaChecks = test.expected.criteria.map(() => false);
+    this.currentEvaluation.set(null);
     
     // Obtener configuración LLM para tests
     const llmConfig = this.getExecutionLlmConfig();
@@ -4079,6 +4452,19 @@ export class SubagentsComponent implements OnInit {
     });
   }
 
+  responseExpanded = false;
+
+  getTestResultHtml(): string | null {
+    const r = this.currentTestResult();
+    if (!r) return null;
+    if (r.html) return r.html;
+    const toolResults = r.result?.data?.tool_results || [];
+    for (const tr of toolResults) {
+      if (tr.result?.html) return tr.result.html;
+    }
+    return null;
+  }
+
   previewHtml(html: string): void {
     const win = window.open('', '_blank');
     if (win) {
@@ -4092,11 +4478,102 @@ export class SubagentsComponent implements OnInit {
    */
   sanitizeImageUrl(url: string): SafeUrl {
     if (!url) return '';
-    // Data URLs necesitan bypass de seguridad
     if (url.startsWith('data:')) {
       return this.sanitizer.bypassSecurityTrustUrl(url);
     }
-    // URLs HTTP normales no necesitan sanitización
     return url;
+  }
+
+  // ── Examiner ─────────────────────────────────────────
+
+  private getExaminerLlmConfig(): { llm_url: string; model: string; provider_type: string; api_key?: string } | null {
+    const provider = this.dbProviders().find(p => p.id.toString() === this.examinerProviderId?.toString());
+    if (provider && this.examinerModel) {
+      return {
+        llm_url: provider.baseUrl,
+        model: this.examinerModel,
+        provider_type: provider.type || 'ollama',
+        api_key: provider.apiKey,
+      };
+    }
+    return this.getExecutionLlmConfig();
+  }
+
+  onExaminerProviderChange(): void {
+    const provider = this.dbProviders().find(p => p.id.toString() === this.examinerProviderId?.toString());
+    if (provider) {
+      this.examinerModel = provider.defaultModel || '';
+      const models = (provider as any).models || (provider as any).availableModels || [];
+      this.examinerModelList.set(models.length ? models : (provider.defaultModel ? [provider.defaultModel] : []));
+    }
+  }
+
+  evaluateCurrentTest(): void {
+    if (!this.selectedAgent || !this.selectedTest || !this.currentTestResult()) return;
+    const cfg = this.getExaminerLlmConfig();
+    if (!cfg) {
+      this.snackBar.open('Configura un proveedor LLM examinador', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    this.evaluatingTest.set(true);
+    const r = this.currentTestResult()!;
+
+    this.http.post<any>(
+      `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/${this.selectedTest.id}/evaluate`,
+      {
+        llm_url: cfg.llm_url,
+        model: cfg.model,
+        provider_type: cfg.provider_type,
+        api_key: cfg.api_key,
+        result_data: r.result || null,
+      }
+    ).subscribe({
+      next: (ev) => {
+        this.currentEvaluation.set(ev);
+        this.evaluatingTest.set(false);
+        if (ev.overall === 'pass' || ev.overall === 'fail') {
+          this.markTestResult(ev.overall);
+        }
+      },
+      error: (err) => {
+        console.error('Evaluation error:', err);
+        this.evaluatingTest.set(false);
+        this.snackBar.open('Error en auto-evaluación', 'Cerrar', { duration: 3000 });
+      }
+    });
+  }
+
+  async evaluateAllTests(): Promise<void> {
+    if (!this.selectedAgent) return;
+    const cfg = this.getExaminerLlmConfig();
+    if (!cfg) {
+      this.snackBar.open('Configura un proveedor LLM examinador', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    this.evaluatingAll.set(true);
+
+    this.http.post<any>(
+      `${environment.apiUrl}/subagents/${this.selectedAgent.id}/tests/evaluate-all`,
+      {
+        llm_url: cfg.llm_url,
+        model: cfg.model,
+        provider_type: cfg.provider_type,
+        api_key: cfg.api_key,
+      }
+    ).subscribe({
+      next: (res) => {
+        this.evaluatingAll.set(false);
+        const count = res.total || 0;
+        this.snackBar.open(`${count} tests evaluados`, 'Cerrar', { duration: 3000 });
+        if (this.selectedAgent) this.loadAgentTests(this.selectedAgent.id);
+      },
+      error: (err) => {
+        console.error('Batch evaluation error:', err);
+        this.evaluatingAll.set(false);
+        this.snackBar.open('Error en evaluación batch', 'Cerrar', { duration: 3000 });
+      }
+    });
   }
 }

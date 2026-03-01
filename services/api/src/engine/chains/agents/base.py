@@ -87,6 +87,7 @@ class BaseSubAgent:
         system_prompt: str = "You are a specialized agent.",
         domain_tools: Optional[List[str]] = None,
         core_tools_enabled: bool = True,
+        excluded_core_tools: Optional[List[str]] = None,
         available_skills: Optional[List[Skill]] = None,
         icon: Optional[str] = None,
         settings: Optional[Dict[str, Any]] = None,
@@ -101,6 +102,7 @@ class BaseSubAgent:
         self.system_prompt = system_prompt
         self.domain_tools: List[str] = domain_tools or []
         self.core_tools_enabled = core_tools_enabled
+        self.excluded_core_tools: set = set(excluded_core_tools or [])
         self.available_skills: List[Skill] = available_skills or []
         self.icon = icon
         self.settings: Dict[str, Any] = settings or {}
@@ -133,6 +135,7 @@ class BaseSubAgent:
             system_prompt=defn.system_prompt,
             domain_tools=list(defn.domain_tools or []),
             core_tools_enabled=defn.core_tools_enabled,
+            excluded_core_tools=list(defn.excluded_core_tools or []),
             available_skills=skills,
             icon=defn.icon,
             settings=dict(defn.settings or {}),
@@ -205,7 +208,7 @@ class BaseSubAgent:
     # ── Tools ───────────────────────────────────────────────────────
 
     def get_tools(self) -> List[Any]:
-        """Tools de dominio + core tools universales (excepto delegation)."""
+        """Tools de dominio + core tools universales (excepto delegation y excluded)."""
         from src.tools import tool_registry
         from src.tools.core import CORE_TOOLS
 
@@ -213,8 +216,9 @@ class BaseSubAgent:
 
         if self.core_tools_enabled:
             delegation_tools = {"delegate", "get_agent_info"}
+            skip = delegation_tools | self.excluded_core_tools
             for k in CORE_TOOLS:
-                if k not in delegation_tools:
+                if k not in skip:
                     all_tool_ids.add(k)
 
         tools = []

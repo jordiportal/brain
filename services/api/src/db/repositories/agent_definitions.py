@@ -60,14 +60,15 @@ class AgentDefinitionRepository:
         skills_json = json.dumps(data.get("skills", []), ensure_ascii=False)
         settings_json = json.dumps(data.get("settings", {}), ensure_ascii=False)
         domain_tools = data.get("domain_tools", [])
+        excluded_core_tools = data.get("excluded_core_tools", [])
 
         row = await db.fetch_one(
             """
             INSERT INTO agent_definitions
                 (agent_id, name, description, role, expertise, task_requirements,
-                 system_prompt, domain_tools, core_tools_enabled, skills,
-                 is_enabled, version, icon, settings, created_at, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14::jsonb, NOW(), NOW())
+                 system_prompt, domain_tools, core_tools_enabled, excluded_core_tools,
+                 skills, is_enabled, version, icon, settings, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15::jsonb, NOW(), NOW())
             RETURNING *
             """,
             data["agent_id"],
@@ -79,6 +80,7 @@ class AgentDefinitionRepository:
             data["system_prompt"],
             domain_tools,
             data.get("core_tools_enabled", True),
+            excluded_core_tools,
             skills_json,
             data.get("is_enabled", True),
             data.get("version", "1.0.0"),
@@ -128,6 +130,11 @@ class AgentDefinitionRepository:
         if "domain_tools" in data:
             set_clauses.append(f"domain_tools = ${idx}")
             params.append(data["domain_tools"])
+            idx += 1
+
+        if "excluded_core_tools" in data:
+            set_clauses.append(f"excluded_core_tools = ${idx}")
+            params.append(data["excluded_core_tools"])
             idx += 1
 
         if "skills" in data:
@@ -271,6 +278,10 @@ class AgentDefinitionRepository:
         if domain_tools is None:
             domain_tools = []
 
+        excluded_core_tools = row.get("excluded_core_tools", [])
+        if excluded_core_tools is None:
+            excluded_core_tools = []
+
         return AgentDefinition(
             id=row["id"],
             agent_id=row["agent_id"],
@@ -282,6 +293,7 @@ class AgentDefinitionRepository:
             system_prompt=row["system_prompt"],
             domain_tools=list(domain_tools),
             core_tools_enabled=row.get("core_tools_enabled", True),
+            excluded_core_tools=list(excluded_core_tools),
             skills=skills if isinstance(skills, list) else [],
             is_enabled=row.get("is_enabled", True),
             version=row.get("version", "1.0.0"),

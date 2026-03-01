@@ -4,8 +4,8 @@
   "tests": [
     {
       "id": "SKL-DV-01",
-      "name": "Gráfico de barras",
-      "description": "Genera gráfico de barras desde datos",
+      "name": "Gráfico de barras via generate_slides",
+      "description": "Genera chart de barras usando generate_slides con type chart",
       "input": {
         "task": "Crea un gráfico de barras con las ventas por región: Norte 45000, Sur 32000, Este 28000, Oeste 51000",
         "context": null
@@ -13,17 +13,18 @@
       "expected": {
         "type": "html",
         "criteria": [
-          "Gráfico de barras visible",
+          "Usa generate_slides con type 'chart' y chart_type 'bar'",
+          "SVG de barras renderizado en HTML",
           "4 barras con valores correctos",
           "Labels de región presentes",
-          "Proporciones correctas"
+          "No usa python ni generate_image"
         ]
       }
     },
     {
       "id": "SKL-DV-02",
       "name": "Gráfico de líneas temporal",
-      "description": "Genera gráfico de tendencia temporal",
+      "description": "Genera chart de tendencia usando generate_slides con type chart",
       "input": {
         "task": "Muestra la evolución de usuarios: Enero 1000, Febrero 1500, Marzo 2200, Abril 3100, Mayo 4500",
         "context": null
@@ -31,17 +32,18 @@
       "expected": {
         "type": "html",
         "criteria": [
-          "Gráfico de líneas visible",
+          "Usa generate_slides con type 'chart' y chart_type 'line'",
+          "SVG de líneas renderizado en HTML",
           "Tendencia ascendente clara",
-          "Meses en eje X",
-          "Valores en eje Y"
+          "Meses visibles como labels",
+          "No usa python ni generate_image"
         ]
       }
     },
     {
       "id": "SKL-DV-03",
-      "name": "Gráfico donut",
-      "description": "Genera gráfico de distribución porcentual",
+      "name": "Gráfico donut/pie",
+      "description": "Genera chart circular usando generate_slides con type chart",
       "input": {
         "task": "Crea un gráfico de distribución de mercado: Empresa A 35%, Empresa B 28%, Empresa C 22%, Otros 15%",
         "context": null
@@ -49,17 +51,18 @@
       "expected": {
         "type": "html",
         "criteria": [
-          "Gráfico donut/tarta visible",
-          "Proporciones correctas visualmente",
-          "Leyenda con empresas",
-          "Porcentajes visibles"
+          "Usa generate_slides con type 'chart' y chart_type 'pie' o 'donut'",
+          "SVG circular renderizado en HTML",
+          "Proporciones visualmente correctas",
+          "Leyenda con nombres de empresa",
+          "No usa python ni generate_image"
         ]
       }
     },
     {
       "id": "SKL-DV-04",
-      "name": "KPI destacado",
-      "description": "Muestra un único número de forma impactante",
+      "name": "KPI destacado via stats",
+      "description": "Muestra KPI usando slide tipo stats o chart",
       "input": {
         "task": "Destaca el KPI de satisfacción del cliente: 98%",
         "context": null
@@ -67,10 +70,49 @@
       "expected": {
         "type": "html",
         "criteria": [
-          "Número 98% muy grande y destacado",
+          "Número 98% grande y destacado",
+          "Usa generate_slides con type 'stats' o slide con KPI",
           "Label 'Satisfacción' visible",
           "Diseño impactante",
-          "Legible de lejos"
+          "No usa python ni generate_image"
+        ]
+      }
+    },
+    {
+      "id": "SKL-DV-05",
+      "name": "Barras horizontales para ranking",
+      "description": "Genera horizontal-bar chart para comparativa ordenada",
+      "input": {
+        "task": "Muestra un ranking de los 5 productos más vendidos: Producto Alpha 8500 uds, Beta 6200 uds, Gamma 5100 uds, Delta 3800 uds, Epsilon 2400 uds",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Usa generate_slides con type 'chart' y chart_type 'horizontal-bar' o 'bar'",
+          "SVG renderizado con 5 barras",
+          "Orden de mayor a menor visible",
+          "Nombres de productos legibles",
+          "No usa python ni generate_image"
+        ]
+      }
+    },
+    {
+      "id": "SKL-DV-06",
+      "name": "Múltiples gráficos en una presentación",
+      "description": "Combina varios chart types en una misma presentación",
+      "input": {
+        "task": "Crea una presentación de 4 slides con datos de la empresa",
+        "context": "Datos: Ventas por región (Norte 120K, Sur 85K, Este 95K, Oeste 110K). Distribución de clientes (Enterprise 45%, SMB 35%, Startup 20%). Evolución trimestral (Q1 300K, Q2 350K, Q3 410K, Q4 480K)."
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Al menos 2 slides tipo chart diferentes",
+          "Bar chart para ventas por región",
+          "Pie o donut para distribución de clientes",
+          "Line chart para evolución trimestral",
+          "Todos los datos reflejados correctamente"
         ]
       }
     }

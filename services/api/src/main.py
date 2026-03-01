@@ -64,6 +64,15 @@ async def lifespan(app: FastAPI):
     db = get_db()
     await db.connect()
     logger.info("Conexión a PostgreSQL establecida")
+
+    # Auto-migrate: add excluded_core_tools column if missing
+    try:
+        await db.execute("""
+            ALTER TABLE agent_definitions
+            ADD COLUMN IF NOT EXISTS excluded_core_tools TEXT[] DEFAULT '{}'
+        """)
+    except Exception:
+        pass
     
     # Cargar TODOS los asistentes desde BD
     try:

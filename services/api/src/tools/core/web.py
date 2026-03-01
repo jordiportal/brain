@@ -64,18 +64,27 @@ async def web_search(
     logger.info(f"🔎 web_search: {query}", provider=provider, max_results=max_results)
     
     # Seleccionar proveedor
+    # Reject Brain API keys that were leaked into OPENAI_API_KEY
+    if openai_api_key and openai_api_key.startswith("sk-brain"):
+        openai_api_key = None
+
     if provider == "openai" and openai_api_key:
-        return await _search_openai(query, max_results, openai_api_key)
+        result = await _search_openai(query, max_results, openai_api_key)
+        if result.get("success"):
+            return result
+        logger.warning("OpenAI search failed, falling back to DuckDuckGo")
+        return await _search_duckduckgo(query, max_results)
     elif provider == "serper" and api_key:
         return await _search_serper(query, max_results, api_key)
     elif provider == "tavily" and api_key:
         return await _search_tavily(query, max_results, api_key)
     elif openai_api_key:
-        # Fallback a OpenAI si hay API key disponible en Strapi
-        logger.info("Using OpenAI as fallback search provider (from Strapi)")
-        return await _search_openai(query, max_results, openai_api_key)
+        result = await _search_openai(query, max_results, openai_api_key)
+        if result.get("success"):
+            return result
+        logger.warning("OpenAI search failed, falling back to DuckDuckGo")
+        return await _search_duckduckgo(query, max_results)
     else:
-        # Último fallback a DuckDuckGo
         return await _search_duckduckgo(query, max_results)
 
 

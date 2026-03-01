@@ -195,6 +195,7 @@ class AgentDefinition(BaseModel):
     system_prompt: str
     domain_tools: List[str] = []
     core_tools_enabled: bool = True
+    excluded_core_tools: List[str] = []
     skills: List[Dict[str, Any]] = []
     is_enabled: bool = True
     version: str = "1.0.0"

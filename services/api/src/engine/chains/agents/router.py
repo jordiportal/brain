@@ -17,6 +17,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import structlog
 
+from src.db import get_db
+
 from . import subagent_registry, register_all_subagents
 
 logger = structlog.get_logger()
@@ -75,6 +77,45 @@ async def list_subagents():
         "total": len(agents)
     }
 
+
+# ── Examiner config (before {agent_id} routes to avoid path conflict) ──
+
+_EXAMINER_CONFIG_KEY = "test_examiner_config"
+
+
+class ExaminerConfigUpdate(BaseModel):
+    provider_id: Optional[int] = None
+    model: Optional[str] = None
+
+
+@router.get("/config/test-examiner")
+async def get_examiner_config():
+    """Get the global examiner LLM configuration."""
+    from src.db.repositories import BrainSettingsRepository
+    val = await BrainSettingsRepository.get(_EXAMINER_CONFIG_KEY, {})
+    return val or {}
+
+
+@router.put("/config/test-examiner")
+async def set_examiner_config(cfg: ExaminerConfigUpdate):
+    """Save the global examiner LLM configuration."""
+    from src.db.repositories import BrainSettingsRepository
+    data = {"provider_id": cfg.provider_id, "model": cfg.model}
+    try:
+        await BrainSettingsRepository.upsert(_EXAMINER_CONFIG_KEY, data)
+    except KeyError:
+        db = get_db()
+        await db.execute(
+            """
+            INSERT INTO brain_settings (key, value, type, category, label, description, is_public)
+            VALUES ($1, $2::jsonb, 'json', 'tests', 'Examiner LLM Config', 'LLM config for auto-evaluating tests', false)
+            """,
+            _EXAMINER_CONFIG_KEY, json.dumps(data),
+        )
+    return data
+
+
+# ============================================
 
 @router.get("/{agent_id}")
 async def get_subagent(agent_id: str):
@@ -623,6 +664,14 @@ class TestResultUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class EvaluateRequest(BaseModel):
+    llm_url: str
+    model: str
+    provider_type: str = "ollama"
+    api_key: Optional[str] = None
+    result_data: Optional[Dict[str, Any]] = None
+
+
 @router.get("/{agent_id}/tests")
 async def get_subagent_tests(agent_id: str):
     """Obtiene los tests definidos para un subagente"""
@@ -696,7 +745,6 @@ async def run_subagent_test(
     start_time = time.time()
     
     try:
-        # Ejecutar el subagente con el input del test
         result = await agent.execute(
             task=test["input"]["task"],
             context=test["input"].get("context"),
@@ -707,14 +755,29 @@ async def run_subagent_test(
         )
         
         duration_ms = int((time.time() - start_time) * 1000)
-        
+        result_dict = result.to_dict()
+
+        extracted = _extract_test_artifacts(result_dict)
+
+        _persist_execution(agent_id, test_id, {
+            "duration_ms": duration_ms,
+            "tools_used": result_dict.get("tools_used", []),
+            "has_html": extracted["html"] is not None,
+            "has_images": result_dict.get("has_images", False),
+            "success": result_dict.get("success", False),
+            "response_preview": (result_dict.get("response") or "")[:200],
+            "timestamp": datetime.now().isoformat(),
+        })
+
         return {
             "agent_id": agent_id,
             "test_id": test_id,
             "test_name": test["name"],
             "status": "executed",
             "duration_ms": duration_ms,
-            "result": result.to_dict(),
+            "result": result_dict,
+            "html": extracted["html"],
+            "artifact_urls": extracted["artifact_urls"],
             "expected": test["expected"],
             "criteria": test["expected"].get("criteria", [])
         }
@@ -722,6 +785,13 @@ async def run_subagent_test(
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         logger.error(f"Test execution error: {e}", exc_info=True)
+
+        _persist_execution(agent_id, test_id, {
+            "duration_ms": duration_ms,
+            "error": str(e),
+            "success": False,
+            "timestamp": datetime.now().isoformat(),
+        })
         
         return {
             "agent_id": agent_id,
@@ -778,6 +848,94 @@ async def update_test_result(agent_id: str, test_id: str, update: TestResultUpda
         "test_id": test_id,
         "result": result
     }
+
+
+@router.post("/{agent_id}/tests/{test_id}/evaluate")
+async def evaluate_test(agent_id: str, test_id: str, req: EvaluateRequest):
+    """Evaluate a test result against its criteria using an independent examiner LLM."""
+    if not subagent_registry.is_initialized():
+        await register_all_subagents()
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Subagente no encontrado: {agent_id}")
+
+    test = _find_test(agent_id, test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail=f"Test no encontrado: {test_id}")
+
+    criteria = test["expected"].get("criteria", [])
+    if not criteria:
+        return {"overall": "skip", "criteria_results": [], "reason": "Sin criterios definidos"}
+
+    result_data = req.result_data
+    if not result_data:
+        results = _load_test_results(agent_id)
+        exec_info = results.get(test_id, {}).get("lastExecution")
+        if not exec_info:
+            raise HTTPException(status_code=400, detail="No hay resultado de ejecución. Ejecuta el test primero.")
+        result_data = exec_info
+
+    evaluation = await _run_examiner(
+        llm_url=req.llm_url,
+        model=req.model,
+        provider_type=req.provider_type,
+        api_key=req.api_key,
+        test_input=test["input"],
+        criteria=criteria,
+        result_data=result_data,
+    )
+
+    results = _load_test_results(agent_id)
+    entry = results.get(test_id, {})
+    entry["evaluation"] = evaluation
+    results[test_id] = entry
+    _save_test_results(agent_id, results)
+
+    return evaluation
+
+
+@router.post("/{agent_id}/tests/evaluate-all")
+async def evaluate_all_tests(agent_id: str, req: EvaluateRequest):
+    """Batch-evaluate all tests that have execution results."""
+    if not subagent_registry.is_initialized():
+        await register_all_subagents()
+    agent = subagent_registry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Subagente no encontrado: {agent_id}")
+
+    all_tests = _load_agent_tests(agent_id)
+    results = _load_test_results(agent_id)
+    evaluations: Dict[str, Any] = {}
+
+    for category in all_tests:
+        for test in category.get("tests", []):
+            tid = test["id"]
+            exec_info = results.get(tid, {}).get("lastExecution")
+            if not exec_info:
+                continue
+            criteria = test["expected"].get("criteria", [])
+            if not criteria:
+                continue
+            try:
+                ev = await _run_examiner(
+                    llm_url=req.llm_url,
+                    model=req.model,
+                    provider_type=req.provider_type,
+                    api_key=req.api_key,
+                    test_input=test["input"],
+                    criteria=criteria,
+                    result_data=exec_info,
+                )
+                entry = results.get(tid, {})
+                entry["evaluation"] = ev
+                results[tid] = entry
+                evaluations[tid] = ev
+            except Exception as e:
+                logger.error(f"Evaluation error for {tid}: {e}")
+                evaluations[tid] = {"overall": "error", "error": str(e)}
+
+    _save_test_results(agent_id, results)
+    return {"agent_id": agent_id, "evaluations": evaluations, "total": len(evaluations)}
 
 
 def _load_agent_tests(agent_id: str) -> List[Dict[str, Any]]:
@@ -839,24 +997,135 @@ def _load_test_results(agent_id: str) -> Dict[str, Any]:
 
 
 def _save_test_result(agent_id: str, test_id: str, result: Dict[str, Any]) -> None:
-    """Guarda el resultado de un test"""
+    """Guarda el resultado manual de un test, preservando lastExecution."""
+    results = _load_test_results(agent_id)
+    entry = results.get(test_id, {})
+    entry.update(result)
+    results[test_id] = entry
+    _save_test_results(agent_id, results)
+
+
+async def _run_examiner(
+    llm_url: str,
+    model: str,
+    provider_type: str,
+    api_key: Optional[str],
+    test_input: Dict[str, Any],
+    criteria: List[str],
+    result_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Call an LLM to evaluate test results against criteria."""
+    from src.engine.chains.llm_utils import call_llm
+
+    criteria_list = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
+    system_prompt = (
+        "You are a strict QA examiner. You evaluate test results against predefined criteria.\n"
+        "For EACH criterion, respond with PASS or FAIL and a brief reason.\n"
+        "At the end, give an overall verdict: PASS (all criteria met) or FAIL (any criterion failed).\n\n"
+        "Respond ONLY with valid JSON in this format:\n"
+        '{"criteria_results": [{"criterion": "...", "passed": true/false, "reason": "..."}], "overall": "pass" or "fail"}'
+    )
+
+    tools_used = result_data.get("tools_used", [])
+    response_text = result_data.get("response_preview") or result_data.get("response", "")
+    has_html = result_data.get("has_html", False)
+    has_images = result_data.get("has_images", False)
+    error = result_data.get("error")
+
+    user_prompt = (
+        f"## Test Input\nTask: {test_input['task']}\n"
+        f"Context: {test_input.get('context', 'N/A')}\n\n"
+        f"## Agent Result\n"
+        f"Success: {result_data.get('success', 'unknown')}\n"
+        f"Tools used: {', '.join(tools_used) if tools_used else 'none'}\n"
+        f"Generated HTML: {'yes' if has_html else 'no'}\n"
+        f"Generated images: {'yes' if has_images else 'no'}\n"
+        f"Error: {error or 'none'}\n"
+        f"Response: {response_text[:1000]}\n\n"
+        f"## Criteria to evaluate\n{criteria_list}\n\n"
+        "Evaluate each criterion. Return JSON only."
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        raw = await call_llm(
+            llm_url=llm_url, model=model, messages=messages,
+            temperature=0.0, provider_type=provider_type, api_key=api_key,
+        )
+        text = raw.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        parsed = json.loads(text)
+        parsed["examiner_model"] = model
+        return parsed
+    except Exception as e:
+        logger.error(f"Examiner LLM error: {e}")
+        return {
+            "overall": "error",
+            "criteria_results": [],
+            "error": str(e),
+            "examiner_model": model,
+        }
+
+
+def _persist_execution(agent_id: str, test_id: str, execution: Dict[str, Any]) -> None:
+    """Save execution summary alongside manual results in _results.json."""
+    results = _load_test_results(agent_id)
+    entry = results.get(test_id, {})
+    entry["lastExecution"] = execution
+    results[test_id] = entry
+    _save_test_results(agent_id, results)
+
+
+def _save_test_results(agent_id: str, results: Dict[str, Any]) -> None:
+    """Overwrite the full _results.json file."""
     import json
     from pathlib import Path
-    
     results_file = Path(__file__).parent / agent_id.replace("_agent", "") / "tests" / "_results.json"
-    
-    # Cargar resultados existentes
-    results = _load_test_results(agent_id)
-    
-    # Actualizar
-    results[test_id] = result
-    
-    # Guardar
     try:
         with open(results_file, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Error saving test result: {e}")
+        logger.error(f"Error saving test results: {e}")
+
+
+def _extract_test_artifacts(result_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract HTML, artifact URLs from nested tool_results for test display."""
+    html = None
+    artifact_urls: List[Dict[str, str]] = []
+
+    tool_results = (result_dict.get("data") or {}).get("tool_results", [])
+    for tr in tool_results:
+        raw = tr.get("result") or {}
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("html") and not html:
+            html = raw["html"]
+        if raw.get("artifact_id"):
+            artifact_urls.append({
+                "id": raw["artifact_id"],
+                "url": f"/api/v1/artifacts/{raw['artifact_id']}/content",
+                "type": raw.get("artifact_type") or raw.get("mime_type", "file"),
+                "title": raw.get("title", tr.get("tool", "")),
+            })
+
+    for img in result_dict.get("images", []):
+        if img.get("url") and "/artifacts/" in str(img["url"]):
+            aid = img["url"].split("/artifacts/")[1].split("/")[0]
+            if not any(a["id"] == aid for a in artifact_urls):
+                artifact_urls.append({
+                    "id": aid,
+                    "url": img["url"],
+                    "type": "image",
+                    "title": img.get("alt_text", "Image"),
+                })
+
+    return {"html": html, "artifact_urls": artifact_urls}
 
 
 # ============================================

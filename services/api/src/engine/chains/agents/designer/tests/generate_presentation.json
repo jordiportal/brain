@@ -1,6 +1,6 @@
 {
   "category": "tool",
-  "tool_id": "generate_presentation",
+  "tool_id": "generate_slides",
   "tests": [
     {
       "id": "PRES-01",
@@ -24,7 +24,7 @@
     {
       "id": "PRES-02",
       "name": "Presentación con datos numéricos",
-      "description": "Verifica uso de layout slide-stats",
+      "description": "Verifica uso de layout slide-stats o charts SVG para métricas",
       "input": {
         "task": "Crea una presentación sobre resultados del Q4. Incluir: ventas 2.5M€, crecimiento 15%, satisfacción cliente 92%, nuevos clientes 340.",
         "context": null
@@ -33,7 +33,7 @@
         "type": "html",
         "criteria": [
           "HTML válido generado",
-          "Usa layout slide-stats para métricas",
+          "Usa slides tipo stats o chart para métricas",
           "Números destacados visualmente",
           "Todos los datos incluidos"
         ]
@@ -108,6 +108,64 @@
           "Contenido razonable inferido",
           "Estructura completa",
           "No pide más información, genera directamente"
+        ]
+      }
+    },
+    {
+      "id": "PRES-07",
+      "name": "Presentación con gráfico de barras",
+      "description": "Verifica que genera slides con type chart y chart_type bar",
+      "input": {
+        "task": "Crea una presentación sobre ventas por región. Incluye un gráfico de barras con: Norte 45000€, Sur 32000€, Este 28000€, Oeste 51000€.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Usa generate_slides con type 'chart'",
+          "SVG de barras renderizado (no imagen externa)",
+          "Las 4 regiones con valores correctos",
+          "No usa python ni generate_image para el gráfico"
+        ]
+      }
+    },
+    {
+      "id": "PRES-08",
+      "name": "Presentación con gráfico pie",
+      "description": "Verifica generación de chart pie/donut para distribución porcentual",
+      "input": {
+        "task": "Crea una presentación sobre cuota de mercado. Incluye un gráfico tipo tarta: Producto A 40%, Producto B 30%, Producto C 20%, Otros 10%.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Usa generate_slides con type 'chart' y chart_type 'pie' o 'donut'",
+          "SVG circular renderizado",
+          "Proporciones visualmente correctas",
+          "Leyenda con nombres de producto"
+        ]
+      }
+    },
+    {
+      "id": "PRES-09",
+      "name": "Presentación mixta: bullets, stats y charts",
+      "description": "Verifica combinación de múltiples tipos de slide incluyendo gráficos",
+      "input": {
+        "task": "Crea una presentación de informe trimestral",
+        "context": "Q4 2025 - Resumen ejecutivo. Ventas totales: 3.2M€. Objetivos: Crecimiento 20%, NPS 85, Retención 92%. Ventas por canal: Online 1.5M, Retail 1.0M, Partners 700K. Tendencia mensual: Oct 950K, Nov 1050K, Dic 1200K. Conclusiones: superar objetivos, canal online lidera, tendencia positiva."
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "HTML válido generado",
+          "Al menos 1 slide tipo chart (barras o pie)",
+          "Al menos 1 slide tipo stats o bullets",
+          "Datos del contexto reflejados",
+          "Variedad de layouts usados",
+          "No usa python ni generate_image para gráficos"
         ]
       }
     }

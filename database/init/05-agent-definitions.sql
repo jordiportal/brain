@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS agent_definitions (
     system_prompt TEXT NOT NULL,
     domain_tools TEXT[] DEFAULT '{}',
     core_tools_enabled BOOLEAN DEFAULT TRUE,
+    excluded_core_tools TEXT[] DEFAULT '{}',
     skills JSONB DEFAULT '[]',
     is_enabled BOOLEAN DEFAULT TRUE,
     version VARCHAR(50) DEFAULT '1.0.0',

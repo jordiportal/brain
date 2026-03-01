@@ -101,6 +101,11 @@ def get_default_agents() -> List[Dict[str, Any]]:
             "generate_image", "edit_image", "generate_video",
             "generate_slides", "analyze_image",
         ],
+        "excluded_core_tools": [
+            "python", "javascript", "shell",
+            "web_search", "web_fetch",
+            "read_file", "write_file", "edit_file", "list_directory", "search_files",
+        ],
         "skills": _load_skills(des_dir, [
             {"id": "design", "name": "Design", "description": "Generación de imágenes, vídeos y presentaciones profesionales con IA"},
             {"id": "slides", "name": "Presentaciones", "description": "Diseño de slides HTML/CSS modernos con templates profesionales"},

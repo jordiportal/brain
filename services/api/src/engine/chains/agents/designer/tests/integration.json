@@ -38,8 +38,8 @@
     },
     {
       "id": "INT-03",
-      "name": "Presentación con datos visualizados",
-      "description": "Integra datos numéricos como gráficos en presentación",
+      "name": "Presentación con datos visualizados como SVG charts",
+      "description": "Datos numéricos deben generar charts SVG via generate_slides, no imágenes ni código",
       "input": {
         "task": "Crea una presentación con los resultados de ventas",
         "context": "Datos del Q4: Ventas totales 2.5M€. Por producto: Software 1.2M, Servicios 800K, Hardware 500K. Crecimiento vs Q3: +15%"
@@ -47,10 +47,11 @@
       "expected": {
         "type": "html",
         "criteria": [
-          "Presentación generada",
-          "Datos visualizados (gráficos o stats)",
+          "Presentación generada con generate_slides",
+          "Al menos 1 slide con type 'chart' (SVG renderizado)",
+          "Desglose por producto visualizado como bar o pie chart",
           "Todos los datos incluidos",
-          "Presentación coherente"
+          "No usa python, shell ni generate_image para gráficos"
         ]
       }
     },
@@ -68,6 +69,64 @@
           "No falla silenciosamente",
           "Mensaje de error claro",
           "Sugiere alternativa o pide clarificación"
+        ]
+      }
+    },
+    {
+      "id": "INT-05",
+      "name": "Datos numéricos → charts SVG (no python/image)",
+      "description": "Verifica que el designer usa generate_slides chart y no herramientas de código para gráficos",
+      "input": {
+        "task": "Genera una slide con un gráfico que muestre la evolución de ingresos mensuales",
+        "context": "Ingresos 2025: Ene 120K, Feb 135K, Mar 150K, Abr 142K, May 168K, Jun 185K"
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Usa generate_slides con type 'chart' y chart_type 'line' o 'bar'",
+          "SVG renderizado inline en HTML",
+          "Los 6 meses presentes con valores correctos",
+          "No invoca python, javascript ni shell",
+          "No invoca generate_image para el gráfico",
+          "No invoca web_search ni web_fetch"
+        ]
+      }
+    },
+    {
+      "id": "INT-06",
+      "name": "Excluded core tools respetadas",
+      "description": "Verifica que el designer no tiene acceso a tools excluidas (python, shell, web_search, etc.)",
+      "input": {
+        "task": "Crea una presentación con un gráfico de barras comparando tres productos: A=100, B=75, C=50. Si necesitas calcular algo, usa código Python.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Genera la presentación con generate_slides",
+          "Gráfico de barras SVG con los 3 productos",
+          "NO intenta usar python (tool excluida)",
+          "NO intenta usar shell (tool excluida)",
+          "Resuelve la tarea solo con generate_slides"
+        ]
+      }
+    },
+    {
+      "id": "INT-07",
+      "name": "Imagen + presentación en misma sesión",
+      "description": "Verifica que puede generar imagen y luego incluirla en presentación",
+      "input": {
+        "task": "Genera un logo minimalista para 'TechVision' y luego crea una presentación de 3 slides usando ese logo como portada.",
+        "context": null
+      },
+      "expected": {
+        "type": "html",
+        "criteria": [
+          "Genera imagen con generate_image",
+          "Genera presentación con generate_slides",
+          "Presentación incluye referencia al logo",
+          "3 slides generadas",
+          "Ambos artefactos producidos"
         ]
       }
     }

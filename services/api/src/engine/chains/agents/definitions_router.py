@@ -29,6 +29,7 @@ class AgentDefinitionCreate(BaseModel):
     system_prompt: str
     domain_tools: List[str] = []
     core_tools_enabled: bool = True
+    excluded_core_tools: List[str] = []
     skills: List[Dict[str, Any]] = []
     is_enabled: bool = True
     version: str = "1.0.0"
@@ -45,6 +46,7 @@ class AgentDefinitionUpdate(BaseModel):
     system_prompt: Optional[str] = None
     domain_tools: Optional[List[str]] = None
     core_tools_enabled: Optional[bool] = None
+    excluded_core_tools: Optional[List[str]] = None
     skills: Optional[List[Dict[str, Any]]] = None
     is_enabled: Optional[bool] = None
     version: Optional[str] = None
@@ -84,10 +86,18 @@ async def reload_agents():
 async def list_available_tools():
     """Lista todas las tools disponibles en el registry (para selector de GUI)."""
     from src.tools import tool_registry
+    from src.tools.core import CORE_TOOLS
     tools = tool_registry.list()
+    core_ids = set(CORE_TOOLS.keys())
     return {
         "tools": [
-            {"id": t.id, "name": t.name, "description": t.description}
+            {
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "type": t.type.value if hasattr(t.type, 'value') else str(t.type),
+                "is_core": t.id in core_ids,
+            }
             for t in tools
         ],
         "total": len(tools),
