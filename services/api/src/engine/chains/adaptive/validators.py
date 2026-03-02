@@ -122,35 +122,31 @@ def is_continue_command(query: str) -> bool:
 class LoopDetector:
     """
     Detecta cuando el agente está en un loop llamando la misma tool.
+
+    Tools in ``exempt_tools`` are never flagged as loops because calling
+    them many times consecutively is a legitimate pattern (e.g. researching
+    multiple sources with web_search/web_fetch).
     """
+
+    EXEMPT_TOOLS: set[str] = {
+        "web_search", "web_fetch",
+        "read_file", "list_directory", "search_files",
+        "think", "reflect",
+    }
     
     def __init__(self, max_consecutive: int = 3):
-        """
-        Args:
-            max_consecutive: Número máximo de llamadas consecutivas permitidas
-        """
         self.max_consecutive = max_consecutive
         self.last_tool_name: str | None = None
         self.consecutive_count: int = 0
     
     def track(self, tool_name: str) -> bool:
-        """
-        Registra una llamada a tool y detecta si hay loop.
-        
-        Args:
-            tool_name: Nombre de la tool llamada
-            
-        Returns:
-            True si se detectó un loop
-        """
         if tool_name == self.last_tool_name:
             self.consecutive_count += 1
         else:
             self.consecutive_count = 1
             self.last_tool_name = tool_name
         
-        # finish no cuenta como loop
-        if tool_name == "finish":
+        if tool_name == "finish" or tool_name in self.EXEMPT_TOOLS:
             return False
         
         return self.consecutive_count >= self.max_consecutive

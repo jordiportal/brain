@@ -10,8 +10,9 @@ Core Tools:
 - Delegation (2): get_agent_info, delegate
 """
 
+import inspect
 import structlog
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, AsyncGenerator, Dict, List, Optional, Callable, Union
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -191,16 +192,13 @@ class ToolRegistry:
         """Obtiene lista de nombres de todas las herramientas"""
         return list(self.tools.keys())
     
-    async def execute(self, tool_id: str, **kwargs) -> Dict[str, Any]:
+    async def execute(self, tool_id: str, **kwargs) -> Union[Dict[str, Any], AsyncGenerator]:
         """
         Ejecuta una herramienta por ID.
-        
-        Args:
-            tool_id: ID de la herramienta
-            **kwargs: Argumentos para la herramienta
-        
-        Returns:
-            Resultado de la herramienta
+
+        Returns either a dict result (normal tools) or an AsyncGenerator
+        (streaming tools like ``delegate``).  The caller (executor) must
+        check the return type and handle generators by iterating them.
         """
         tool = self.get(tool_id)
         if not tool:
@@ -210,20 +208,26 @@ class ToolRegistry:
             return {"error": f"Herramienta sin handler: {tool_id}", "success": False}
         
         try:
-            # Filtrar kwargs para solo incluir parámetros válidos del schema
             valid_params = self._filter_valid_params(tool, kwargs)
             
             result = tool.handler(**valid_params)
+
+            # Async generator: return it unwrapped for the caller to iterate
+            if inspect.isasyncgen(result):
+                return result
             
-            # Si es coroutine, await
+            # Coroutine: await it
             if hasattr(result, '__await__'):
                 result = await result
-            
-            # Si el resultado ya tiene estructura, retornarlo
+
+            # If the awaited result is an async generator (async def that
+            # returns an async generator object after first await), pass through
+            if inspect.isasyncgen(result):
+                return result
+
             if isinstance(result, dict):
                 return result
             
-            # Sino, envolverlo
             return {"success": True, "data": result}
             
         except Exception as e:
@@ -238,8 +242,6 @@ class ToolRegistry:
         Parámetros internos (_prefixed) solo se pasan si la función los acepta
         (tiene **kwargs o el parámetro explícito en su firma).
         """
-        import inspect
-        
         valid_props = set()
         if tool.parameters and "properties" in tool.parameters:
             valid_props = set(tool.parameters["properties"].keys())

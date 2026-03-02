@@ -11,6 +11,7 @@ El mismo bucle se reutiliza para el agente principal y para sesiones hijas
 (subagentes), de forma análoga a OpenCode: un único loop(sessionID).
 """
 
+import inspect
 import json
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, Optional, Any
@@ -456,15 +457,29 @@ class AdaptiveExecutor:
         if self.user_id:
             exec_args["_user_id"] = self.user_id
         
-        # Ejecutar tool
-        raw_result = await tool_registry.execute(tool_name, **exec_args)
-        
+        # Ejecutar tool (may return dict or async generator for streaming tools)
+        tool_output = await tool_registry.execute(tool_name, **exec_args)
+
+        if inspect.isasyncgen(tool_output):
+            # Streaming tool (e.g. delegate): iterate, yield child events,
+            # extract final result from the _streaming_result sentinel.
+            raw_result: dict = {"success": False, "error": "No result from streaming tool"}
+            async for child_event in tool_output:
+                if isinstance(child_event, dict) and "_streaming_result" in child_event:
+                    raw_result = child_event["_streaming_result"]
+                else:
+                    yield child_event
+        else:
+            raw_result = tool_output
+
         # Procesar resultado con handler
         result = await handler.process_result(raw_result, args)
         
         # Auto-detect image/video results from tools (e.g. generate_image)
-        # that don't have a specific handler emitting media events
-        if isinstance(raw_result, dict) and raw_result.get("success"):
+        # that don't have a specific handler emitting media events.
+        # Skip for already-streamed delegation results (events already sent).
+        _was_streamed = isinstance(raw_result, dict) and raw_result.get("_streamed")
+        if isinstance(raw_result, dict) and raw_result.get("success") and not _was_streamed:
             has_image_event = any(
                 hasattr(e, 'event_type') and e.event_type == "image"
                 for e in result.events
@@ -508,7 +523,7 @@ class AdaptiveExecutor:
                 ))
         
         # Emit Brain Event for artifacts with URL (for OpenWebUI artifact panel)
-        if raw_result.get("artifact_id"):
+        if raw_result.get("artifact_id") and not _was_streamed:
             _art_type_map = {
                 "image/png": "image", "image/jpeg": "image", "image/webp": "image",
                 "video/mp4": "video", "video/webm": "video",

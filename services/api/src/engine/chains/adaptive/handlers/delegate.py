@@ -63,7 +63,8 @@ class DelegateHandler(ToolHandler):
         brain_events = []
         is_terminal = False
         final_answer = None
-        
+        already_streamed = result.pop("_streamed", False)
+
         if not result.get("success"):
             return ToolResult(
                 success=False,
@@ -72,6 +73,47 @@ class DelegateHandler(ToolHandler):
             )
         
         agent_name = args.get("agent", "unknown")
+
+        if already_streamed:
+            # Events were already propagated to the client via the streaming
+            # generator. We only need to determine terminal status and final_answer.
+            response_text = result.get("response", "")
+            has_media = bool(result.get("images") or result.get("videos"))
+            slides_data = self._extract_slides_from_tool_results(result)
+            artifact_info = self._extract_artifact_from_tool_results(result)
+
+            if slides_data:
+                is_terminal = True
+                title = slides_data.get("title", "Presentación")
+                slides_count = slides_data.get("slides_count", "?")
+                final_answer = f"Presentación '{title}' generada con {slides_count} slides."
+            elif has_media:
+                is_terminal = True
+                final_answer = response_text or "Tarea multimedia completada."
+            elif artifact_info:
+                result["artifact_id"] = artifact_info.get("artifact_id")
+                result["mime_type"] = artifact_info.get("mime_type", "")
+                result["artifact_type"] = artifact_info.get("artifact_type")
+                result["title"] = artifact_info.get("title") or artifact_info.get("prompt", "")
+                is_terminal = True
+                final_answer = response_text or f"Tarea completada por {agent_name}."
+            elif response_text:
+                is_terminal = True
+                final_answer = response_text
+
+            return ToolResult(
+                success=True,
+                data=result,
+                is_terminal=is_terminal,
+                final_answer=final_answer,
+                events=[],
+                brain_events=[],
+                message_content=response_text or str(result)[:await BrainSettingsRepository.get_int(
+                    "tool_result_max_chars", default=get_settings().tool_result_max_chars
+                )]
+            )
+
+        # --- Non-streamed path (fallback / parallel_delegate child tasks) ---
         
         # --- Slides: extract HTML and emit as artifact Brain Event ---
         slides_data = self._extract_slides_from_tool_results(result)

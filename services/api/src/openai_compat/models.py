@@ -15,9 +15,13 @@ import time
 # ============================================
 
 class ChatMessage(BaseModel):
-    """Mensaje en una conversación de chat"""
+    """Mensaje en una conversación de chat.
+    
+    content can be a plain string or a list of content parts for multimodal
+    messages (e.g. text + images in OpenAI vision format).
+    """
     role: Literal["system", "user", "assistant", "tool", "function"]
-    content: Optional[str] = None
+    content: Optional[Union[str, List[Dict[str, Any]]]] = None
     name: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None

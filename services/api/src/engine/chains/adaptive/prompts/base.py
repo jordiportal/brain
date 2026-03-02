@@ -33,6 +33,14 @@ TOOLS_SECTION = """
 
 ## Utilidades
 - `calculate`: Evaluar expresiones matemáticas
+
+## Archivos Adjuntos del Usuario
+Cuando el usuario adjunte archivos, aparecerán como `<attached_files>` en su mensaje con la ruta en `/workspace/uploads/`.
+- **PDF**: usa `python` con PyPDF2 o pdfplumber para extraer texto
+- **Excel/CSV**: usa `python` con pandas para analizar datos
+- **Imágenes**: puedes verlas directamente si están en el mensaje (multimodal) y también usar `analyze_image` o `python` con PIL
+- **Código fuente**: usa `read_file` para leerlo
+- **Otros**: usa las herramientas del workspace (`read_file`, `python`, `shell`)
 """
 
 # ============================================
@@ -75,6 +83,9 @@ Evalúa la tarea y decide:
 ## Tareas complejas
 → `think` → herramientas necesarias → `finish`
 
+## Archivos adjuntos
+→ Lee/analiza desde `/workspace/uploads/` con la herramienta adecuada → `finish`
+
 # REGLAS
 
 1. **`finish` es OBLIGATORIO** - Toda tarea termina con `finish`
@@ -83,6 +94,7 @@ Evalúa la tarea y decide:
 4. **Si piden imagen/vídeo/presentación** → usa subagente (designer_agent)
 5. **Si piden ventas, P&L, datos SAP, BIW o análisis de negocio** → delega a sap_analyst
 6. **Si puedes paralelizar** → usa `parallel_delegate` para tareas independientes
+7. **Si hay archivos adjuntos** → procésalos desde `/workspace/uploads/` con `read_file`, `python` o herramienta adecuada
 """
 
 # Aliases para compatibilidad

@@ -12,6 +12,72 @@ import structlog
 logger = structlog.get_logger()
 
 
+def _content_to_gemini_parts(content) -> list:
+    """Convert OpenAI-style content (str or list of parts) to Gemini parts."""
+    if isinstance(content, str):
+        return [{"text": content}] if content else []
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                text = part.get("text", "")
+                if text:
+                    parts.append({"text": text})
+            elif part.get("type") == "image_url":
+                url = (part.get("image_url") or {}).get("url", "")
+                if url.startswith("data:"):
+                    try:
+                        header, b64 = url.split(";base64,", 1)
+                        mime = header.replace("data:", "")
+                        parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                    except ValueError:
+                        pass
+        return parts if parts else [{"text": ""}]
+    return [{"text": str(content)}] if content else []
+
+
+def _content_to_anthropic(content) -> list:
+    """Convert OpenAI-style content (str or list of parts) to Anthropic content blocks."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}] if content else []
+    if isinstance(content, list):
+        blocks = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                text = part.get("text", "")
+                if text:
+                    blocks.append({"type": "text", "text": text})
+            elif part.get("type") == "image_url":
+                url = (part.get("image_url") or {}).get("url", "")
+                if url.startswith("data:"):
+                    try:
+                        header, b64 = url.split(";base64,", 1)
+                        mime = header.replace("data:", "")
+                        blocks.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": mime, "data": b64},
+                        })
+                    except ValueError:
+                        pass
+        return blocks if blocks else [{"type": "text", "text": ""}]
+    return [{"type": "text", "text": str(content)}] if content else []
+
+
+def _extract_text(content) -> str:
+    """Extract plain text from OpenAI-style content (str or list)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+        )
+    return str(content) if content else ""
+
+
 async def call_llm(
     llm_url: str,
     model: str,
@@ -202,15 +268,18 @@ async def _call_anthropic(
     api_key: str
 ) -> str:
     """Llamar a Anthropic Claude API"""
-    # Separar system message del resto
     system_content = ""
     chat_messages = []
     
     for msg in messages:
         if msg["role"] == "system":
-            system_content = msg["content"]
+            system_content = _extract_text(msg["content"])
         else:
-            chat_messages.append(msg)
+            content = msg["content"]
+            if isinstance(content, list):
+                chat_messages.append({"role": msg["role"], "content": _content_to_anthropic(content)})
+            else:
+                chat_messages.append(msg)
     
     payload = {
         "model": model,
@@ -326,15 +395,18 @@ async def _stream_anthropic(
     api_key: str
 ) -> AsyncGenerator[str, None]:
     """Streaming desde Anthropic"""
-    # Separar system message
     system_content = ""
     chat_messages = []
     
     for msg in messages:
         if msg["role"] == "system":
-            system_content = msg["content"]
+            system_content = _extract_text(msg["content"])
         else:
-            chat_messages.append(msg)
+            content = msg["content"]
+            if isinstance(content, list):
+                chat_messages.append({"role": msg["role"], "content": _content_to_anthropic(content)})
+            else:
+                chat_messages.append(msg)
     
     payload = {
         "model": model,
@@ -391,7 +463,6 @@ async def _call_gemini(
     - URL: {base_url}/models/{model}:generateContent?key={api_key}
     - Format: {"contents": [{"role": "user", "parts": [{"text": "..."}]}]}
     """
-    # Convertir mensajes de OpenAI format a Gemini format
     gemini_contents = []
     system_instruction = None
     
@@ -400,17 +471,16 @@ async def _call_gemini(
         content = msg["content"]
         
         if role == "system":
-            # Gemini usa systemInstruction separado
-            system_instruction = content
+            system_instruction = _extract_text(content)
         elif role == "user":
             gemini_contents.append({
                 "role": "user",
-                "parts": [{"text": content}]
+                "parts": _content_to_gemini_parts(content),
             })
         elif role == "assistant":
             gemini_contents.append({
-                "role": "model",  # Gemini usa "model" en lugar de "assistant"
-                "parts": [{"text": content}]
+                "role": "model",
+                "parts": _content_to_gemini_parts(content),
             })
     
     payload = {
@@ -466,7 +536,6 @@ async def _stream_gemini(
     
     URL: {base_url}/models/{model}:streamGenerateContent?key={api_key}
     """
-    # Convertir mensajes a formato Gemini
     gemini_contents = []
     system_instruction = None
     
@@ -475,16 +544,16 @@ async def _stream_gemini(
         content = msg["content"]
         
         if role == "system":
-            system_instruction = content
+            system_instruction = _extract_text(content)
         elif role == "user":
             gemini_contents.append({
                 "role": "user",
-                "parts": [{"text": content}]
+                "parts": _content_to_gemini_parts(content),
             })
         elif role == "assistant":
             gemini_contents.append({
                 "role": "model",
-                "parts": [{"text": content}]
+                "parts": _content_to_gemini_parts(content),
             })
     
     payload = {
@@ -755,15 +824,18 @@ async def _call_anthropic_with_tools(
     api_key: str
 ) -> LLMToolResponse:
     """Anthropic tool use API"""
-    # Separar system message
     system_content = ""
     chat_messages = []
     
     for msg in messages:
         if msg["role"] == "system":
-            system_content = msg["content"]
+            system_content = _extract_text(msg["content"])
         else:
-            chat_messages.append(msg)
+            content = msg["content"]
+            if isinstance(content, list):
+                chat_messages.append({"role": msg["role"], "content": _content_to_anthropic(content)})
+            else:
+                chat_messages.append(msg)
     
     # Convertir tools a formato Anthropic
     anthropic_tools = []
@@ -846,7 +918,6 @@ async def _call_gemini_with_tools(
     api_key: str
 ) -> LLMToolResponse:
     """Gemini function calling"""
-    # Convertir mensajes a formato Gemini
     gemini_contents = []
     system_instruction = None
     
@@ -855,16 +926,16 @@ async def _call_gemini_with_tools(
         content = msg["content"]
         
         if role == "system":
-            system_instruction = content
+            system_instruction = _extract_text(content)
         elif role == "user":
             gemini_contents.append({
                 "role": "user",
-                "parts": [{"text": content}]
+                "parts": _content_to_gemini_parts(content),
             })
         elif role == "assistant":
             gemini_contents.append({
                 "role": "model",
-                "parts": [{"text": content}]
+                "parts": _content_to_gemini_parts(content),
             })
     
     # Convertir tools a formato Gemini

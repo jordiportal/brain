@@ -44,6 +44,20 @@ logger = structlog.get_logger()
 router = APIRouter(tags=["OpenAI Compatible"])
 
 
+def _extract_text_from_content(content) -> str:
+    """Extract plain text from content that may be a string or multimodal list."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return str(content)
+
+
 # ============================================
 # Helper: Cargar proveedor LLM de la cadena
 # ============================================
@@ -294,17 +308,16 @@ async def execute_chat_completion(
         backend_config = chain_llm_provider
         logger.info(f"Using chain's LLM provider: {backend_config.provider}/{backend_config.model}")
     
-    # Convertir mensajes al formato interno
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     
-    # Obtener el último mensaje del usuario
     user_message = ""
+    last_user_content = None
     for msg in reversed(messages):
         if msg["role"] == "user":
-            user_message = msg["content"]
+            last_user_content = msg["content"]
+            user_message = _extract_text_from_content(last_user_content)
             break
     
-    # Obtener builder de la cadena
     chain_id = model_config.chain_id
     builder = chain_registry.get_builder(chain_id)
     definition = chain_registry.get(chain_id)
@@ -321,13 +334,13 @@ async def execute_chat_completion(
             }
         )
     
-    # Preparar input para la cadena
     chain_input = {
         "message": user_message,
-        "query": user_message
+        "query": user_message,
     }
+    if isinstance(last_user_content, list):
+        chain_input["_last_user_content"] = last_user_content
     
-    # Ejecutar la cadena
     try:
         full_response = ""
         tools_used = []
@@ -430,17 +443,16 @@ async def stream_chat_completion(
         backend_config = chain_llm_provider
         logger.info(f"Using chain's LLM provider: {backend_config.provider}/{backend_config.model}")
     
-    # Convertir mensajes
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     
-    # Obtener el último mensaje del usuario
     user_message = ""
+    last_user_content = None
     for msg in reversed(messages):
         if msg["role"] == "user":
-            user_message = msg["content"]
+            last_user_content = msg["content"]
+            user_message = _extract_text_from_content(last_user_content)
             break
     
-    # Obtener builder de la cadena
     chain_id = model_config.chain_id
     builder = chain_registry.get_builder(chain_id)
     definition = chain_registry.get(chain_id)
@@ -471,11 +483,12 @@ async def stream_chat_completion(
     )
     yield f"data: {initial_chunk.model_dump_json()}\n\n"
     
-    # Preparar input
     chain_input = {
         "message": user_message,
-        "query": user_message
+        "query": user_message,
     }
+    if isinstance(last_user_content, list):
+        chain_input["_last_user_content"] = last_user_content
     
     total_tokens = 0
     

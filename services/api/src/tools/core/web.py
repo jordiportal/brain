@@ -89,26 +89,38 @@ async def web_search(
 
 
 async def _get_openai_api_key() -> Optional[str]:
-    """Obtiene la API key de OpenAI desde Strapi o variables de entorno"""
+    """Obtiene la API key real de OpenAI desde BD o variables de entorno."""
     import os
-    
-    # Primero intentar desde Strapi
+
     try:
-        from ...providers.llm_provider import get_provider_by_type
-        
-        openai_provider = await get_provider_by_type("openai")
-        if openai_provider and openai_provider.api_key:
-            logger.debug("OpenAI API key loaded from Strapi")
-            return openai_provider.api_key
+        from ...db.repositories.llm_providers import LLMProviderRepository
+
+        providers = await LLMProviderRepository.get_by_type("openai")
+        for p in providers:
+            key = p.api_key
+            if not key:
+                continue
+            # Skip non-OpenAI keys (Brain proxies, third-party wrappers)
+            if key.startswith("sk-brain"):
+                continue
+            base = (p.base_url or "").rstrip("/")
+            if base and "api.openai.com" in base:
+                logger.debug("OpenAI API key loaded from DB provider %s", p.name)
+                return key
+        # If no provider with openai.com URL, take first valid key
+        for p in providers:
+            key = p.api_key
+            if key and not key.startswith("sk-brain"):
+                logger.debug("OpenAI-compatible key loaded from DB provider %s", p.name)
+                return key
     except Exception as e:
-        logger.warning(f"Could not load OpenAI provider from Strapi: {e}")
-    
-    # Fallback a variable de entorno
+        logger.warning(f"Could not load OpenAI provider from DB: {e}")
+
     env_key = os.getenv("OPENAI_API_KEY")
     if env_key:
         logger.debug("OpenAI API key loaded from environment")
         return env_key
-    
+
     return None
 
 
@@ -576,7 +588,7 @@ WEB_TOOLS = {
     "web_search": {
         "id": "web_search",
         "name": "web_search",
-        "description": "Busca información en internet usando DuckDuckGo. Útil para obtener información actualizada, noticias, datos.",
+        "description": "Busca información en internet. Útil para obtener información actualizada, noticias, datos.",
         "parameters": {
             "type": "object",
             "properties": {

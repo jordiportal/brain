@@ -14,7 +14,7 @@ Soporta delegación secuencial (delegate) y paralela (parallel_delegate).
 import asyncio
 import time
 import uuid
-from typing import Dict, Any, Optional, List, Literal
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 
 import structlog
 
@@ -119,87 +119,59 @@ async def delegate(
     _api_key: Optional[str] = None,
     _session_id: Optional[str] = None,
     _user_id: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> AsyncGenerator[Any, None]:
     """
-    Delega una tarea a un subagente especializado.
-    
-    El Adaptive Agent usa esta tool cuando detecta que una tarea
-    requiere capacidades especializadas de un dominio específico.
-    
+    Delega una tarea a un subagente especializado (streaming).
+
+    Yields SSE events from the child executor so the parent can propagate
+    them to the client in real-time. The final yield is a sentinel dict
+    ``{"_streaming_result": <result_dict>}`` that the executor must extract
+    as the tool's return value.
+
     Args:
-        agent: ID del subagente (media_agent, sap_agent, mail_agent, office_agent)
+        agent: ID del subagente
         task: Descripción clara de la tarea a realizar
         context: Contexto adicional o resultados de pasos previos
-        _llm_url: URL del LLM (inyectada por el sistema)
-        _model: Modelo LLM (inyectado por el sistema)
-        _provider_type: Tipo de proveedor (inyectado por el sistema)
-        _api_key: API key (inyectada por el sistema)
-    
-    Returns:
-        Dict con:
-        - success: bool
-        - response: Respuesta del subagente
-        - agent_name: Nombre del subagente
-        - tools_used: Lista de tools usadas
-        - images: Lista de imágenes generadas (si aplica)
-        - sources: Lista de fuentes (si aplica)
-        - error: Mensaje de error (si falló)
-    
-    Examples:
-        # Generar una imagen
-        result = await delegate(
-            agent="media_agent",
-            task="Genera una imagen de un atardecer en la playa"
-        )
-        
-        # Consultar SAP (futuro)
-        result = await delegate(
-            agent="sap_agent",
-            task="Obtener pedidos del día de hoy"
-        )
     """
     start_time = time.time()
-    
+
     logger.info(
-        "🎯 Delegating to subagent",
+        "🎯 Delegating to subagent (streaming)",
         agent=agent,
         task=task[:100],
-        has_context=bool(context)
+        has_context=bool(context),
     )
-    
-    # Importar aquí para evitar circular imports
+
     from src.engine.chains.agents import subagent_registry, register_all_subagents
-    
-    # Asegurar que los subagentes estén registrados
+
     if not subagent_registry.is_initialized():
         await register_all_subagents()
-    
-    # Obtener el subagente
+
     subagent = subagent_registry.get(agent)
-    
+
     if not subagent:
         available = subagent_registry.list_ids()
-        return {
-            "success": False,
-            "error": f"Subagente '{agent}' no encontrado",
-            "available_agents": available,
-            "agent": agent
+        yield {
+            "_streaming_result": {
+                "success": False,
+                "error": f"Subagente '{agent}' no encontrado",
+                "available_agents": available,
+                "agent": agent,
+            }
         }
-    
+        return
+
     try:
-        # Obtener configuración LLM del subagente (o heredar del padre)
         llm_config = await _get_subagent_llm_config(
             agent, _llm_url, _model, _provider_type, _api_key
         )
-        
-        # Mismo bucle que el agente principal (run_session_loop), no subagente.execute()
+
         from src.engine.chains.adaptive.executor import (
-            run_session_loop,
+            run_session_loop_stream,
             AgentContext,
-            SessionLoopResult,
         )
         from src.engine.chains.agents.base import SubAgentResult
-        
+
         child_session_id = f"{_session_id or 'root'}-{agent}-{uuid.uuid4().hex[:8]}"
         agent_context = AgentContext(
             session_id=child_session_id,
@@ -207,24 +179,33 @@ async def delegate(
             agent_type=agent,
             max_iterations=12,
         )
-        
-        # Mensajes iniciales: system del subagente + memoria opcional + user (task + context)
-        system_content = subagent.system_prompt + (subagent.get_skills_for_prompt() or "")
-        messages = [{"role": "system", "content": system_content}]
+
+        from src.engine.chains.adaptive.prompts import _date_context
+        system_content = subagent.system_prompt + (subagent.get_skills_for_prompt() or "") + _date_context()
+        messages: list[dict] = [{"role": "system", "content": system_content}]
         if _session_id:
-            memory = subagent._load_memory(_session_id, max_messages=getattr(subagent, "MAX_MEMORY_MESSAGES", 10))
+            memory = subagent._load_memory(
+                _session_id,
+                max_messages=getattr(subagent, "MAX_MEMORY_MESSAGES", 10),
+            )
             for msg in memory:
                 messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
         user_content = f"Tarea: {task}"
         if context:
             user_content += f"\n\nContexto adicional: {context}"
         messages.append({"role": "user", "content": user_content})
-        
-        # Tools del subagente en formato LLM (sin delegate)
+
         subagent_tools = subagent.get_tools()
         tools_llm = [t.to_function_schema() for t in subagent_tools]
-        
-        loop_result: SessionLoopResult = await run_session_loop(
+
+        # Accumulate execution metadata while streaming events to parent
+        tool_results: list[dict] = []
+        images: list[dict] = []
+        videos: list[dict] = []
+        final_answer: Optional[str] = None
+        iteration = 0
+
+        async for event in run_session_loop_stream(
             execution_id=child_session_id,
             messages=messages,
             tools=tools_llm,
@@ -233,16 +214,49 @@ async def delegate(
             provider_type=llm_config["provider_type"],
             api_key=llm_config["api_key"],
             agent_context=agent_context,
-            emit_brain_events=False,
+            emit_brain_events=True,
             user_id=_user_id,
-        )
-        
-        tools_used = [tr["tool"] for tr in loop_result.tool_results]
-        response_text = loop_result.final_answer or ""
-        if not response_text and loop_result.tool_results:
-            response_text = f"Ejecutado en {loop_result.iteration} iteraciones. Herramientas: {', '.join(tools_used)}"
-        
-        # Guardar memoria de la sesión (subagente) si hay session_id
+        ):
+            # Capture metadata from events for the final result
+            if hasattr(event, "event_type"):
+                if event.event_type == "image":
+                    img_data = event.data or {}
+                    images.append({
+                        "url": img_data.get("image_url"),
+                        "base64": img_data.get("image_data"),
+                        "mime_type": img_data.get("mime_type", "image/png"),
+                        "alt_text": img_data.get("alt_text", ""),
+                    })
+                elif event.event_type == "video":
+                    vid_data = event.data or {}
+                    videos.append({
+                        "url": vid_data.get("video_url"),
+                        "base64": vid_data.get("video_data"),
+                        "mime_type": vid_data.get("mime_type", "video/mp4"),
+                    })
+                elif event.event_type == "tool_end":
+                    data = event.data or {}
+                    if data.get("tool"):
+                        tool_results.append({
+                            "tool": data["tool"],
+                            "result": data.get("result"),
+                        })
+                elif event.event_type == "response_complete":
+                    final_answer = getattr(event, "content", None) or (event.data or {}).get("content")
+                    iteration = (event.data or {}).get("iterations", 0)
+                    continue  # don't propagate child's completion to parent stream
+
+            yield event
+
+        # Build final result dict (same shape as before)
+        tools_used = [tr["tool"] for tr in tool_results]
+        response_text = final_answer or ""
+        if not response_text and tool_results:
+            response_text = (
+                f"Ejecutado en {iteration} iteraciones. "
+                f"Herramientas: {', '.join(tools_used)}"
+            )
+
         if _session_id and response_text:
             subagent._save_memory(
                 _session_id,
@@ -250,36 +264,40 @@ async def delegate(
                 response_text,
                 max_messages=getattr(subagent, "MAX_MEMORY_MESSAGES", 10),
             )
-        
+
         result = SubAgentResult(
             success=True,
             response=response_text,
             agent_id=subagent.id,
             agent_name=subagent.name,
             tools_used=tools_used,
-            images=loop_result.images,
-            videos=loop_result.videos,
-            data={"tool_results": loop_result.tool_results} if loop_result.tool_results else {},
+            images=images,
+            videos=videos,
+            data={"tool_results": tool_results} if tool_results else {},
             execution_time_ms=int((time.time() - start_time) * 1000),
         )
         logger.info(
-            "✅ Delegation completed (shared loop)",
+            "✅ Delegation completed (streaming)",
             agent=agent,
             success=result.success,
             tools_used=result.tools_used,
             has_images=len(result.images) > 0,
             execution_time_ms=result.execution_time_ms,
         )
-        return result.to_dict()
-        
+        result_dict = result.to_dict()
+        result_dict["_streamed"] = True
+        yield {"_streaming_result": result_dict}
+
     except Exception as e:
         logger.error(f"❌ Delegation error: {e}", agent=agent, exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "error_type": type(e).__name__,
-            "agent": agent,
-            "execution_time_ms": int((time.time() - start_time) * 1000)
+        yield {
+            "_streaming_result": {
+                "success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "agent": agent,
+                "execution_time_ms": int((time.time() - start_time) * 1000),
+            }
         }
 
 

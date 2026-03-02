@@ -88,6 +88,7 @@ async def build_adaptive_agent(
         StreamEvents durante la ejecución
     """
     query = input_data.get("message", input_data.get("query", ""))
+    last_user_content = input_data.get("_last_user_content")
     is_continue_request = is_continue_command(query)
     
     logger.info(
@@ -136,6 +137,9 @@ async def build_adaptive_agent(
     if not system_prompt:
         logger.warning("⚠️ No system prompt in config, using empty")
 
+    from .prompts import _date_context
+    system_prompt += _date_context()
+
     from .prompts.base import get_subagents_section
     dynamic_subagents = get_subagents_section()
     if dynamic_subagents:
@@ -155,7 +159,6 @@ async def build_adaptive_agent(
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(briefing_messages)
 
-    # Agregar memoria
     if memory and config.use_memory:
         max_memory = config.max_memory_messages or 10
         for msg in memory[-max_memory:]:
@@ -164,8 +167,8 @@ async def build_adaptive_agent(
                 "content": msg.get("content", "")
             })
     
-    # Agregar query actual
-    messages.append({"role": "user", "content": query})
+    user_msg_content = last_user_content if last_user_content else query
+    messages.append({"role": "user", "content": user_msg_content})
     
     # ========== FASE 3: EJECUTAR ==========
     
