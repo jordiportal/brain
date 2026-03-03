@@ -5,11 +5,28 @@ Incluye soporte para Web Search nativo de OpenAI.
 """
 
 import json
+import time
+import asyncio
+from contextvars import ContextVar
 from typing import List, Dict, AsyncGenerator, Optional
 import httpx
 import structlog
 
 logger = structlog.get_logger()
+
+# Context para propagar execution_id y chain_id a las llamadas LLM
+_execution_context: ContextVar[Optional[Dict[str, str]]] = ContextVar(
+    "_execution_context", default=None
+)
+
+
+def set_llm_execution_context(execution_id: str, chain_id: str) -> None:
+    """Establecer contexto de ejecución para que trace_llm se dispare automáticamente."""
+    _execution_context.set({"execution_id": execution_id, "chain_id": chain_id})
+
+
+def clear_llm_execution_context() -> None:
+    _execution_context.set(None)
 
 
 def _content_to_gemini_parts(content) -> list:
@@ -639,37 +656,76 @@ async def call_llm_with_tools(
     - Groq: OpenAI-compatible
     - Gemini: Function calling
     
-    Args:
-        llm_url: URL base del proveedor
-        model: Nombre del modelo
-        messages: Lista de mensajes
-        tools: Lista de definiciones de tools (formato OpenAI)
-        temperature: Temperatura
-        provider_type: Tipo de proveedor
-        api_key: API key si es necesario
-    
-    Returns:
-        LLMToolResponse con content o tool_calls
+    Registra automáticamente métricas de tokens y coste en el sistema
+    de monitorización si hay un contexto de ejecución activo
+    (via set_llm_execution_context).
     """
     provider = provider_type.lower()
     
+    t0 = time.perf_counter()
+    
     if provider == "ollama":
-        return await _call_ollama_with_tools(llm_url, model, messages, tools, temperature)
+        response = await _call_ollama_with_tools(llm_url, model, messages, tools, temperature)
     elif provider in ["openai", "groq", "azure"]:
         if not api_key:
             raise ValueError(f"API key requerida para {provider}")
-        return await _call_openai_with_tools(llm_url, model, messages, tools, temperature, api_key)
+        response = await _call_openai_with_tools(llm_url, model, messages, tools, temperature, api_key)
     elif provider == "anthropic":
         if not api_key:
             raise ValueError("API key requerida para Anthropic")
-        return await _call_anthropic_with_tools(model, messages, tools, temperature, api_key)
+        response = await _call_anthropic_with_tools(model, messages, tools, temperature, api_key)
     elif provider == "gemini":
         if not api_key:
             raise ValueError("API key requerida para Gemini")
-        return await _call_gemini_with_tools(llm_url, model, messages, tools, temperature, api_key)
+        response = await _call_gemini_with_tools(llm_url, model, messages, tools, temperature, api_key)
     else:
-        # Fallback a Ollama
-        return await _call_ollama_with_tools(llm_url, model, messages, tools, temperature)
+        response = await _call_ollama_with_tools(llm_url, model, messages, tools, temperature)
+    
+    duration_ms = (time.perf_counter() - t0) * 1000
+    
+    # Registrar métricas en monitorización (fire-and-forget)
+    _trace_llm_monitoring(provider_type, model, response, duration_ms)
+    
+    return response
+
+
+def _trace_llm_monitoring(
+    provider_type: str,
+    model: str,
+    response: "LLMToolResponse",
+    duration_ms: float,
+) -> None:
+    """Registra la llamada LLM en monitorización (fire-and-forget)."""
+    ctx = _execution_context.get()
+    if not ctx:
+        return
+
+    usage = response.usage or {}
+    tokens_input = usage.get("prompt_tokens") or usage.get("input_tokens", 0)
+    tokens_output = usage.get("completion_tokens") or usage.get("output_tokens", 0)
+
+    if tokens_input == 0 and tokens_output == 0:
+        return
+
+    async def _do_trace():
+        try:
+            from src.monitoring import monitoring_service
+            await monitoring_service.trace_llm(
+                execution_id=ctx["execution_id"],
+                chain_id=ctx["chain_id"],
+                provider=provider_type,
+                model=model,
+                tokens_input=tokens_input,
+                tokens_output=tokens_output,
+                duration_ms=duration_ms,
+            )
+        except Exception as e:
+            logger.debug("trace_llm failed", error=str(e))
+
+    try:
+        asyncio.create_task(_do_trace())
+    except RuntimeError:
+        pass
 
 
 async def _call_ollama_with_tools(
@@ -746,10 +802,18 @@ async def _call_ollama_with_tools(
                     }
                 ))
         
+        ollama_usage = None
+        if data.get("prompt_eval_count") or data.get("eval_count"):
+            ollama_usage = {
+                "prompt_tokens": data.get("prompt_eval_count", 0),
+                "completion_tokens": data.get("eval_count", 0),
+            }
+
         return LLMToolResponse(
             content=message.get("content"),
             tool_calls=tool_calls,
-            finish_reason=data.get("done_reason", "stop")
+            finish_reason=data.get("done_reason", "stop"),
+            usage=ollama_usage,
         )
 
 
@@ -1012,9 +1076,18 @@ async def _call_gemini_with_tools(
                     }
                 ))
         
+        gemini_usage = None
+        usage_meta = data.get("usageMetadata")
+        if usage_meta:
+            gemini_usage = {
+                "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+            }
+
         return LLMToolResponse(
             content=content_text if content_text else None,
             tool_calls=tool_calls,
-            finish_reason="stop"
+            finish_reason="stop",
+            usage=gemini_usage,
         )
 

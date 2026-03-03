@@ -53,11 +53,13 @@ class MonitoringService:
     - Guardar métricas y trazas
     - Evaluar reglas de alertas
     - Proporcionar datos para dashboard
+    - Calcular costes con precios dinámicos de models.dev
     """
     
     def __init__(self):
         self._initialized = False
         self._last_alert_check: Dict[str, datetime] = {}
+        self._pricing_loaded = False
     
     # ============================================
     # API Metrics
@@ -170,9 +172,8 @@ class MonitoringService:
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """Registrar llamada a LLM"""
-        # Calcular coste si no se proporciona
         if cost_usd is None:
-            cost_usd = self._estimate_cost(provider, model, tokens_input, tokens_output)
+            cost_usd = await self._estimate_cost(provider, model, tokens_input, tokens_output)
         
         trace = ExecutionTrace(
             execution_id=execution_id,
@@ -454,58 +455,68 @@ class MonitoringService:
     # Cost Estimation
     # ============================================
     
-    def _estimate_cost(
+    # Fallback estático por si models.dev no está disponible
+    _FALLBACK_PRICING = {
+        "openai": {
+            "gpt-4o": {"input": 2.5, "output": 10.0},
+            "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+        },
+        "anthropic": {
+            "claude-sonnet-4": {"input": 3.0, "output": 15.0},
+            "claude-opus-4": {"input": 15.0, "output": 75.0},
+            "claude-haiku": {"input": 0.8, "output": 4.0},
+        },
+        "opencode": {
+            "kimi-k2.5": {"input": 0.6, "output": 3.0},
+            "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+            "claude-opus-4-6": {"input": 5.0, "output": 25.0},
+        },
+        "google": {
+            "gemini-3-pro": {"input": 2.0, "output": 12.0},
+            "gemini-3-flash": {"input": 0.5, "output": 3.0},
+        },
+    }
+    
+    async def _estimate_cost(
         self,
         provider: str,
         model: str,
         tokens_input: int,
         tokens_output: int
     ) -> float:
-        """Estimar coste de una llamada LLM"""
-        
-        # Precios aproximados por 1M tokens (actualizar según necesidad)
-        PRICING = {
-            "openai": {
-                "gpt-4": {"input": 30.0, "output": 60.0},
-                "gpt-4-turbo": {"input": 10.0, "output": 30.0},
-                "gpt-4o": {"input": 5.0, "output": 15.0},
-                "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-                "gpt-3.5-turbo": {"input": 0.5, "output": 1.5},
-            },
-            "anthropic": {
-                "claude-3-opus": {"input": 15.0, "output": 75.0},
-                "claude-3-sonnet": {"input": 3.0, "output": 15.0},
-                "claude-3-haiku": {"input": 0.25, "output": 1.25},
-            },
-            "google": {
-                "gemini-pro": {"input": 0.5, "output": 1.5},
-                "gemini-1.5-pro": {"input": 3.5, "output": 10.5},
-            }
-        }
-        
-        # Ollama y otros locales son gratis
-        if provider in ["ollama", "local"]:
+        """Estimar coste de una llamada LLM usando precios de models.dev."""
+        if provider in ("ollama", "local"):
             return 0.0
         
-        # Buscar precio
-        provider_prices = PRICING.get(provider, {})
+        from .pricing import pricing_service
         
-        # Buscar modelo exacto o parcial
-        model_price = None
+        # Intentar cargar precios dinámicos (no bloquea si ya están en caché)
+        if not pricing_service.is_loaded:
+            try:
+                await pricing_service.ensure_loaded()
+            except Exception as e:
+                logger.warning("Could not load models.dev pricing", error=str(e))
+        
+        # Intento 1: precios dinámicos de models.dev
+        dynamic_cost = pricing_service.estimate_cost(
+            provider, model, tokens_input, tokens_output
+        )
+        if dynamic_cost is not None:
+            return dynamic_cost
+        
+        # Intento 2: fallback estático
+        provider_prices = self._FALLBACK_PRICING.get(provider.lower(), {})
         for model_key, price in provider_prices.items():
-            if model_key in model.lower():
-                model_price = price
-                break
+            if model_key in model.lower() or model.lower() in model_key:
+                input_cost = (tokens_input / 1_000_000) * price["input"]
+                output_cost = (tokens_output / 1_000_000) * price["output"]
+                return input_cost + output_cost
         
-        if not model_price:
-            # Precio por defecto si no se encuentra
-            return 0.0
-        
-        # Calcular coste
-        input_cost = (tokens_input / 1_000_000) * model_price["input"]
-        output_cost = (tokens_output / 1_000_000) * model_price["output"]
-        
-        return input_cost + output_cost
+        logger.debug(
+            "No pricing found for model",
+            provider=provider, model=model
+        )
+        return 0.0
 
 
 # Instancia global del servicio

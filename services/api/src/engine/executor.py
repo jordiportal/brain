@@ -24,6 +24,7 @@ from .models import (
     ChainInvokeRequest
 )
 from .registry import chain_registry
+from .chains.llm_utils import set_llm_execution_context, clear_llm_execution_context
 from src.providers import get_active_llm_provider
 
 logger = structlog.get_logger()
@@ -150,6 +151,7 @@ class ChainExecutor:
         
         # Trazar inicio de ejecución
         start_time = time.perf_counter()
+        set_llm_execution_context(execution_state.execution_id, chain_id)
         asyncio.create_task(_trace_execution(
             execution_id=execution_state.execution_id,
             chain_id=chain_id,
@@ -242,6 +244,8 @@ class ChainExecutor:
                 success=False,
                 error_message=str(e)
             ))
+        finally:
+            clear_llm_execution_context()
         
         return ExecutionResult(
             execution_id=execution_state.execution_id,
@@ -287,6 +291,9 @@ class ChainExecutor:
         
         execution_id = str(uuid.uuid4())
         start_time = time.perf_counter()
+        
+        # Establecer contexto para que call_llm_with_tools registre métricas
+        set_llm_execution_context(execution_id, chain_id)
         
         # Trazar inicio de ejecución
         asyncio.create_task(_trace_execution(
@@ -401,6 +408,8 @@ class ChainExecutor:
                 execution_id=execution_id,
                 data={"error": str(e)}
             )
+        finally:
+            clear_llm_execution_context()
     
     def _update_memory(
         self,

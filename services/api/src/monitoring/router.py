@@ -352,3 +352,66 @@ async def monitoring_health():
             "status": "unhealthy",
             "message": str(e)
         }
+
+
+# ============================================
+# Pricing
+# ============================================
+
+@router.get("/pricing/status")
+async def pricing_status():
+    """Estado del servicio de precios dinámicos (models.dev)."""
+    from .pricing import pricing_service
+    import time
+
+    age_seconds = int(time.time() - pricing_service._cache_ts) if pricing_service._cache_ts else None
+    return {
+        "loaded": pricing_service.is_loaded,
+        "providers": pricing_service.cached_providers,
+        "models": pricing_service.cached_models,
+        "cache_age_seconds": age_seconds,
+    }
+
+
+@router.get("/pricing/lookup")
+async def pricing_lookup(
+    provider: str = Query(..., description="Tipo de proveedor (opencode, openai, anthropic...)"),
+    model: str = Query(..., description="Nombre del modelo (kimi-k2.5, claude-sonnet-4-6...)"),
+):
+    """Consultar el precio de un modelo concreto."""
+    from .pricing import pricing_service
+
+    if not pricing_service.is_loaded:
+        await pricing_service.ensure_loaded()
+
+    price = pricing_service.lookup(provider, model)
+    if not price:
+        return {
+            "provider": provider,
+            "model": model,
+            "found": False,
+            "message": "No pricing data found for this provider/model combination",
+        }
+
+    return {
+        "provider": provider,
+        "model": model,
+        "found": True,
+        "cost_per_1m_tokens": price,
+    }
+
+
+@router.post("/pricing/refresh")
+async def pricing_refresh():
+    """Forzar recarga de precios desde models.dev."""
+    from .pricing import pricing_service
+    import time
+
+    pricing_service._cache_ts = 0
+    await pricing_service.ensure_loaded()
+
+    return {
+        "status": "ok",
+        "providers": pricing_service.cached_providers,
+        "models": pricing_service.cached_models,
+    }

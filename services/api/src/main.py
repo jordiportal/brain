@@ -143,6 +143,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"No se pudieron cargar conexiones MCP: {e}")
 
+    # Precargar precios de modelos LLM desde models.dev (background, no bloquea startup)
+    try:
+        from src.monitoring.pricing import pricing_service
+        asyncio.create_task(pricing_service.ensure_loaded())
+        logger.info("LLM pricing preload scheduled (models.dev)")
+    except Exception as e:
+        logger.warning(f"Could not schedule pricing preload: {e}")
+
     # Sandbox cleanup background task
     async def _sandbox_cleanup_loop():
         import asyncio as _aio

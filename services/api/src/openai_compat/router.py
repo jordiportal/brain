@@ -38,6 +38,7 @@ from .config import config_loader, BackendLLM
 
 from ..engine.registry import chain_registry
 from ..engine.models import ChainConfig
+from ..engine.chains.llm_utils import set_llm_execution_context, clear_llm_execution_context
 
 logger = structlog.get_logger()
 
@@ -352,6 +353,7 @@ async def execute_chat_completion(
     if isinstance(last_user_content, list):
         chain_input["_last_user_content"] = last_user_content
     
+    set_llm_execution_context(completion_id, chain_id)
     try:
         full_response = ""
         tools_used = []
@@ -432,6 +434,8 @@ async def execute_chat_completion(
                 }
             }
         )
+    finally:
+        clear_llm_execution_context()
 
 
 async def stream_chat_completion(
@@ -506,6 +510,7 @@ async def stream_chat_completion(
     # Activar Brain Events para modelos brain-* (Open WebUI)
     emit_brain_events = request.model.startswith("brain-")
     
+    set_llm_execution_context(completion_id, chain_id)
     try:
         async for event in builder(
             config=definition.config,
@@ -574,6 +579,8 @@ async def stream_chat_completion(
         }
         yield f"data: {json.dumps(error_chunk)}\n\n"
         yield "data: [DONE]\n\n"
+    finally:
+        clear_llm_execution_context()
 
 
 # ============================================
