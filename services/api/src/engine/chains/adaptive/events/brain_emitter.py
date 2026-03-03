@@ -5,16 +5,20 @@ Genera markers HTML en formato <!--BRAIN_EVENT:{json}-->
 que Open WebUI interpreta para mostrar UI enriquecida.
 """
 
+import uuid
+import time
 from typing import Optional, Any
 from ....models import StreamEvent
 from ....brain_events import (
     create_thinking_event,
     create_action_event,
+    create_brain_event_marker,
     create_sources_event,
     create_artifact_event,
     create_artifact_url_event,
     get_action_type_for_tool,
-    get_action_title_for_tool
+    get_action_title_for_tool,
+    get_agent_friendly_name,
 )
 
 
@@ -230,6 +234,79 @@ class BrainEmitter:
             metadata=metadata,
         )
         return self._wrap_in_stream_event(marker, f"brain_artifact_{artifact_type}")
+
+    # ========== Eventos de Delegación ==========
+
+    def delegation_start(
+        self,
+        agent_id: str,
+        task: str,
+        delegation_id: Optional[str] = None,
+    ) -> Optional[StreamEvent]:
+        """Emite evento de inicio de delegación a subagente."""
+        if not delegation_id:
+            delegation_id = f"del_{uuid.uuid4().hex[:8]}"
+        agent_name, agent_icon = get_agent_friendly_name(agent_id)
+        marker = create_action_event(
+            action_type="delegate",
+            title=task[:80],
+            status="running",
+            delegation_id=delegation_id,
+            agent_name=agent_name,
+            agent_icon=agent_icon,
+        )
+        self._active_delegation_id = delegation_id
+        self._delegation_start_time = time.monotonic()
+        return self._wrap_in_stream_event(marker, f"brain_delegation_{delegation_id}")
+
+    def delegation_complete(
+        self,
+        agent_id: str,
+        task: str,
+        delegation_id: Optional[str] = None,
+        results_summary: Optional[str] = None,
+    ) -> Optional[StreamEvent]:
+        """Emite evento de fin de delegación."""
+        delegation_id = delegation_id or getattr(self, "_active_delegation_id", None)
+        agent_name, agent_icon = get_agent_friendly_name(agent_id)
+        duration_ms = None
+        start = getattr(self, "_delegation_start_time", None)
+        if start:
+            duration_ms = int((time.monotonic() - start) * 1000)
+        marker = create_action_event(
+            action_type="delegate",
+            title=task[:80],
+            status="completed",
+            delegation_id=delegation_id,
+            agent_name=agent_name,
+            agent_icon=agent_icon,
+            duration_ms=duration_ms,
+            results_summary=results_summary,
+        )
+        self._active_delegation_id = None
+        self._delegation_start_time = None
+        return self._wrap_in_stream_event(marker, f"brain_delegation_{delegation_id}")
+
+    def get_active_delegation_id(self) -> Optional[str]:
+        """Devuelve el delegation_id activo si hay una delegación en curso."""
+        return getattr(self, "_active_delegation_id", None)
+
+    # ========== Eventos de Iteración ==========
+
+    def iteration_progress(
+        self,
+        iteration: int,
+        max_iterations: int,
+    ) -> Optional[StreamEvent]:
+        """Emite evento de progreso de iteración."""
+        marker = create_brain_event_marker(
+            "status",
+            status_type="iteration",
+            iteration=iteration,
+            max_iterations=max_iterations,
+            title=f"Paso {iteration}",
+        )
+        return self._wrap_in_stream_event(marker, "brain_iteration")
 
     # ========== Helpers ==========
     

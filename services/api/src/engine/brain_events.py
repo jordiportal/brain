@@ -69,17 +69,29 @@ def create_action_event(
     title: str,
     status: str,
     description: Optional[str] = None,
-    results_count: Optional[int] = None
+    results_count: Optional[int] = None,
+    delegation_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    agent_icon: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+    results_summary: Optional[str] = None,
 ) -> str:
     """
     Crea evento de acción.
     
     Args:
-        action_type: search, read, write, code_exec, slides, image, data, files, web
+        action_type: search, python, shell, javascript, web_search, web_fetch,
+                     file_read, file_write, slides, image, data, files, web,
+                     delegate, summarizing, planning, code_exec (legacy)
         title: Descripción de la acción
         status: running, completed, error
         description: Detalle adicional
         results_count: Número de resultados
+        delegation_id: ID para agrupar eventos de una delegación
+        agent_name: Nombre amigable del subagente (para delegate)
+        agent_icon: Ícono del subagente
+        duration_ms: Duración en ms (para completed)
+        results_summary: Resumen de resultados (para completed)
     """
     event_data = {
         "action_type": action_type,
@@ -90,6 +102,16 @@ def create_action_event(
         event_data["description"] = description
     if results_count is not None:
         event_data["results_count"] = results_count
+    if delegation_id:
+        event_data["delegation_id"] = delegation_id
+    if agent_name:
+        event_data["agent_name"] = agent_name
+    if agent_icon:
+        event_data["agent_icon"] = agent_icon
+    if duration_ms is not None:
+        event_data["duration_ms"] = duration_ms
+    if results_summary:
+        event_data["results_summary"] = results_summary
     
     return create_brain_event_marker("action", **event_data)
 
@@ -306,44 +328,46 @@ def emit_artifact_url(
 # ============================================
 
 TOOL_TO_ACTION_TYPE = {
-    "web_search": "search",
-    "web_fetch": "web",
-    "read_file": "read",
-    "write_file": "write",
-    "python": "code_exec",
-    "shell": "code_exec",
-    "javascript": "code_exec",
+    "web_search": "web_search",
+    "web_fetch": "web_fetch",
+    "read_file": "file_read",
+    "write_file": "file_write",
+    "python": "python",
+    "shell": "shell",
+    "javascript": "javascript",
     "generate_image": "image",
-    "delegate": "data",  # Generic, se sobrescribe según el subagente
+    "delegate": "delegate",
 }
 
 AGENT_TO_ACTION_TYPE = {
     "designer_agent": "image",
-    "researcher_agent": "search",
+    "researcher_agent": "web_search",
     "communication_agent": "data",
-    "sap_analyst": "data",
+    "sap_analyst": "data_analysis",
 }
+
+AGENT_FRIENDLY_NAMES = {
+    "designer_agent": ("Diseñador", "image"),
+    "researcher_agent": ("Investigador", "search"),
+    "communication_agent": ("Comunicador", "data"),
+    "sap_analyst": ("Analista SAP", "data"),
+}
+
+
+def get_agent_friendly_name(agent_id: str) -> tuple[str, str]:
+    """Returns (display_name, icon_key) for a subagent."""
+    if agent_id in AGENT_FRIENDLY_NAMES:
+        return AGENT_FRIENDLY_NAMES[agent_id]
+    name = agent_id.replace("_agent", "").replace("_", " ").title()
+    return (name, "data")
+
 
 def get_action_type_for_tool(tool_name: str, agent: Optional[str] = None, task: Optional[str] = None) -> str:
     """
     Obtiene el action_type para una tool.
-    
-    Args:
-        tool_name: Nombre de la tool
-        agent: Si es delegate, el subagente destino
-        task: Texto de la tarea (para inferir tipo en delegaciones)
-    
-    Returns:
-        action_type para el Brain Event
     """
-    if tool_name == "delegate" and agent:
-        if agent == "designer_agent" and task:
-            t = task.lower()
-            if any(w in t for w in ("presentaci", "slides", "diapositiva")):
-                return "slides"
-            if any(w in t for w in ("vídeo", "video", "clip", "animaci")):
-                return "image"
-        return AGENT_TO_ACTION_TYPE.get(agent, "data")
+    if tool_name == "delegate":
+        return "delegate"
     
     return TOOL_TO_ACTION_TYPE.get(tool_name, "data")
 
@@ -351,19 +375,10 @@ def get_action_type_for_tool(tool_name: str, agent: Optional[str] = None, task: 
 def get_action_title_for_tool(tool_name: str, args: Dict[str, Any]) -> str:
     """
     Genera un título descriptivo para una acción.
-    
-    Args:
-        tool_name: Nombre de la tool
-        args: Argumentos de la tool
-    
-    Returns:
-        Título descriptivo
     """
-    # Para tools de razonamiento, extraer preview del contenido
     def _get_reasoning_preview(a, field: str) -> str:
         content = a.get(field, a.get("thought", ""))[:100]
         if content:
-            # Primera línea o primeros 100 chars
             first_line = content.split('\n')[0][:80]
             return first_line if first_line else content[:80]
         return ""

@@ -229,6 +229,11 @@ class AdaptiveExecutor:
             # Evento de inicio de iteración
             yield self.stream_emitter.iteration_start(self.iteration, self.max_iterations)
             
+            # Brain Event: iteration progress
+            iter_event = self.brain_emitter.iteration_progress(self.iteration, self.max_iterations)
+            if iter_event:
+                yield iter_event
+            
             try:
                 logger.debug(
                     "LLM call",
@@ -447,10 +452,20 @@ class AdaptiveExecutor:
             args
         )
         
-        # Brain Event de action start
-        brain_event = self.brain_emitter.action_start(tool_name, args)
-        if brain_event:
-            yield brain_event
+        # Brain Event: delegation_start or action_start
+        is_delegate = tool_name == "delegate"
+        delegation_id = None
+        if is_delegate:
+            agent_id = args.get("agent", "unknown")
+            task_desc = args.get("task", "")[:80]
+            deleg_event = self.brain_emitter.delegation_start(agent_id, task_desc)
+            if deleg_event:
+                yield deleg_event
+            delegation_id = self.brain_emitter.get_active_delegation_id()
+        else:
+            brain_event = self.brain_emitter.action_start(tool_name, args)
+            if brain_event:
+                yield brain_event
         
         # Preparar argumentos
         exec_args = handler.prepare_args(args)
@@ -463,11 +478,27 @@ class AdaptiveExecutor:
         if inspect.isasyncgen(tool_output):
             # Streaming tool (e.g. delegate): iterate, yield child events,
             # extract final result from the _streaming_result sentinel.
+            # Tag child brain events with delegation_id for grouping in UI.
             raw_result: dict = {"success": False, "error": "No result from streaming tool"}
             async for child_event in tool_output:
                 if isinstance(child_event, dict) and "_streaming_result" in child_event:
                     raw_result = child_event["_streaming_result"]
                 else:
+                    if delegation_id and hasattr(child_event, "content") and child_event.content and "<!--BRAIN_EVENT:" in child_event.content:
+                        import re
+                        def _inject_delegation_id(m):
+                            try:
+                                import json as _json
+                                data = _json.loads(m.group(1))
+                                data["delegation_id"] = delegation_id
+                                return f"<!--BRAIN_EVENT:{_json.dumps(data, ensure_ascii=False, separators=(',', ':'))}-->"
+                            except Exception:
+                                return m.group(0)
+                        child_event.content = re.sub(
+                            r"<!--BRAIN_EVENT:(.*?)-->",
+                            _inject_delegation_id,
+                            child_event.content,
+                        )
                     yield child_event
         else:
             raw_result = tool_output
@@ -567,10 +598,26 @@ class AdaptiveExecutor:
                 })
         
         # Brain Events post-tool
-        results_count = self.brain_emitter.get_results_count(tool_name, raw_result)
-        brain_event = self.brain_emitter.action_complete(tool_name, args, results_count)
-        if brain_event:
-            yield brain_event
+        if is_delegate:
+            agent_id = args.get("agent", "unknown")
+            task_desc = args.get("task", "")[:80]
+            summary = None
+            if isinstance(raw_result, dict) and raw_result.get("success"):
+                tools_used = raw_result.get("tools_used", [])
+                if tools_used:
+                    summary = f"{len(tools_used)} pasos"
+            deleg_done = self.brain_emitter.delegation_complete(
+                agent_id, task_desc,
+                delegation_id=delegation_id,
+                results_summary=summary,
+            )
+            if deleg_done:
+                yield deleg_done
+        else:
+            results_count = self.brain_emitter.get_results_count(tool_name, raw_result)
+            brain_event = self.brain_emitter.action_complete(tool_name, args, results_count)
+            if brain_event:
+                yield brain_event
         
         # Sources para web_search
         if tool_name == "web_search" and isinstance(raw_result, dict):
