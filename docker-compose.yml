@@ -81,6 +81,9 @@ services:
       - SANDBOX_IMAGE=brain-persistent-runner:latest
       - SANDBOX_NETWORK=brain-network
       - SANDBOX_WORKSPACE_BASE=${SANDBOX_WORKSPACE_BASE:-/Users/jordip/Docker/workspace/users}
+      - ONLYOFFICE_URL=${ONLYOFFICE_URL:-http://onlyoffice:80}
+      - ONLYOFFICE_SECRET=${ONLYOFFICE_SECRET:-brain-onlyoffice-secret}
+      - ONLYOFFICE_PUBLIC_URL=${ONLYOFFICE_PUBLIC_URL:-http://localhost:8088}
     volumes:
       - ./services/api/src:/app/src
       - /var/run/docker.sock:/var/run/docker.sock  # Acceso a Docker daemon para code execution
@@ -171,6 +174,24 @@ services:
       retries: 3
 
   # ===========================================
+  # OnlyOffice Document Server
+  # ===========================================
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: brain-onlyoffice
+    restart: unless-stopped
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_SECRET:-brain-onlyoffice-secret}
+    ports:
+      - "${ONLYOFFICE_PORT:-8088}:80"
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_logs:/var/log/onlyoffice
+    networks:
+      - brain-network
+
+  # ===========================================
   # Angular GUI
   # ===========================================
   gui:
@@ -202,7 +223,10 @@ volumes:
     name: brain-redis-data
   gui_node_modules:
     name: brain-gui-node-modules
-  # persistent_workspace eliminado - ahora usa bind mount ~/Docker/workspace
+  onlyoffice_data:
+    name: brain-onlyoffice-data
+  onlyoffice_logs:
+    name: brain-onlyoffice-logs
 
 # ===========================================
 # Red Interna
