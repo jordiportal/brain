@@ -66,6 +66,10 @@ async def _get_chain_llm_provider(chain_id: str) -> Optional[BackendLLM]:
     """
     Carga el proveedor LLM asociado a una cadena desde la BD.
     
+    Prioridad del modelo:
+      1. chain.config.default_llm_model  (modelo específico de la cadena)
+      2. provider.default_model          (modelo por defecto del proveedor)
+    
     Returns:
         BackendLLM configurado o None si no hay proveedor asociado
     """
@@ -75,15 +79,22 @@ async def _get_chain_llm_provider(chain_id: str) -> Optional[BackendLLM]:
         chain = await ChainRepository.get_by_slug(chain_id)
         if chain and chain.llm_provider:
             p = chain.llm_provider
+            # Priorizar el modelo definido en la cadena sobre el del proveedor
+            chain_model = None
+            if chain.config and isinstance(chain.config, dict):
+                chain_model = chain.config.get("default_llm_model")
+            resolved_model = chain_model or p.default_model or ""
             logger.info(
                 f"Chain {chain_id} has LLM provider: {p.name} ({p.type})",
                 provider_id=p.id,
-                model=p.default_model
+                provider_model=p.default_model,
+                chain_model=chain_model,
+                resolved_model=resolved_model,
             )
             return BackendLLM(
                 provider=p.type or "ollama",
                 url=p.base_url or "",
-                model=p.default_model or "",
+                model=resolved_model,
                 api_key=p.api_key
             )
     except Exception as e:

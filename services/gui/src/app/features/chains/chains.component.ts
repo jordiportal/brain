@@ -827,10 +827,14 @@ export class ChainsComponent implements OnInit {
     }).subscribe({
       next: (response) => {
         const models = response.models?.map(m => m.name) || [];
+        
+        // Si el modelo solicitado no está en la lista, añadirlo
+        if (defaultModel && !models.includes(defaultModel)) {
+          models.unshift(defaultModel);
+        }
         this.availableModels.set(models);
         
-        // Usar el modelo especificado o el default del proveedor
-        if (defaultModel && models.includes(defaultModel)) {
+        if (defaultModel) {
           this.llmModel = defaultModel;
         } else if (provider.defaultModel && models.includes(provider.defaultModel)) {
           this.llmModel = provider.defaultModel;
@@ -844,10 +848,11 @@ export class ChainsComponent implements OnInit {
         console.error('Error cargando modelos:', err);
         this.loadingModels.set(false);
         
-        // Fallback: usar modelo por defecto del proveedor
-        if (provider.defaultModel) {
-          this.availableModels.set([provider.defaultModel]);
-          this.llmModel = provider.defaultModel;
+        // Fallback: usar modelo especificado o el default del proveedor
+        const fallback = defaultModel || provider.defaultModel;
+        if (fallback) {
+          this.availableModels.set([fallback]);
+          this.llmModel = fallback;
         }
       }
     });
@@ -961,12 +966,12 @@ export class ChainsComponent implements OnInit {
       next: (response) => {
         const provider = response.llm_provider;
         if (provider) {
-          // Buscar el proveedor en la lista cargada
           const fullProvider = this.llmProviders().find(p => p.id === provider.id);
           if (fullProvider) {
             this.selectedProvider = fullProvider;
-            this.llmModel = provider.defaultModel || fullProvider.defaultModel || '';
-            // Cargar modelos disponibles del proveedor
+            // Priorizar el modelo configurado en la cadena sobre el del proveedor
+            const chainModel = response.default_llm?.model;
+            this.llmModel = chainModel || provider.defaultModel || fullProvider.defaultModel || '';
             this.loadModelsForProvider(fullProvider, this.llmModel);
           }
         }
