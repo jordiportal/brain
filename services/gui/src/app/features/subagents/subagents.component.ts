@@ -1137,7 +1137,8 @@ interface TestRunResult {
                           <mat-card class="version-card">
                             <div class="version-row">
                               <div>
-                                <strong>Versión {{ ver.version_number }}</strong>
+                                <strong>#{{ ver.version_number }}</strong>
+                                <span class="version-label">v{{ ver.snapshot?.version || '?' }}</span>
                                 <span class="version-date">{{ ver.created_at | date:'dd/MM/yyyy HH:mm' }}</span>
                               </div>
                               <button mat-stroked-button color="primary" (click)="restoreVersion(ver.version_number)">
@@ -2775,6 +2776,7 @@ interface TestRunResult {
       justify-content: space-between;
       align-items: center;
     }
+    .version-label { margin-left: 8px; font-size: 13px; color: #1976d2; font-weight: 500; }
     .version-date { margin-left: 12px; font-size: 13px; color: #888; }
     .version-reason { font-size: 13px; color: #666; margin: 8px 0 0; }
 
@@ -3271,7 +3273,7 @@ export class SubagentsComponent implements OnInit {
   subagentSessionId = signal<string | null>(null);
   activeTabIndex = 0; // 0 = Agentes, 1 = Configuración, 2 = Ejecutar
   availableToolsList = signal<{ id: string; name: string; description: string; is_core?: boolean }[]>([]);
-  agentVersions = signal<{ id: number; version_number: number; created_at: string; change_reason?: string }[]>([]);
+  agentVersions = signal<{ id: number; version_number: number; created_at: string; change_reason?: string; snapshot?: any }[]>([]);
   loadingVersions = signal(false);
   restoringVersion = signal(false);
 

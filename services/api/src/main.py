@@ -65,12 +65,29 @@ async def lifespan(app: FastAPI):
     await db.connect()
     logger.info("Conexión a PostgreSQL establecida")
 
-    # Auto-migrate: add excluded_core_tools column if missing
+    # Auto-migrate
     try:
         await db.execute("""
             ALTER TABLE agent_definitions
             ADD COLUMN IF NOT EXISTS excluded_core_tools TEXT[] DEFAULT '{}'
         """)
+    except Exception:
+        pass
+
+    try:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chain_versions (
+                id SERIAL PRIMARY KEY,
+                brain_chain_id INTEGER NOT NULL,
+                version_number INTEGER NOT NULL,
+                snapshot JSONB NOT NULL,
+                changed_by VARCHAR(255),
+                change_reason TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS chain_versions_chain_id_idx ON chain_versions (brain_chain_id)")
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS chain_versions_chain_version_idx ON chain_versions (brain_chain_id, version_number)")
     except Exception:
         pass
     
