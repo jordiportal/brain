@@ -280,12 +280,34 @@ async def invoke_chain(
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
     
     user_id = current_user["email"] if current_user else None
-    
+
+    # v2: create a task to track this execution
+    from .task_manager import task_manager
+    from .models import Message as TaskMessage, TaskState
+    query = request.input.get("message", request.input.get("query", ""))
+    task = await task_manager.create_from_text(
+        query, chain_id=chain_id, context_id=session_id, user_id=user_id,
+    )
+    await task_manager.start(task.id)
+
     try:
         result = await chain_executor.invoke(chain_id, request, session_id, user_id=user_id)
-        
+
+        if result.status.value == "completed":
+            output_msg = TaskMessage.text("agent", result.output_data.get("response", "") if result.output_data else "")
+            await task_manager.complete(task.id, output_msg)
+        else:
+            await task_manager.fail(task.id, result.error or "Unknown error")
+
+        await task_manager.update_metrics(
+            task.id,
+            tokens_used=result.total_tokens,
+            duration_ms=result.total_duration_ms,
+        )
+
         return {
             "execution_id": result.execution_id,
+            "task_id": task.id,
             "status": result.status.value,
             "output": result.output_data,
             "steps": [
@@ -303,6 +325,7 @@ async def invoke_chain(
             "error": result.error
         }
     except Exception as e:
+        await task_manager.fail(task.id, str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -318,13 +341,26 @@ async def invoke_chain_stream(
         raise HTTPException(status_code=404, detail=f"Cadena no encontrada: {chain_id}")
     
     user_id = current_user["email"] if current_user else None
-    
+
+    # v2: create a task to track this execution
+    from .task_manager import task_manager
+    from .models import Message as TaskMessage, TaskState
+    import time as _time
+    query = request.input.get("message", request.input.get("query", ""))
+    task = await task_manager.create_from_text(
+        query, chain_id=chain_id, context_id=session_id, user_id=user_id,
+    )
+    await task_manager.start(task.id)
+    _t0 = _time.perf_counter()
+
     async def event_generator():
+        full_response = ""
         try:
             async for event in chain_executor.invoke_stream(chain_id, request, session_id, user_id=user_id):
                 event_data = {
                     "event_type": event.event_type,
                     "execution_id": event.execution_id,
+                    "task_id": task.id,
                     "timestamp": event.timestamp.isoformat(),
                     "node_id": event.node_id,
                     "node_name": event.node_name,
@@ -332,10 +368,19 @@ async def invoke_chain_stream(
                     "data": event.data
                 }
                 yield f"data: {json.dumps(event_data)}\n\n"
+                if event.event_type == "token" and event.content:
+                    full_response += event.content
+
+            duration = int((_time.perf_counter() - _t0) * 1000)
+            output_msg = TaskMessage.text("agent", full_response) if full_response else None
+            await task_manager.complete(task.id, output_msg)
+            await task_manager.update_metrics(task.id, duration_ms=duration)
         except Exception as e:
+            await task_manager.fail(task.id, str(e))
             error_event = {
                 "event_type": "error",
                 "execution_id": "",
+                "task_id": task.id,
                 "data": {"error": str(e)}
             }
             yield f"data: {json.dumps(error_event)}\n\n"

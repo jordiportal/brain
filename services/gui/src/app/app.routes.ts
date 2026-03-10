@@ -56,6 +56,10 @@ export const routes: Routes = [
         loadComponent: () => import('./features/subagents/subagents.component').then(m => m.SubagentsComponent)
       },
       {
+        path: 'tasks',
+        loadComponent: () => import('./features/tasks/tasks.component').then(m => m.TasksComponent)
+      },
+      {
         path: 'external-api',
         canActivate: [roleGuard('admin')],
         loadComponent: () => import('./features/external-api/external-api.component').then(m => m.ExternalApiComponent)

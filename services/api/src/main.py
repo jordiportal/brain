@@ -31,6 +31,7 @@ from src.auth_router import router as auth_router
 from src.user_router import router as user_router
 from src.profile_router import router as profile_router
 from src.task_router import router as task_router
+from src.engine.task_router import router as engine_task_router
 from src.monitoring.router import router as monitoring_router
 from src.code_executor.router import router as workspace_router
 from src.artifacts.router import router as artifacts_router
@@ -90,7 +91,73 @@ async def lifespan(app: FastAPI):
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS chain_versions_chain_version_idx ON chain_versions (brain_chain_id, version_number)")
     except Exception:
         pass
-    
+
+    # Engine v2: tasks, task_events, agent_states, memory tables
+    try:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id VARCHAR(255) PRIMARY KEY, context_id VARCHAR(255) NOT NULL,
+                parent_task_id VARCHAR(255) REFERENCES tasks(id) ON DELETE SET NULL,
+                agent_id VARCHAR(255), chain_id VARCHAR(255),
+                state VARCHAR(50) NOT NULL DEFAULT 'submitted', state_reason TEXT,
+                input JSONB NOT NULL, output JSONB,
+                history JSONB DEFAULT '[]', artifacts JSONB DEFAULT '[]',
+                checkpoint_thread_id VARCHAR(255),
+                tokens_used INTEGER DEFAULT 0, cost_usd FLOAT DEFAULT 0.0,
+                duration_ms INTEGER DEFAULT 0, iterations INTEGER DEFAULT 0,
+                metadata JSONB DEFAULT '{}', created_by VARCHAR(255),
+                created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+                completed_at TIMESTAMPTZ
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_context ON tasks(context_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS task_events (
+                id SERIAL PRIMARY KEY,
+                task_id VARCHAR(255) NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                state VARCHAR(50) NOT NULL, reason TEXT,
+                message JSONB, metadata JSONB DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id)")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agent_states (
+                agent_id VARCHAR(255) NOT NULL, context_id VARCHAR(255) NOT NULL,
+                state JSONB DEFAULT '{}', updated_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (agent_id, context_id)
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS memory_long_term (
+                id SERIAL PRIMARY KEY, agent_id VARCHAR(255),
+                user_id VARCHAR(255) NOT NULL, type VARCHAR(50) NOT NULL,
+                content TEXT NOT NULL, embedding vector(768),
+                source_task_id VARCHAR(255), relevance_score FLOAT DEFAULT 1.0,
+                created_at TIMESTAMPTZ DEFAULT NOW(), accessed_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_memory_lt_user ON memory_long_term(user_id)")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS memory_episodes (
+                id SERIAL PRIMARY KEY, agent_id VARCHAR(255),
+                user_id VARCHAR(255) NOT NULL, context_id VARCHAR(255),
+                summary TEXT NOT NULL, key_points JSONB DEFAULT '[]',
+                task_ids TEXT[] DEFAULT '{}', message_count INTEGER DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_episodes_user ON memory_episodes(user_id)")
+        logger.info("Engine v2 tables verified")
+    except Exception as e:
+        logger.warning(f"Engine v2 auto-migrate: {e}")
+
     # Cargar TODOS los asistentes desde BD
     try:
         from src.engine.registry import chain_registry
@@ -189,13 +256,27 @@ async def lifespan(app: FastAPI):
     _cleanup_task = asyncio.create_task(_sandbox_cleanup_loop())
     logger.info("Sandbox cleanup task started (every 5 min, idle > 30 min)")
 
+    # Initialize LangGraph checkpointer for durable execution
+    try:
+        from src.engine.checkpoint import init_checkpointer
+        await init_checkpointer()
+    except Exception as e:
+        logger.warning(f"Checkpointer init skipped: {e}")
+
     yield
 
     _cleanup_task.cancel()
     
     # Shutdown
     logger.info("Cerrando Brain API")
-    
+
+    # Shutdown checkpointer
+    try:
+        from src.engine.checkpoint import shutdown_checkpointer
+        await shutdown_checkpointer()
+    except Exception:
+        pass
+
     # Desconectar servidores MCP
     await mcp_client.disconnect_all()
     logger.info("Conexiones MCP cerradas")
@@ -254,6 +335,7 @@ app.include_router(task_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(workspace_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")
+app.include_router(engine_task_router, prefix="/api/v1")
 
 # Auth Router (sin prefix para compatibilidad con Strapi)
 app.include_router(auth_router)

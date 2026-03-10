@@ -248,3 +248,79 @@ export interface TaskResult {
   created_at: string;
   expires_at: string;
 }
+
+// ===========================================
+// Engine v2: Task-centric models
+// ===========================================
+
+export type EngineTaskState = 'submitted' | 'working' | 'input_required' | 'completed' | 'failed' | 'canceled';
+
+export interface TaskPart {
+  type: 'text' | 'file' | 'data' | 'image' | 'video';
+  text?: string;
+  url?: string;
+  data?: Record<string, unknown>;
+  media_type?: string;
+  filename?: string;
+}
+
+export interface TaskMessage {
+  id: string;
+  role: 'user' | 'agent' | 'system' | 'tool';
+  parts: TaskPart[];
+  agent_id?: string;
+  tool_name?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TaskArtifact {
+  id: string;
+  name: string;
+  description?: string;
+  parts: TaskPart[];
+  agent_id?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface EngineTask {
+  id: string;
+  context_id: string;
+  parent_task_id?: string;
+  agent_id?: string;
+  chain_id?: string;
+  state: EngineTaskState;
+  state_reason?: string;
+  input: TaskMessage;
+  output?: TaskMessage;
+  history: TaskMessage[];
+  artifacts: TaskArtifact[];
+  checkpoint_thread_id?: string;
+  tokens_used: number;
+  cost_usd: number;
+  duration_ms: number;
+  iterations: number;
+  metadata?: Record<string, unknown>;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+}
+
+export interface TaskEvent {
+  id: number;
+  task_id: string;
+  state: EngineTaskState;
+  reason?: string;
+  message?: TaskMessage;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentStateEntry {
+  agent_id: string;
+  context_id: string;
+  state: Record<string, unknown>;
+  updated_at: string;
+}

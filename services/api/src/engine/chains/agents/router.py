@@ -243,7 +243,19 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
         llm_url=llm_url,
         model=model
     )
-    
+
+    # v2: create task
+    task_id = None
+    try:
+        from ...task_manager import task_manager as _tm
+        _task = await _tm.create_from_text(
+            request.task, agent_id=agent_id, context_id=request.session_id,
+        )
+        task_id = _task.id
+        await _tm.start(_task.id)
+    except Exception:
+        pass
+
     try:
         result = await agent.execute(
             task=request.task,
@@ -254,14 +266,28 @@ async def execute_subagent(agent_id: str, request: SubagentExecuteRequest):
             provider_type=provider_type,
             api_key=api_key
         )
-        
+
+        if task_id:
+            try:
+                from ...models import Message as TaskMessage
+                output_msg = TaskMessage.text("agent", result.response or "")
+                await _tm.complete(task_id, output_msg)
+            except Exception:
+                pass
+
         return {
             "status": "completed",
             "agent_id": agent_id,
+            "task_id": task_id,
             "result": result.to_dict()
         }
         
     except Exception as e:
+        if task_id:
+            try:
+                await _tm.fail(task_id, str(e))
+            except Exception:
+                pass
         logger.error(f"Error executing subagent {agent_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,

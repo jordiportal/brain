@@ -467,6 +467,7 @@ export class MainLayoutComponent {
     { label: 'Mi Perfil', icon: 'person', route: '/profile', roles: ['admin', 'user'] },
     { label: 'Asistentes', icon: 'account_tree', route: '/chains' },
     { label: 'Agentes', icon: 'smart_toy', route: '/subagents' },
+    { label: 'Tasks', icon: 'task_alt', route: '/tasks' },
     { label: 'Herramientas', icon: 'build', route: '/tools' },
     { label: 'API Externa', icon: 'api', route: '/external-api', roles: ['admin'] },
     { label: 'Testing LLM', icon: 'science', route: '/testing', roles: ['admin', 'user'] },

@@ -10,21 +10,18 @@ from .delegate import DelegateHandler
 from .parallel_delegate import ParallelDelegateHandler
 from .reasoning import ReasoningHandler
 from .consult_team import ConsultTeamMemberHandler
-
-# SlidesHandler ya no se usa en el adaptive agent
-# Las presentaciones se manejan via delegate → slides_agent
+from .input_required import InputRequiredHandler
 
 
-# Mapeo de tool_name -> Handler class
 HANDLER_REGISTRY = {
     "finish": FinishHandler,
     "delegate": DelegateHandler,
     "parallel_delegate": ParallelDelegateHandler,
     "consult_team_member": ConsultTeamMemberHandler,
-    # generate_slides removido - usar delegate(agent="slides_agent", ...)
     "think": ReasoningHandler,
     "reflect": ReasoningHandler,
     "plan": ReasoningHandler,
+    "request_input": InputRequiredHandler,
 }
 
 
@@ -49,6 +46,7 @@ __all__ = [
     "ParallelDelegateHandler",
     "ConsultTeamMemberHandler",
     "ReasoningHandler",
+    "InputRequiredHandler",
     "get_handler",
     "HANDLER_REGISTRY",
 ]

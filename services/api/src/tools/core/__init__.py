@@ -60,6 +60,12 @@ from .delegation import (
     get_consult_team_member_tool
 )
 
+from .agent_state import (
+    get_agent_state,
+    update_agent_state,
+    AGENT_STATE_TOOLS,
+)
+
 # Mantener imports para uso interno por subagentes
 from .slides import (
     generate_slides,
@@ -92,6 +98,7 @@ CORE_TOOLS = {
     **REASONING_TOOLS,
     **UTILS_TOOLS,
     **DELEGATION_TOOLS,
+    **AGENT_STATE_TOOLS,
     # NO incluir SLIDES_TOOLS - el agente usa delegate → designer_agent
 }
 
@@ -123,6 +130,10 @@ __all__ = [
     "get_available_subagents_description",
     # Slides
     "generate_slides",
+    # Agent State
+    "get_agent_state",
+    "update_agent_state",
+    "AGENT_STATE_TOOLS",
     # All tools
     "CORE_TOOLS",
     "FILESYSTEM_TOOLS",

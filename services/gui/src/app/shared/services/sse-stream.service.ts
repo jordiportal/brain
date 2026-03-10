@@ -18,6 +18,9 @@ export interface SseStreamResult {
   videos: VideoData[];
   tokens: number;
   error?: string;
+  taskId?: string;
+  inputRequired?: boolean;
+  inputPrompt?: string;
 }
 
 const DEFAULT_FINAL_NODE_IDS = ['synthesizer', 'adaptive_agent'];
@@ -106,6 +109,9 @@ export class SseStreamService {
     const images: ImageData[] = [];
     const videos: VideoData[] = [];
     const iterationNodeIds = new Set<string>();
+    let taskId: string | undefined;
+    let inputRequired = false;
+    let inputPrompt = '';
 
     const assistantMessage: ChatMessage = {
       role: 'assistant',
@@ -151,6 +157,18 @@ export class SseStreamService {
             if (!line.startsWith('data: ')) continue;
             let data: any;
             try { data = JSON.parse(line.slice(6)); } catch { continue; }
+
+            if (data.task_id && !taskId) {
+              taskId = data.task_id;
+            }
+
+            if (data.event_type === 'input_required') {
+              inputRequired = true;
+              inputPrompt = data.content || data.data?.prompt || '';
+              finalContent = inputPrompt;
+              updateMessage(false);
+              continue;
+            }
 
             switch (data.event_type) {
               case 'node_start': {
@@ -293,12 +311,12 @@ export class SseStreamService {
 
     updateMessage(false);
 
-    return { finalContent, intermediateSteps, images, videos, tokens };
+    return { finalContent, intermediateSteps, images, videos, tokens, taskId, inputRequired, inputPrompt };
   }
 
   private errorResult(msg: string): SseStreamResult {
     return {
-      finalContent: '', intermediateSteps: [], images: [], videos: [], tokens: 0, error: msg
+      finalContent: '', intermediateSteps: [], images: [], videos: [], tokens: 0, error: msg,
     };
   }
 }

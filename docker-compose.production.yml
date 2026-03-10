@@ -72,6 +72,8 @@ services:
       # Auth
       - JWT_SECRET=${JWT_SECRET:-brain-secret-key-change-in-production}
       # Sandbox manager
+      # Auth
+      - JWT_SECRET=${JWT_SECRET:-brain-secret-key-change-in-production}
       - PROXY_365_URL=http://proxy-365:3000
       - PROXY_365_API_KEY=${PROXY_365_API_KEY:-}
       - BRAIN_API_KEY=${BRAIN_API_KEY:-}

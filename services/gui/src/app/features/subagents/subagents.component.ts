@@ -1284,6 +1284,92 @@ interface TestRunResult {
           </mat-card>
         }
       </mat-tab>
+
+      <!-- Tab: Memoria y Estado -->
+      <mat-tab label="Memoria y Estado">
+        <div class="tab-content-wrapper" style="padding: 24px;">
+          @if (!selectedAgent) {
+            <div class="empty-state">
+              <mat-icon>memory</mat-icon>
+              <p>Selecciona un agente para ver su memoria y estado persistente</p>
+            </div>
+          } @else {
+            <div class="memory-state-container">
+              <h3>Estado del agente: {{ selectedAgent.name }}</h3>
+
+              <mat-expansion-panel>
+                <mat-expansion-panel-header>
+                  <mat-panel-title>
+                    <mat-icon>save</mat-icon>&nbsp; Estado persistente
+                  </mat-panel-title>
+                  <mat-panel-description>Datos almacenados por contexto</mat-panel-description>
+                </mat-expansion-panel-header>
+                <div class="state-viewer">
+                  <p class="hint-text">
+                    El estado del agente se persiste entre sesiones para el mismo contexto.
+                    Los agentes pueden usar <code>get_agent_state</code> y <code>update_agent_state</code>
+                    para leer/escribir datos.
+                  </p>
+                  <pre class="state-json">{{ agentStateJson() }}</pre>
+                </div>
+              </mat-expansion-panel>
+
+              <mat-expansion-panel>
+                <mat-expansion-panel-header>
+                  <mat-panel-title>
+                    <mat-icon>psychology</mat-icon>&nbsp; Memoria a largo plazo
+                  </mat-panel-title>
+                  <mat-panel-description>Hechos almacenados cross-sesión</mat-panel-description>
+                </mat-expansion-panel-header>
+                <div class="memory-viewer">
+                  <p class="hint-text">
+                    Los hechos se extraen automáticamente de las conversaciones completadas
+                    y se usan como contexto en futuras interacciones.
+                  </p>
+                  @if (longTermFacts().length === 0) {
+                    <p class="empty-hint">No hay hechos almacenados aún.</p>
+                  } @else {
+                    @for (fact of longTermFacts(); track fact.id) {
+                      <div class="fact-item">
+                        <span class="fact-type">{{ fact.type }}</span>
+                        <span class="fact-content">{{ fact.content }}</span>
+                      </div>
+                    }
+                  }
+                </div>
+              </mat-expansion-panel>
+
+              <mat-expansion-panel>
+                <mat-expansion-panel-header>
+                  <mat-panel-title>
+                    <mat-icon>history</mat-icon>&nbsp; Episodios
+                  </mat-panel-title>
+                  <mat-panel-description>Resúmenes de interacciones pasadas</mat-panel-description>
+                </mat-expansion-panel-header>
+                <div class="episodes-viewer">
+                  @if (episodes().length === 0) {
+                    <p class="empty-hint">No hay episodios resumidos aún.</p>
+                  } @else {
+                    @for (ep of episodes(); track ep.id) {
+                      <div class="episode-item">
+                        <p class="episode-summary">{{ ep.summary }}</p>
+                        @if (ep.key_points?.length) {
+                          <ul class="episode-points">
+                            @for (kp of ep.key_points; track $index) {
+                              <li>{{ kp }}</li>
+                            }
+                          </ul>
+                        }
+                        <span class="episode-meta">{{ ep.message_count }} mensajes · {{ ep.created_at }}</span>
+                      </div>
+                    }
+                  }
+                </div>
+              </mat-expansion-panel>
+            </div>
+          }
+        </div>
+      </mat-tab>
     </mat-tab-group>
   </div>
   `,
@@ -3224,6 +3310,25 @@ interface TestRunResult {
       padding-top: 16px;
       border-top: 1px solid #e0e0e0;
     }
+
+    /* Memory & State tab */
+    .memory-state-container { max-width: 800px; }
+    .memory-state-container h3 { margin: 0 0 16px; }
+    .memory-state-container mat-expansion-panel { margin-bottom: 12px; }
+    .state-viewer, .memory-viewer, .episodes-viewer { padding: 8px 0; }
+    .state-json { background: #f5f5f5; padding: 12px; border-radius: 4px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; }
+    .hint-text { font-size: 13px; color: #666; margin: 0 0 12px; }
+    .hint-text code { background: #e8eaf6; padding: 1px 4px; border-radius: 2px; font-size: 12px; }
+    .empty-hint { font-size: 13px; color: #999; font-style: italic; }
+    .fact-item { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+    .fact-type { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #888; min-width: 80px; }
+    .fact-content { font-size: 13px; }
+    .episode-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+    .episode-summary { margin: 0 0 4px; font-size: 13px; }
+    .episode-points { margin: 4px 0; padding-left: 20px; font-size: 12px; color: #555; }
+    .episode-meta { font-size: 11px; color: #aaa; }
+    .empty-state { text-align: center; padding: 64px 24px; color: #888; }
+    .empty-state mat-icon { font-size: 48px; width: 48px; height: 48px; color: #ccc; display: block; margin: 0 auto 12px; }
   `]
 })
 export class SubagentsComponent implements OnInit {
@@ -3250,6 +3355,11 @@ export class SubagentsComponent implements OnInit {
   savingDefinition = signal(false);
   testingAgent = signal<string | null>(null);
   executing = signal(false);
+
+  // Memory & State tab
+  agentStateJson = signal('{}');
+  longTermFacts = signal<any[]>([]);
+  episodes = signal<any[]>([]);
 
   // Chat unificado
   messages = signal<ChatMessage[]>([]);

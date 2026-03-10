@@ -352,7 +352,20 @@ async def execute_chat_completion(
     }
     if isinstance(last_user_content, list):
         chain_input["_last_user_content"] = last_user_content
-    
+
+    # v2: track via task
+    task_id = None
+    try:
+        from ..engine.task_manager import task_manager as _tm
+        from ..engine.models import Message as TaskMessage
+        _task = await _tm.create_from_text(
+            user_message, chain_id=chain_id, context_id=conversation_id, user_id=user_id,
+        )
+        task_id = _task.id
+        await _tm.start(_task.id)
+    except Exception:
+        pass
+
     set_llm_execution_context(completion_id, chain_id)
     try:
         full_response = ""
@@ -394,6 +407,16 @@ async def execute_chat_completion(
             await api_key_validator.update_usage(api_key, total_tokens)
         
         elapsed_ms = int((time.time() - start_time) * 1000)
+
+        if task_id:
+            try:
+                from ..engine.models import Message as TaskMessage
+                output_msg = TaskMessage.text("agent", full_response)
+                await _tm.complete(task_id, output_msg)
+                await _tm.update_metrics(task_id, tokens_used=total_tokens, duration_ms=elapsed_ms)
+            except Exception:
+                pass
+
         logger.info(
             "Chat completion completed",
             completion_id=completion_id,
@@ -423,6 +446,11 @@ async def execute_chat_completion(
         )
         
     except Exception as e:
+        if task_id:
+            try:
+                await _tm.fail(task_id, str(e))
+            except Exception:
+                pass
         logger.error(f"Error executing chain: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
