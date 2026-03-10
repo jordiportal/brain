@@ -205,6 +205,62 @@ def get_default_agents() -> List[Dict[str, Any]]:
         "icon": "mail",
     })
 
+    # ── Blender 3D Creator ────────────────────────────────────────
+    b3d_dir = _AGENTS_DIR / "blender_3d_creator"
+    agents.append({
+        "agent_id": "blender_3d_creator",
+        "name": "Blender 3D Creator",
+        "description": "Artista 3D: creación de escenas, modelado, materiales, texturas, iluminación e importación de assets en Blender",
+        "role": "Artista 3D y Technical Director",
+        "expertise": "Experto en Blender Python API (bpy), modelado procedural, composición de escenas, "
+                     "materiales PBR, iluminación, y gestión de assets 3D desde PolyHaven, Sketchfab "
+                     "e IA generativa (Hyper3D, Hunyuan3D)",
+        "task_requirements": "Tareas de creación 3D: escenas, objetos, materiales, texturas, iluminación, "
+                             "renders, importación de modelos, automatización de Blender",
+        "system_prompt": _read_file(b3d_dir / "prompts" / "system_prompt.txt"),
+        "domain_tools": [
+            "mcp_blender_get_scene_info",
+            "mcp_blender_get_object_info",
+            "mcp_blender_get_viewport_screenshot",
+            "mcp_blender_execute_blender_code",
+            "mcp_blender_get_polyhaven_status",
+            "mcp_blender_get_polyhaven_categories",
+            "mcp_blender_search_polyhaven_assets",
+            "mcp_blender_download_polyhaven_asset",
+            "mcp_blender_set_texture",
+            "mcp_blender_get_sketchfab_status",
+            "mcp_blender_search_sketchfab_models",
+            "mcp_blender_get_sketchfab_model_preview",
+            "mcp_blender_download_sketchfab_model",
+            "mcp_blender_get_hyper3d_status",
+            "mcp_blender_generate_hyper3d_model_via_text",
+            "mcp_blender_generate_hyper3d_model_via_images",
+            "mcp_blender_poll_rodin_job_status",
+            "mcp_blender_import_generated_asset",
+            "mcp_blender_get_hunyuan3d_status",
+            "mcp_blender_generate_hunyuan3d_model",
+            "mcp_blender_poll_hunyuan_job_status",
+            "mcp_blender_import_generated_asset_hunyuan",
+        ],
+        "excluded_core_tools": [
+            "web_search", "web_fetch",
+            "shell",
+            "read_file", "write_file", "edit_file", "list_directory", "search_files",
+        ],
+        "skills": _load_skills(b3d_dir, [
+            {"id": "scene_composition", "name": "Composición de Escenas",
+             "description": "Planificación de escenas 3D: escala, orden de creación, jerarquía, cámara"},
+            {"id": "materials_and_lighting", "name": "Materiales e Iluminación",
+             "description": "Materiales PBR, paletas de colores, setup de iluminación, HDRIs"},
+            {"id": "asset_workflow", "name": "Flujo de Assets Externos",
+             "description": "Estrategia de selección de fuentes: Sketchfab, PolyHaven, Hyper3D, código Python"},
+            {"id": "blender_python_patterns", "name": "Patrones Blender Python",
+             "description": "Patrones bpy comunes: materiales, bmesh, cámara, render, errores frecuentes. CARGAR SIEMPRE."},
+        ]),
+        "version": "1.0.0",
+        "icon": "view_in_ar",
+    })
+
     return agents
 
 

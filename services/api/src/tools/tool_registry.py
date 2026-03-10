@@ -64,11 +64,14 @@ class ToolRegistry:
     
     def __init__(self):
         self.tools: Dict[str, ToolDefinition] = {}
+        self._name_index: Dict[str, str] = {}  # name → id (for LLM name resolution)
         self._core_registered = False
     
     def register(self, tool: ToolDefinition) -> None:
         """Registra una herramienta"""
         self.tools[tool.id] = tool
+        if tool.name != tool.id:
+            self._name_index[tool.name] = tool.id
         logger.debug(f"Tool registrada: {tool.id}")
     
     def register_core_tool(
@@ -110,8 +113,14 @@ class ToolRegistry:
         self.register(tool)
     
     def get(self, tool_id: str) -> Optional[ToolDefinition]:
-        """Obtiene una herramienta por ID"""
-        return self.tools.get(tool_id)
+        """Obtiene una herramienta por ID, con fallback por name (para MCP tools)."""
+        tool = self.tools.get(tool_id)
+        if tool:
+            return tool
+        resolved_id = self._name_index.get(tool_id)
+        if resolved_id:
+            return self.tools.get(resolved_id)
+        return None
     
     def list(self, tool_type: Optional[ToolType] = None) -> List[ToolDefinition]:
         """Lista herramientas, opcionalmente filtradas por tipo"""
@@ -455,6 +464,59 @@ def get_tool_registry() -> ToolRegistry:
 
 # Alias para compatibilidad hacia atrás
 ToolRegistry.register_builtin_tools = ToolRegistry.register_core_tools
+
+
+async def _load_mcp_tools(self) -> int:
+    """
+    Registra herramientas MCP en el tool_registry.
+
+    Itera las conexiones MCP conectadas y para cada tool descubierta
+    crea un ToolDefinition con un handler que delega en mcp_client.call_tool().
+    Esto permite que los agentes usen herramientas MCP como cualquier domain tool.
+    """
+    from src.mcp import mcp_client
+
+    registered = 0
+    for conn_id, conn in mcp_client.connections.items():
+        if not conn.is_connected:
+            try:
+                ok = await mcp_client.connect(conn_id)
+                if not ok:
+                    continue
+            except Exception:
+                continue
+
+        for mcp_tool in conn.tools:
+            tool_id = f"mcp_{conn.name}_{mcp_tool.name}".replace("-", "_").replace(" ", "_")
+
+            if tool_id in self.tools:
+                continue
+
+            def _make_handler(_cid: str, _tname: str):
+                async def handler(**kwargs):
+                    result = await mcp_client.call_tool(_cid, _tname, kwargs)
+                    return result
+                return handler
+
+            tool_def = ToolDefinition(
+                id=tool_id,
+                name=mcp_tool.name,
+                description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
+                type=ToolType.MCP,
+                parameters=mcp_tool.input_schema,
+                handler=_make_handler(conn_id, mcp_tool.name),
+                mcp_server=conn.name,
+                mcp_tool_name=mcp_tool.name,
+            )
+            self.register(tool_def)
+            registered += 1
+
+    if registered:
+        logger.info(f"MCP tools registradas: {registered}")
+    return registered
+
+
+ToolRegistry.load_mcp_tools = _load_mcp_tools
 
 
 async def _load_openapi_tools(self) -> int:

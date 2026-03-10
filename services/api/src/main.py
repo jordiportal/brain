@@ -157,6 +157,11 @@ async def lifespan(app: FastAPI):
         
         # Asegurar que existe conexión de Playwright (auto-configura si no existe)
         await mcp_client.ensure_playwright_connection()
+
+        # Registrar herramientas MCP en el tool_registry para que los agentes las usen
+        mcp_tools_count = await tool_registry.load_mcp_tools()
+        if mcp_tools_count:
+            logger.info(f"Herramientas MCP registradas en tool_registry: {mcp_tools_count}")
     except Exception as e:
         logger.warning(f"No se pudieron cargar conexiones MCP: {e}")
 

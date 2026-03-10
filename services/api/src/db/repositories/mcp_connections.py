@@ -2,12 +2,27 @@
 # MCP Connections Repository
 # ===========================================
 
+import json
 import logging
-from typing import Optional, List
+from typing import Any, Optional, List
 from ..connection import get_db
 from ..models import MCPConnection
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_json(value: Any, expected_type: type = dict):
+    """Parse a value that may be a JSON string or already the target Python type."""
+    if isinstance(value, expected_type):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, expected_type):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return None
 
 
 class MCPConnectionRepository:
@@ -68,10 +83,10 @@ class MCPConnectionRepository:
     @staticmethod
     def _row_to_connection(row) -> MCPConnection:
         """Convert database row to MCPConnection model."""
-        config = row.get('config')
-        args = row.get('args')
-        env = row.get('env')
-        tools = row.get('tools')
+        config = _parse_json(row.get('config'), dict)
+        args = _parse_json(row.get('args'), list)
+        env = _parse_json(row.get('env'), dict)
+        tools = _parse_json(row.get('tools'), list)
         
         return MCPConnection(
             id=row['id'],
@@ -79,13 +94,13 @@ class MCPConnectionRepository:
             name=row.get('name'),
             type=row.get('type'),
             command=row.get('command'),
-            args=args if isinstance(args, list) else None,
+            args=args,
             server_url=row.get('server_url'),
-            env=env if isinstance(env, dict) else None,
+            env=env,
             is_active=row.get('is_active', True),
-            config=config if isinstance(config, dict) else None,
+            config=config,
             description=row.get('description'),
-            tools=tools if isinstance(tools, list) else None,
+            tools=tools,
             created_at=row.get('created_at'),
             updated_at=row.get('updated_at'),
             published_at=row.get('published_at'),
