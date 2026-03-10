@@ -1,4 +1,5 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, signal, inject, computed } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatTabsModule } from '@angular/material/tabs';
@@ -20,6 +21,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { ProfileService, UserProfile, UserTask, UserPreferences, WorkspaceFile } from '../../core/services/profile.service';
 import { ArtifactService, Artifact, ArtifactListResponse } from '../../core/services/artifact.service';
 import { ArtifactViewerComponent } from '../../shared/components/artifact-viewer/artifact-viewer.component';
+import { MemoryPanelComponent } from '../../shared/components/memory-panel/memory-panel.component';
 import { AuthService } from '../../core/services/auth.service';
 
 @Component({
@@ -30,17 +32,17 @@ import { AuthService } from '../../core/services/auth.service';
     MatButtonModule, MatSlideToggleModule, MatChipsModule, MatIconModule,
     MatCardModule, MatSnackBarModule, MatProgressSpinnerModule,
     MatTooltipModule, MatDividerModule, MatTableModule, MatPaginatorModule,
-    MatMenuModule, ArtifactViewerComponent,
+    MatMenuModule, ArtifactViewerComponent, MemoryPanelComponent,
   ],
   selector: 'app-profile',
   template: `
     <div class="admin-page" style="max-width: 960px;">
       <div class="page-header">
         <div class="header-title">
-          <mat-icon>person</mat-icon>
+          <mat-icon>{{ isViewingOther() ? 'manage_accounts' : 'person' }}</mat-icon>
           <div>
-            <h1>Mi Perfil</h1>
-            <p class="subtitle">Configuración personal, tareas, artefactos y archivos del sandbox</p>
+            <h1>{{ isViewingOther() ? 'Perfil de ' + userId() : 'Mi Perfil' }}</h1>
+            <p class="subtitle">{{ isViewingOther() ? 'Vista de administrador' : 'Configuración personal, tareas, artefactos y archivos del sandbox' }}</p>
           </div>
         </div>
       </div>
@@ -123,6 +125,22 @@ import { AuthService } from '../../core/services/auth.service';
                 </button>
               </div>
             }
+          </div>
+        </mat-tab>
+
+        <!-- TAB: Memoria -->
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <mat-icon class="tab-icon">psychology</mat-icon>
+            Memoria
+          </ng-template>
+          <div class="tab-content">
+            <div class="memory-tab-wrapper">
+              <app-memory-panel
+                [userId]="userId()"
+                [agentId]="null">
+              </app-memory-panel>
+            </div>
           </div>
         </mat-tab>
 
@@ -640,11 +658,42 @@ import { AuthService } from '../../core/services/auth.service';
     .artifact-type-badge { font-size: 11px; color: #94a3b8; text-transform: uppercase; }
     .artifact-row { cursor: pointer; transition: background 0.15s; }
     .artifact-row:hover { background: rgba(0,0,0,0.02); }
+
+    /* --- Memory Tab --- */
+    .tab-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      margin-right: 6px;
+    }
+    .memory-tab-wrapper {
+      background: white;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      overflow: hidden;
+      min-height: 400px;
+    }
+    .memory-tab-wrapper app-memory-panel {
+      display: block;
+      height: auto;
+    }
+    :host ::ng-deep .memory-tab-wrapper .memory-panel {
+      height: auto;
+      min-height: 400px;
+    }
+    :host ::ng-deep .memory-tab-wrapper .tab-content {
+      max-height: none;
+    }
   `],
 })
 export class ProfileComponent implements OnInit {
   private authService = inject(AuthService);
+  private route = inject(ActivatedRoute);
   userId = signal(this.authService.currentUser()?.email || '');
+  isViewingOther = computed(() => {
+    const current = this.authService.currentUser()?.email || '';
+    return this.userId() !== current && this.userId() !== '';
+  });
   loading = signal(false);
   saving = signal(false);
   personalPrompt = signal('');
@@ -679,10 +728,15 @@ export class ProfileComponent implements OnInit {
   constructor(private profileService: ProfileService, private snack: MatSnackBar) {}
 
   ngOnInit(): void {
-    this.loadProfile();
-    this.loadTasks();
-    this.loadArtifacts();
-    this.loadWorkspace('');
+    this.route.queryParams.subscribe(params => {
+      if (params['userId']) {
+        this.userId.set(params['userId']);
+      }
+      this.loadProfile();
+      this.loadTasks();
+      this.loadArtifacts();
+      this.loadWorkspace('');
+    });
   }
 
   loadProfile(): void {

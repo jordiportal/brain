@@ -15,6 +15,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatDividerModule } from '@angular/material/divider';
+import { Router } from '@angular/router';
 import { UserService } from '../../core/services/user.service';
 import { BrainUser } from '../../core/models';
 import { UserDialogComponent } from './user-dialog.component';
@@ -145,6 +146,9 @@ import { RolesTabComponent } from './roles-tab.component';
                     <mat-icon>more_vert</mat-icon>
                   </button>
                   <mat-menu #actionMenu="matMenu">
+                    <button mat-menu-item (click)="viewProfile(u)">
+                      <mat-icon>person</mat-icon> Ver perfil
+                    </button>
                     <button mat-menu-item (click)="openEditDialog(u)">
                       <mat-icon>edit</mat-icon> Editar
                     </button>
@@ -193,6 +197,7 @@ export class UsersComponent implements OnInit {
     private userService: UserService,
     private dialog: MatDialog,
     private snackBar: MatSnackBar,
+    private router: Router,
   ) {}
 
   ngOnInit() {
@@ -213,6 +218,10 @@ export class UsersComponent implements OnInit {
         this.loading.set(false);
       }
     });
+  }
+
+  viewProfile(user: BrainUser) {
+    this.router.navigate(['/profile'], { queryParams: { userId: user.email } });
   }
 
   openCreateDialog() {

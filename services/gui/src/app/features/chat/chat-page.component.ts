@@ -22,9 +22,8 @@ import { MemoryPanelComponent } from '../../shared/components/memory-panel/memor
 import { SseStreamService } from '../../shared/services/sse-stream.service';
 import { ConversationService } from '../../core/services/conversation.service';
 import { AuthService } from '../../core/services/auth.service';
-import { StrapiService } from '../../core/services/config.service';
 import { ApiService } from '../../core/services/api.service';
-import { ConversationListItem, LlmProvider } from '../../core/models';
+import { ConversationListItem } from '../../core/models';
 import { environment } from '../../../environments/environment';
 
 interface EngineChainItem {
@@ -302,7 +301,6 @@ export class ChatPageComponent implements OnInit {
   private convService = inject(ConversationService);
   private sseStream = inject(SseStreamService);
   private authService = inject(AuthService);
-  private strapiService = inject(StrapiService);
   private apiService = inject(ApiService);
   private http = inject(HttpClient);
   private snackBar = inject(MatSnackBar);
@@ -319,10 +317,11 @@ export class ChatPageComponent implements OnInit {
 
   messages = signal<ChatMessage[]>([]);
   chains = signal<EngineChainItem[]>([]);
-  providers = signal<LlmProvider[]>([]);
   selectedChainId = 'adaptive';
 
-  private activeProvider: LlmProvider | null = null;
+  private activeProviderUrl = '';
+  private activeProviderType = '';
+  private activeProviderApiKey = '';
   private activeModel = '';
 
   currentUserId = signal<string | null>(null);
@@ -348,7 +347,6 @@ export class ChatPageComponent implements OnInit {
 
     this.loadConversations();
     this.loadChains();
-    this.loadProviders();
     this.loadMemoryStats();
   }
 
@@ -379,12 +377,6 @@ export class ChatPageComponent implements OnInit {
     });
   }
 
-  private loadProviders() {
-    this.strapiService.getLlmProviders().subscribe({
-      next: (providers) => this.providers.set(providers),
-    });
-  }
-
   onChainChange() {
     this.loadChainProvider(this.selectedChainId);
   }
@@ -394,28 +386,16 @@ export class ChatPageComponent implements OnInit {
       next: (response) => {
         const provider = response.llm_provider;
         if (provider) {
-          const fullProvider = this.providers().find(p => p.id === provider.id);
-          if (fullProvider) {
-            this.activeProvider = fullProvider;
-            this.activeModel = response.default_llm?.model
-              || provider.defaultModel
-              || fullProvider.defaultModel
-              || '';
-            return;
-          }
+          this.activeProviderUrl = provider.baseUrl || '';
+          this.activeProviderType = provider.type || 'ollama';
+          this.activeProviderApiKey = provider.apiKey || '';
+          this.activeModel = response.default_llm?.model
+            || provider.defaultModel
+            || '';
         }
-        this.setFallbackProvider();
       },
-      error: () => this.setFallbackProvider(),
+      error: () => {},
     });
-  }
-
-  private setFallbackProvider() {
-    const fallback = this.providers().find(p => p.isDefault || p.isActive) || this.providers()[0];
-    if (fallback) {
-      this.activeProvider = fallback;
-      this.activeModel = fallback.defaultModel || '';
-    }
   }
 
   private loadMemoryStats() {
@@ -490,7 +470,6 @@ export class ChatPageComponent implements OnInit {
     this.isExecuting.set(true);
 
     const chainId = this.selectedChainId || 'adaptive';
-    const provider = this.activeProvider;
 
     const url = `${environment.apiUrl}/chains/${chainId}/invoke/stream?session_id=${convId}`;
 
@@ -498,10 +477,10 @@ export class ChatPageComponent implements OnInit {
       url,
       payload: {
         input: { message: content },
-        llm_provider_url: provider?.baseUrl || environment.ollamaDefaultUrl,
-        llm_provider_type: provider?.type || 'ollama',
-        api_key: provider?.apiKey,
-        model: this.activeModel || provider?.defaultModel,
+        llm_provider_url: this.activeProviderUrl || environment.ollamaDefaultUrl,
+        llm_provider_type: this.activeProviderType || 'ollama',
+        api_key: this.activeProviderApiKey || undefined,
+        model: this.activeModel || undefined,
       },
       messages: this.messages,
       finalResponseNodeIds: ['synthesizer', 'adaptive_agent'],
