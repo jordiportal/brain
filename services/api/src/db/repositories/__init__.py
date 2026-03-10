@@ -17,6 +17,7 @@ from .users import UserRepository
 from .tasks import TaskRepository
 from .memory import MemoryRepository
 from .agent_states import AgentStateRepository
+from .conversations import ConversationRepository
 
 __all__ = [
     "ChainRepository",
@@ -34,4 +35,5 @@ __all__ = [
     "TaskRepository",
     "MemoryRepository",
     "AgentStateRepository",
+    "ConversationRepository",
 ]

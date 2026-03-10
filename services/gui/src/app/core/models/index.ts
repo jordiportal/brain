@@ -324,3 +324,54 @@ export interface AgentStateEntry {
   state: Record<string, unknown>;
   updated_at: string;
 }
+
+// ===========================================
+// Conversations & Memory
+// ===========================================
+
+export interface ConversationListItem {
+  id: string;
+  title: string | null;
+  chain_id: string | null;
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: string;
+  content: string;
+  model: string | null;
+  tokens_used: number;
+  task_id: string | null;
+  created_at: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string | null;
+  chain_id: string | null;
+  model: string | null;
+  metadata: Record<string, unknown>;
+  messages: ConversationMessage[];
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryFact {
+  id: number;
+  type: string;
+  content: string;
+  agent_id: string | null;
+  created_at: string;
+}
+
+export interface MemoryEpisode {
+  id: number;
+  summary: string;
+  key_points: string[];
+  message_count: number;
+  created_at: string;
+}

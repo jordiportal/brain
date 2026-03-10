@@ -45,17 +45,29 @@ class MemoryRepository:
     # ---- Long-term facts ----
 
     @staticmethod
-    async def add_fact(fact: MemoryFact) -> MemoryFact:
+    async def add_fact(fact: MemoryFact, embedding: Optional[list[float]] = None) -> MemoryFact:
         db = get_db()
-        row = await db.fetch_one(
-            """
-            INSERT INTO memory_long_term (agent_id, user_id, type, content, source_task_id, relevance_score)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, created_at
-            """,
-            fact.agent_id, fact.user_id, fact.type, fact.content,
-            fact.source_task_id, fact.relevance_score,
-        )
+        if embedding:
+            embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            row = await db.fetch_one(
+                """
+                INSERT INTO memory_long_term (agent_id, user_id, type, content, source_task_id, relevance_score, embedding)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::vector)
+                RETURNING id, created_at
+                """,
+                fact.agent_id, fact.user_id, fact.type, fact.content,
+                fact.source_task_id, fact.relevance_score, embedding_str,
+            )
+        else:
+            row = await db.fetch_one(
+                """
+                INSERT INTO memory_long_term (agent_id, user_id, type, content, source_task_id, relevance_score)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING id, created_at
+                """,
+                fact.agent_id, fact.user_id, fact.type, fact.content,
+                fact.source_task_id, fact.relevance_score,
+            )
         if row:
             fact.id = row["id"]
             fact.created_at = row["created_at"]

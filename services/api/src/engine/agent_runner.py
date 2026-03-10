@@ -46,10 +46,15 @@ class AgentRunner:
         memory_manager=None,
     ):
         self._task_manager = tm or task_manager
-        self._memory_manager = memory_manager  # Phase 3
         self._provider_loaded = False
         self._llm_provider_url: Optional[str] = None
         self._default_model: Optional[str] = None
+
+        if memory_manager:
+            self._memory_manager = memory_manager
+        else:
+            from .memory import MemoryManager
+            self._memory_manager = MemoryManager()
 
     async def _ensure_provider_config(self):
         if not self._provider_loaded:
@@ -111,6 +116,15 @@ class AgentRunner:
 
             memory = self._load_short_term_memory(session_id, chain_config)
 
+            # Enrich with long-term + episodic memory context
+            memory_addendum = await self._get_memory_addendum(
+                user_id=task.created_by,
+                agent_id=task.agent_id,
+                context_id=session_id,
+                task=task,
+                query=request.input.get("message", request.input.get("query", "")),
+            )
+
             result = None
             async for event in builder(
                 config=chain_config,
@@ -123,6 +137,7 @@ class AgentRunner:
                 provider_type=request.llm_provider_type,
                 api_key=request.api_key,
                 user_id=task.created_by,
+                memory_addendum=memory_addendum,
             ):
                 if isinstance(event, dict) and "_result" in event:
                     result = event["_result"]
@@ -142,6 +157,9 @@ class AgentRunner:
             await self._task_manager.update_metrics(
                 task.id, duration_ms=duration_ms, iterations=iterations, tokens_used=tokens,
             )
+
+            # Post-completion: extract facts and create episodes
+            await self._post_completion_memory(task)
 
         except Exception as e:
             logger.error(f"AgentRunner.run error: {e}", exc_info=True)
@@ -206,6 +224,14 @@ class AgentRunner:
 
             memory = self._load_short_term_memory(session_id, chain_config)
 
+            memory_addendum = await self._get_memory_addendum(
+                user_id=task.created_by,
+                agent_id=task.agent_id,
+                context_id=session_id,
+                task=task,
+                query=request.input.get("message", request.input.get("query", "")),
+            )
+
             yield StreamEvent(
                 event_type="start",
                 execution_id=execution_id,
@@ -225,6 +251,7 @@ class AgentRunner:
                 api_key=request.api_key,
                 emit_brain_events=request.emit_brain_events,
                 user_id=task.created_by,
+                memory_addendum=memory_addendum,
             ):
                 if isinstance(event, dict):
                     if "_result" in event:
@@ -236,7 +263,6 @@ class AgentRunner:
                     else:
                         continue
 
-                # Inject task_id into every event
                 event.task_id = task.id
                 yield event
 
@@ -251,6 +277,8 @@ class AgentRunner:
                 duration_ms=duration_ms,
                 iterations=iterations,
             )
+
+            await self._post_completion_memory(task)
 
             yield StreamEvent(
                 event_type="end",
@@ -322,17 +350,47 @@ class AgentRunner:
     def _load_short_term_memory(
         self, session_id: Optional[str], config: ChainConfig
     ) -> list:
-        """
-        Load short-term memory for a session.
-
-        Currently uses the legacy in-memory store from ChainExecutor.
-        Phase 3 will replace this with MemoryManager.
-        """
         if not config.use_memory or not session_id:
             return []
 
         from .executor import chain_executor
         return chain_executor.get_memory(session_id)
+
+    async def _get_memory_addendum(
+        self,
+        user_id: Optional[str],
+        agent_id: Optional[str],
+        context_id: Optional[str],
+        task: Optional[Task],
+        query: Optional[str],
+    ) -> str:
+        """Build system prompt addendum from long-term + episodic memory."""
+        if not user_id or not self._memory_manager:
+            return ""
+        try:
+            ctx = await self._memory_manager.get_context(
+                user_id=user_id,
+                agent_id=agent_id,
+                context_id=context_id,
+                task=task,
+                query=query,
+            )
+            return ctx.to_system_addendum()
+        except Exception as e:
+            logger.warning(f"Memory context retrieval failed: {e}")
+            return ""
+
+    async def _post_completion_memory(self, task: Task):
+        """Post-completion: extract facts and create episodic summaries."""
+        if not self._memory_manager or not task.created_by:
+            return
+        try:
+            refreshed = await self._task_manager.get(task.id)
+            if refreshed:
+                from .memory import make_llm_call
+                await self._memory_manager.save_interaction(refreshed, llm_call=make_llm_call())
+        except Exception as e:
+            logger.warning(f"Post-completion memory save failed: {e}")
 
 
 # Global instance

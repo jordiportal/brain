@@ -1,7 +1,8 @@
 """
 Short-term memory — Current session messages.
 
-Backed by LangGraph checkpoint state or task history.
+Primary source is now conversation_messages in PostgreSQL.
+Falls back to task history or legacy in-memory store.
 """
 
 import logging
@@ -14,28 +15,44 @@ logger = logging.getLogger(__name__)
 
 class ShortTermMemory:
     """
-    Session-scoped memory from the current task's history
-    and LangGraph checkpoint state.
+    Session-scoped memory. Reads from conversation_messages (DB)
+    first, with fallback to task history or legacy memory store.
     """
 
-    async def get(self, task: Optional[Task] = None, context_id: Optional[str] = None) -> list[Message]:
-        """
-        Get recent messages from the current session.
+    async def get(
+        self,
+        task: Optional[Task] = None,
+        context_id: Optional[str] = None,
+        max_messages: int = 20,
+    ) -> list[Message]:
+        # Try DB-backed conversation messages first
+        if context_id:
+            try:
+                from ..conversation_service import conversation_service
+                db_msgs = await conversation_service.get_recent_messages(
+                    context_id, max_messages=max_messages,
+                )
+                if db_msgs:
+                    return [
+                        Message.text(m.role if m.role != "agent" else "assistant", m.content)
+                        for m in db_msgs
+                    ]
+            except Exception as e:
+                logger.debug(f"Short-term DB fallback: {e}")
 
-        Priority:
-          1. Task history (if task provided)
-          2. Legacy memory store (fallback for backward compat)
-        """
         if task and task.history:
             return task.history
 
         if context_id:
-            from ..executor import chain_executor
-            legacy_memory = chain_executor.get_memory(context_id)
-            return [
-                Message.text(m.get("role", "user"), m.get("content", ""))
-                for m in legacy_memory
-            ]
+            try:
+                from ..executor import chain_executor
+                legacy_memory = chain_executor.get_memory(context_id)
+                return [
+                    Message.text(m.get("role", "user"), m.get("content", ""))
+                    for m in legacy_memory
+                ]
+            except Exception:
+                pass
 
         return []
 

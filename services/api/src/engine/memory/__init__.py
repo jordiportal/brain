@@ -8,5 +8,6 @@ Layers:
 """
 
 from .manager import MemoryManager, MemoryContext
+from .llm_helper import make_llm_call
 
-__all__ = ["MemoryManager", "MemoryContext"]
+__all__ = ["MemoryManager", "MemoryContext", "make_llm_call"]

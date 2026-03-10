@@ -155,6 +155,11 @@ async def build_adaptive_agent(
     briefing_messages: list[dict] = []
     system_prompt = await apply_user_context(user_id, briefing_messages, system_prompt)
 
+    # Inject long-term + episodic memory context
+    memory_addendum = kwargs.get("memory_addendum", "")
+    if memory_addendum:
+        system_prompt += f"\n\n{memory_addendum}"
+
     # Construir mensajes
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(briefing_messages)

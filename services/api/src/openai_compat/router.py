@@ -353,8 +353,18 @@ async def execute_chat_completion(
     if isinstance(last_user_content, list):
         chain_input["_last_user_content"] = last_user_content
 
-    # v2: track via task
+    # v2: persist conversation + track via task
     task_id = None
+    try:
+        from ..engine.conversation_service import conversation_service as _cs
+        await _cs.get_or_create(
+            conversation_id or completion_id, user_id or "anonymous",
+            chain_id=chain_id, model=backend_config.model,
+        )
+        await _cs.add_user_message(conversation_id or completion_id, user_message)
+    except Exception as exc:
+        logger.debug(f"Conversation save (user msg) skipped: {exc}")
+
     try:
         from ..engine.task_manager import task_manager as _tm
         from ..engine.models import Message as TaskMessage
@@ -363,6 +373,32 @@ async def execute_chat_completion(
         )
         task_id = _task.id
         await _tm.start(_task.id)
+    except Exception:
+        pass
+
+    # Load memory from DB instead of relying on client-sent history
+    memory_messages = messages[:-1]
+    if conversation_id:
+        try:
+            from ..engine.conversation_service import conversation_service as _cs
+            db_messages = await _cs.get_recent_as_llm_messages(conversation_id, max_messages=20)
+            if db_messages:
+                memory_messages = db_messages
+        except Exception:
+            pass
+
+    # Retrieve long-term + episodic memory context
+    memory_addendum = ""
+    try:
+        from ..engine.memory import MemoryManager
+        _mm = MemoryManager()
+        _ctx = await _mm.get_context(
+            user_id=user_id or "anonymous",
+            agent_id=None,
+            context_id=conversation_id,
+            query=user_message,
+        )
+        memory_addendum = _ctx.to_system_addendum()
     except Exception:
         pass
 
@@ -376,13 +412,14 @@ async def execute_chat_completion(
             llm_url=backend_config.url,
             model=backend_config.model,
             input_data=chain_input,
-            memory=messages[:-1],
+            memory=memory_messages,
             execution_id=completion_id,
             stream=False,
             provider_type=backend_config.provider,
             api_key=backend_config.api_key,
             user_id=user_id,
             conversation_id=conversation_id,
+            memory_addendum=memory_addendum,
         ):
             # Capturar resultado
             if isinstance(event, dict) and "_result" in event:
@@ -414,6 +451,31 @@ async def execute_chat_completion(
                 output_msg = TaskMessage.text("agent", full_response)
                 await _tm.complete(task_id, output_msg)
                 await _tm.update_metrics(task_id, tokens_used=total_tokens, duration_ms=elapsed_ms)
+            except Exception:
+                pass
+
+        # Save assistant response to conversation
+        try:
+            from ..engine.conversation_service import conversation_service as _cs
+            await _cs.add_assistant_message(
+                conversation_id or completion_id, full_response,
+                model=backend_config.model, task_id=task_id,
+                tokens_used=total_tokens,
+            )
+            await _cs.maybe_auto_title(
+                conversation_id or completion_id, user_message,
+            )
+        except Exception as exc:
+            logger.debug(f"Conversation save (assistant msg) skipped: {exc}")
+
+        # Post-completion: extract facts and create episodes
+        if task_id:
+            try:
+                from ..engine.memory import MemoryManager, make_llm_call
+                _mm = MemoryManager()
+                _completed_task = await _tm.get(task_id)
+                if _completed_task:
+                    await _mm.save_interaction(_completed_task, llm_call=make_llm_call())
             except Exception:
                 pass
 
@@ -532,9 +594,60 @@ async def stream_chat_completion(
     }
     if isinstance(last_user_content, list):
         chain_input["_last_user_content"] = last_user_content
-    
+
+    # v2: persist conversation + track via task
+    task_id = None
+    conv_id = conversation_id or completion_id
+    try:
+        from ..engine.conversation_service import conversation_service as _cs
+        await _cs.get_or_create(
+            conv_id, user_id or "anonymous",
+            chain_id=chain_id, model=backend_config.model,
+        )
+        await _cs.add_user_message(conv_id, user_message)
+    except Exception as exc:
+        logger.debug(f"Conversation save (user msg, stream) skipped: {exc}")
+
+    try:
+        from ..engine.task_manager import task_manager as _tm
+        from ..engine.models import Message as TaskMessage
+        _task = await _tm.create_from_text(
+            user_message, chain_id=chain_id, context_id=conversation_id, user_id=user_id,
+        )
+        task_id = _task.id
+        await _tm.start(_task.id)
+    except Exception:
+        pass
+
+    # Load memory from DB instead of relying on client-sent history
+    memory_messages = messages[:-1]
+    if conversation_id:
+        try:
+            from ..engine.conversation_service import conversation_service as _cs
+            db_messages = await _cs.get_recent_as_llm_messages(conversation_id, max_messages=20)
+            if db_messages:
+                memory_messages = db_messages
+        except Exception:
+            pass
+
+    # Retrieve long-term + episodic memory context
+    memory_addendum = ""
+    try:
+        from ..engine.memory import MemoryManager
+        _mm = MemoryManager()
+        _ctx = await _mm.get_context(
+            user_id=user_id or "anonymous",
+            agent_id=None,
+            context_id=conversation_id,
+            query=user_message,
+        )
+        memory_addendum = _ctx.to_system_addendum()
+    except Exception:
+        pass
+
     total_tokens = 0
-    
+    full_response = ""
+
     # Activar Brain Events para modelos brain-* (Open WebUI)
     emit_brain_events = request.model.startswith("brain-")
     
@@ -545,7 +658,7 @@ async def stream_chat_completion(
             llm_url=backend_config.url,
             model=backend_config.model,
             input_data=chain_input,
-            memory=messages[:-1],
+            memory=memory_messages,
             execution_id=completion_id,
             stream=True,
             provider_type=backend_config.provider,
@@ -553,8 +666,8 @@ async def stream_chat_completion(
             emit_brain_events=emit_brain_events,
             user_id=user_id,
             conversation_id=conversation_id,
+            memory_addendum=memory_addendum,
         ):
-            # Streaming de tokens
             if hasattr(event, 'event_type') and event.event_type == "token" and event.content:
                 content_chunk = ChatCompletionChunk(
                     id=completion_id,
@@ -569,9 +682,9 @@ async def stream_chat_completion(
                     ]
                 )
                 yield f"data: {content_chunk.model_dump_json()}\n\n"
+                full_response += event.content
                 total_tokens += 1
         
-        # Chunk final
         final_chunk = ChatCompletionChunk(
             id=completion_id,
             created=int(time.time()),
@@ -591,6 +704,38 @@ async def stream_chat_completion(
             await api_key_validator.update_usage(api_key, total_tokens)
         
         elapsed_ms = int((time.time() - start_time) * 1000)
+
+        # Save assistant response + update task
+        if task_id:
+            try:
+                output_msg = TaskMessage.text("agent", full_response)
+                await _tm.complete(task_id, output_msg)
+                await _tm.update_metrics(task_id, tokens_used=total_tokens, duration_ms=elapsed_ms)
+            except Exception:
+                pass
+
+        try:
+            from ..engine.conversation_service import conversation_service as _cs
+            await _cs.add_assistant_message(
+                conv_id, full_response,
+                model=backend_config.model, task_id=task_id,
+                tokens_used=total_tokens,
+            )
+            await _cs.maybe_auto_title(conv_id, user_message)
+        except Exception as exc:
+            logger.debug(f"Conversation save (assistant msg, stream) skipped: {exc}")
+
+        # Post-completion: extract facts and create episodes
+        if task_id:
+            try:
+                from ..engine.memory import MemoryManager, make_llm_call
+                _mm = MemoryManager()
+                _completed_task = await _tm.get(task_id)
+                if _completed_task:
+                    await _mm.save_interaction(_completed_task, llm_call=make_llm_call())
+            except Exception:
+                pass
+
         logger.info(
             "Streaming completion finished",
             completion_id=completion_id,
@@ -599,6 +744,11 @@ async def stream_chat_completion(
         
     except Exception as e:
         logger.error(f"Error in streaming: {e}", exc_info=True)
+        if task_id:
+            try:
+                await _tm.fail(task_id, str(e))
+            except Exception:
+                pass
         error_chunk = {
             "error": {
                 "message": str(e),

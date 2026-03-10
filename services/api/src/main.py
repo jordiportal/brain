@@ -32,6 +32,8 @@ from src.user_router import router as user_router
 from src.profile_router import router as profile_router
 from src.task_router import router as task_router
 from src.engine.task_router import router as engine_task_router
+from src.conversation_router import router as conversation_router
+from src.memory_router import router as memory_router
 from src.monitoring.router import router as monitoring_router
 from src.code_executor.router import router as workspace_router
 from src.artifacts.router import router as artifacts_router
@@ -157,6 +159,36 @@ async def lifespan(app: FastAPI):
         logger.info("Engine v2 tables verified")
     except Exception as e:
         logger.warning(f"Engine v2 auto-migrate: {e}")
+
+    # Conversations: Brain as source of truth for chat history
+    try:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS conversations (
+                id VARCHAR(255) PRIMARY KEY, user_id VARCHAR(255) NOT NULL,
+                title TEXT, chain_id VARCHAR(255), model VARCHAR(255),
+                metadata JSONB DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_conv_user_updated ON conversations(user_id, updated_at DESC)")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_messages (
+                id VARCHAR(255) PRIMARY KEY,
+                conversation_id VARCHAR(255) NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                role VARCHAR(50) NOT NULL, content TEXT NOT NULL DEFAULT '',
+                parts JSONB, model VARCHAR(255), tokens_used INTEGER DEFAULT 0,
+                task_id VARCHAR(255), metadata JSONB DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_cmsg_conv ON conversation_messages(conversation_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_cmsg_conv_created ON conversation_messages(conversation_id, created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_cmsg_task ON conversation_messages(task_id)")
+        logger.info("Conversation tables verified")
+    except Exception as e:
+        logger.warning(f"Conversations auto-migrate: {e}")
 
     # Cargar TODOS los asistentes desde BD
     try:
@@ -336,6 +368,8 @@ app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(workspace_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")
 app.include_router(engine_task_router, prefix="/api/v1")
+app.include_router(conversation_router, prefix="/api/v1")
+app.include_router(memory_router, prefix="/api/v1")
 
 # Auth Router (sin prefix para compatibilidad con Strapi)
 app.include_router(auth_router)

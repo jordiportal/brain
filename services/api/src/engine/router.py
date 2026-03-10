@@ -281,10 +281,19 @@ async def invoke_chain(
     
     user_id = current_user["email"] if current_user else None
 
-    # v2: create a task to track this execution
     from .task_manager import task_manager
     from .models import Message as TaskMessage, TaskState
     query = request.input.get("message", request.input.get("query", ""))
+
+    # Persist conversation
+    try:
+        from .conversation_service import conversation_service as _cs
+        if session_id:
+            await _cs.get_or_create(session_id, user_id or "anonymous", chain_id=chain_id)
+            await _cs.add_user_message(session_id, query)
+    except Exception:
+        pass
+
     task = await task_manager.create_from_text(
         query, chain_id=chain_id, context_id=session_id, user_id=user_id,
     )
@@ -293,8 +302,9 @@ async def invoke_chain(
     try:
         result = await chain_executor.invoke(chain_id, request, session_id, user_id=user_id)
 
+        response_text = result.output_data.get("response", "") if result.output_data else ""
         if result.status.value == "completed":
-            output_msg = TaskMessage.text("agent", result.output_data.get("response", "") if result.output_data else "")
+            output_msg = TaskMessage.text("agent", response_text)
             await task_manager.complete(task.id, output_msg)
         else:
             await task_manager.fail(task.id, result.error or "Unknown error")
@@ -304,6 +314,18 @@ async def invoke_chain(
             tokens_used=result.total_tokens,
             duration_ms=result.total_duration_ms,
         )
+
+        # Save assistant response
+        try:
+            from .conversation_service import conversation_service as _cs
+            if session_id:
+                await _cs.add_assistant_message(
+                    session_id, response_text, task_id=task.id,
+                    tokens_used=result.total_tokens,
+                )
+                await _cs.maybe_auto_title(session_id, query)
+        except Exception:
+            pass
 
         return {
             "execution_id": result.execution_id,
@@ -342,11 +364,20 @@ async def invoke_chain_stream(
     
     user_id = current_user["email"] if current_user else None
 
-    # v2: create a task to track this execution
     from .task_manager import task_manager
     from .models import Message as TaskMessage, TaskState
     import time as _time
     query = request.input.get("message", request.input.get("query", ""))
+
+    # Persist conversation
+    try:
+        from .conversation_service import conversation_service as _cs
+        if session_id:
+            await _cs.get_or_create(session_id, user_id or "anonymous", chain_id=chain_id)
+            await _cs.add_user_message(session_id, query)
+    except Exception:
+        pass
+
     task = await task_manager.create_from_text(
         query, chain_id=chain_id, context_id=session_id, user_id=user_id,
     )
@@ -375,6 +406,18 @@ async def invoke_chain_stream(
             output_msg = TaskMessage.text("agent", full_response) if full_response else None
             await task_manager.complete(task.id, output_msg)
             await task_manager.update_metrics(task.id, duration_ms=duration)
+
+            # Save assistant response
+            try:
+                from .conversation_service import conversation_service as _cs
+                if session_id:
+                    await _cs.add_assistant_message(
+                        session_id, full_response, task_id=task.id,
+                    )
+                    await _cs.maybe_auto_title(session_id, query)
+            except Exception:
+                pass
+
         except Exception as e:
             await task_manager.fail(task.id, str(e))
             error_event = {

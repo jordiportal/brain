@@ -10,6 +10,7 @@ from typing import Optional
 
 from ...db.repositories.memory import MemoryRepository, MemoryFact
 from ..models import Task
+from .embeddings import generate_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,26 @@ class LongTermMemory:
         """
         Search for relevant facts.
 
-        If query is provided and embeddings are available, uses semantic search.
-        Otherwise falls back to recency-based retrieval.
+        If query is provided, tries semantic search first,
+        then falls back to recency-based retrieval.
         """
-        # TODO: generate embedding from query and use search_facts_by_embedding
+        if query:
+            embedding = generate_embedding(query)
+            if embedding:
+                try:
+                    results = await self._repo.search_facts_by_embedding(
+                        user_id, embedding, agent_id=agent_id, limit=limit,
+                    )
+                    if results:
+                        for fact in results:
+                            try:
+                                await self._repo.touch_fact(fact.id)
+                            except Exception:
+                                pass
+                        return results
+                except Exception as e:
+                    logger.debug(f"Semantic search failed, falling back: {e}")
+
         return await self._repo.search_facts(user_id, agent_id, limit)
 
     async def add_fact(
@@ -46,7 +63,8 @@ class LongTermMemory:
         agent_id: Optional[str] = None,
         source_task_id: Optional[str] = None,
     ) -> MemoryFact:
-        """Store a new fact in long-term memory."""
+        """Store a new fact in long-term memory with its embedding."""
+        embedding = generate_embedding(content)
         fact = MemoryFact(
             agent_id=agent_id,
             user_id=user_id,
@@ -54,7 +72,7 @@ class LongTermMemory:
             content=content,
             source_task_id=source_task_id,
         )
-        return await self._repo.add_fact(fact)
+        return await self._repo.add_fact(fact, embedding=embedding)
 
     async def extract_facts(self, task: Task, llm_call=None):
         """
