@@ -10,6 +10,7 @@ Endpoints:
 - GET /v1/models/{model}
 """
 
+import asyncio
 import json
 import time
 import uuid
@@ -185,6 +186,22 @@ async def verify_auth(authorization: Optional[str] = Header(None)) -> dict:
 
 
 # ============================================
+# Background post-response tasks
+# ============================================
+
+async def _post_response_tasks(cs, conversation_id: str, user_message: str):
+    """Title generation + follow-up suggestions, runs in background."""
+    try:
+        await cs.maybe_auto_title(conversation_id, user_message)
+    except Exception as exc:
+        logger.debug("Background auto-title failed: %s", exc)
+    try:
+        await cs.maybe_generate_follow_ups(conversation_id)
+    except Exception as exc:
+        logger.debug("Background follow-ups failed: %s", exc)
+
+
+# ============================================
 # POST /v1/chat/completions
 # ============================================
 
@@ -353,17 +370,21 @@ async def execute_chat_completion(
     if isinstance(last_user_content, list):
         chain_input["_last_user_content"] = last_user_content
 
-    # v2: persist conversation + track via task
+    # v2: persist conversation + track via task (only for real conversations, not internal tasks)
     task_id = None
-    try:
-        from ..engine.conversation_service import conversation_service as _cs
-        await _cs.get_or_create(
-            conversation_id or completion_id, user_id or "anonymous",
-            chain_id=chain_id, model=backend_config.model,
-        )
-        await _cs.add_user_message(conversation_id or completion_id, user_message)
-    except Exception as exc:
-        logger.debug(f"Conversation save (user msg) skipped: {exc}")
+    is_real_conversation = conversation_id is not None
+    effective_conv_id = conversation_id or completion_id
+
+    if is_real_conversation:
+        try:
+            from ..engine.conversation_service import conversation_service as _cs
+            await _cs.get_or_create(
+                effective_conv_id, user_id or "anonymous",
+                chain_id=chain_id, model=backend_config.model,
+            )
+            await _cs.add_user_message(effective_conv_id, user_message)
+        except Exception as exc:
+            logger.debug(f"Conversation save (user msg) skipped: {exc}")
 
     try:
         from ..engine.task_manager import task_manager as _tm
@@ -378,10 +399,10 @@ async def execute_chat_completion(
 
     # Load memory from DB instead of relying on client-sent history
     memory_messages = messages[:-1]
-    if conversation_id:
+    if is_real_conversation:
         try:
             from ..engine.conversation_service import conversation_service as _cs
-            db_messages = await _cs.get_recent_as_llm_messages(conversation_id, max_messages=20)
+            db_messages = await _cs.get_recent_as_llm_messages(effective_conv_id, max_messages=20)
             if db_messages:
                 memory_messages = db_messages
         except Exception:
@@ -454,19 +475,20 @@ async def execute_chat_completion(
             except Exception:
                 pass
 
-        # Save assistant response to conversation
-        try:
-            from ..engine.conversation_service import conversation_service as _cs
-            await _cs.add_assistant_message(
-                conversation_id or completion_id, full_response,
-                model=backend_config.model, task_id=task_id,
-                tokens_used=total_tokens,
-            )
-            await _cs.maybe_auto_title(
-                conversation_id or completion_id, user_message,
-            )
-        except Exception as exc:
-            logger.debug(f"Conversation save (assistant msg) skipped: {exc}")
+        # Save assistant response to conversation (only for real conversations)
+        if is_real_conversation:
+            try:
+                from ..engine.conversation_service import conversation_service as _cs
+                await _cs.add_assistant_message(
+                    effective_conv_id, full_response,
+                    model=backend_config.model, task_id=task_id,
+                    tokens_used=total_tokens,
+                )
+                asyncio.create_task(
+                    _post_response_tasks(_cs, effective_conv_id, user_message)
+                )
+            except Exception as exc:
+                logger.debug(f"Conversation save (assistant msg) skipped: {exc}")
 
         # Post-completion: extract facts and create episodes
         if task_id:
@@ -595,18 +617,21 @@ async def stream_chat_completion(
     if isinstance(last_user_content, list):
         chain_input["_last_user_content"] = last_user_content
 
-    # v2: persist conversation + track via task
+    # v2: persist conversation + track via task (only for real conversations)
     task_id = None
+    is_real_conversation = conversation_id is not None
     conv_id = conversation_id or completion_id
-    try:
-        from ..engine.conversation_service import conversation_service as _cs
-        await _cs.get_or_create(
-            conv_id, user_id or "anonymous",
-            chain_id=chain_id, model=backend_config.model,
-        )
-        await _cs.add_user_message(conv_id, user_message)
-    except Exception as exc:
-        logger.debug(f"Conversation save (user msg, stream) skipped: {exc}")
+
+    if is_real_conversation:
+        try:
+            from ..engine.conversation_service import conversation_service as _cs
+            await _cs.get_or_create(
+                conv_id, user_id or "anonymous",
+                chain_id=chain_id, model=backend_config.model,
+            )
+            await _cs.add_user_message(conv_id, user_message)
+        except Exception as exc:
+            logger.debug(f"Conversation save (user msg, stream) skipped: {exc}")
 
     try:
         from ..engine.task_manager import task_manager as _tm
@@ -621,10 +646,10 @@ async def stream_chat_completion(
 
     # Load memory from DB instead of relying on client-sent history
     memory_messages = messages[:-1]
-    if conversation_id:
+    if is_real_conversation:
         try:
             from ..engine.conversation_service import conversation_service as _cs
-            db_messages = await _cs.get_recent_as_llm_messages(conversation_id, max_messages=20)
+            db_messages = await _cs.get_recent_as_llm_messages(conv_id, max_messages=20)
             if db_messages:
                 memory_messages = db_messages
         except Exception:
@@ -714,16 +739,19 @@ async def stream_chat_completion(
             except Exception:
                 pass
 
-        try:
-            from ..engine.conversation_service import conversation_service as _cs
-            await _cs.add_assistant_message(
-                conv_id, full_response,
-                model=backend_config.model, task_id=task_id,
-                tokens_used=total_tokens,
-            )
-            await _cs.maybe_auto_title(conv_id, user_message)
-        except Exception as exc:
-            logger.debug(f"Conversation save (assistant msg, stream) skipped: {exc}")
+        if is_real_conversation:
+            try:
+                from ..engine.conversation_service import conversation_service as _cs
+                await _cs.add_assistant_message(
+                    conv_id, full_response,
+                    model=backend_config.model, task_id=task_id,
+                    tokens_used=total_tokens,
+                )
+                asyncio.create_task(
+                    _post_response_tasks(_cs, conv_id, user_message)
+                )
+            except Exception as exc:
+                logger.debug(f"Conversation save (assistant msg, stream) skipped: {exc}")
 
         # Post-completion: extract facts and create episodes
         if task_id:

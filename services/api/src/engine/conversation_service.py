@@ -152,34 +152,61 @@ class ConversationService:
         self,
         conversation_id: str,
         user_message: str,
-        llm_call=None,
     ):
         """
         Auto-generate a conversation title from the first user message.
         Only sets the title if it's currently None.
+        Uses the task LLM if configured, otherwise truncates the message.
         """
         conv = await self._repo.get(conversation_id)
         if not conv or conv.title:
             return
 
-        if llm_call:
-            try:
-                title = await llm_call(
-                    f"Generate a very short title (max 6 words) for a conversation "
-                    f"that starts with this message. Return ONLY the title, nothing else.\n\n"
-                    f"Message: {user_message[:200]}"
-                )
-                title = title.strip().strip('"').strip("'")[:100]
-                if title:
-                    await self._repo.update_title(conversation_id, title)
-                    return
-            except Exception as e:
-                logger.debug(f"Auto-title LLM call failed: {e}")
+        from .task_llm import generate_title
+        try:
+            title = await generate_title(user_message)
+            if title:
+                await self._repo.update_title(conversation_id, title)
+                return
+        except Exception as e:
+            logger.debug("Auto-title via task_llm failed: %s", e)
 
         title = user_message[:60].strip()
         if len(user_message) > 60:
             title += "..."
         await self._repo.update_title(conversation_id, title)
+
+    async def maybe_generate_follow_ups(
+        self,
+        conversation_id: str,
+    ):
+        """
+        Generate follow-up question suggestions and store them
+        in the metadata of the last assistant message.
+        """
+        from .task_llm import generate_follow_ups, get_task_model_config
+
+        cfg = await get_task_model_config()
+        if not cfg:
+            return
+
+        last_msg = await self._repo.get_last_assistant_message(conversation_id)
+        if not last_msg:
+            return
+
+        messages = await self.get_recent_as_llm_messages(conversation_id, max_messages=6)
+        if not messages:
+            return
+
+        try:
+            follow_ups = await generate_follow_ups(messages)
+            if follow_ups:
+                meta = dict(last_msg.metadata) if last_msg.metadata else {}
+                meta["follow_ups"] = follow_ups
+                await self._repo.update_message_metadata(last_msg.id, meta)
+                logger.debug("Follow-ups saved for message %s: %s", last_msg.id, follow_ups)
+        except Exception as e:
+            logger.debug("Follow-up generation failed: %s", e)
 
     async def count_messages(self, conversation_id: str) -> int:
         return await self._repo.count_messages(conversation_id)

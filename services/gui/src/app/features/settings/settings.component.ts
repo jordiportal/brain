@@ -377,7 +377,30 @@ import { environment } from '../../../environments/environment';
                           <span class="setting-key">{{ setting.key }}</span>
                         </div>
                         <div class="setting-control">
-                          @if (setting.type === 'number') {
+                          @if (setting.key === 'task_model') {
+                            <div class="task-model-controls">
+                              <mat-form-field appearance="outline" class="setting-field">
+                                <mat-label>Proveedor LLM</mat-label>
+                                <mat-select
+                                  [value]="setting.value?.provider_id"
+                                  (selectionChange)="onTaskModelProviderChange(setting, $event.value)"
+                                  [disabled]="savingSetting() === setting.key">
+                                  <mat-option [value]="null">-- Desactivado --</mat-option>
+                                  @for (provider of llmProviders(); track provider.id) {
+                                    <mat-option [value]="provider.id">{{ provider.name }} ({{ provider.type }})</mat-option>
+                                  }
+                                </mat-select>
+                              </mat-form-field>
+                              <mat-form-field appearance="outline" class="setting-field">
+                                <mat-label>Modelo</mat-label>
+                                <input matInput
+                                       [value]="setting.value?.model || ''"
+                                       placeholder="gpt-4o-mini, gemma3:4b..."
+                                       (change)="onTaskModelNameChange(setting, $any($event.target).value)"
+                                       [disabled]="savingSetting() === setting.key || !setting.value?.provider_id">
+                              </mat-form-field>
+                            </div>
+                          } @else if (setting.type === 'number') {
                             <mat-form-field appearance="outline" class="setting-field">
                               <mat-label>Valor</mat-label>
                               <input matInput type="number"
@@ -633,6 +656,12 @@ import { environment } from '../../../environments/environment';
       justify-content: flex-end;
     }
 
+    .task-model-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
     .setting-field {
       width: 200px;
     }
@@ -750,6 +779,20 @@ export class SettingsComponent implements OnInit {
         this.loadingSettings.set(false);
       }
     });
+  }
+
+  onTaskModelProviderChange(setting: SystemSetting, providerId: number | null): void {
+    const current = setting.value || {};
+    const newVal = { ...current, provider_id: providerId };
+    if (!providerId) {
+      newVal.model = '';
+    }
+    this.onSettingChange({ ...setting, type: 'json' }, newVal);
+  }
+
+  onTaskModelNameChange(setting: SystemSetting, model: string): void {
+    const current = setting.value || {};
+    this.onSettingChange({ ...setting, type: 'json' }, { ...current, model });
   }
 
   onSettingChange(setting: SystemSetting, rawValue: any): void {

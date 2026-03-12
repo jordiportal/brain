@@ -33,6 +33,17 @@ ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO brain_settings (key, value, type, category, label, description) VALUES
 (
+    'task_model',
+    '{"provider_id": null, "model": ""}'::jsonb,
+    'json',
+    'llm',
+    'Modelo para tareas de mantenimiento',
+    'Modelo LLM usado para generar títulos de conversación y preguntas de seguimiento. Se invoca directamente sin pasar por el pipeline del agente. Si no se configura, estas tareas se desactivan.'
+)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO brain_settings (key, value, type, category, label, description) VALUES
+(
     'oauth_enabled',
     'false'::jsonb,
     'boolean',

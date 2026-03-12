@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query as QueryParam
 from pydantic import BaseModel
 
-from src.auth.dependencies import optional_current_user
+from src.auth.dependencies import get_current_user_flexible
 from src.engine.conversation_service import conversation_service
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
@@ -44,6 +44,7 @@ class MessageItem(BaseModel):
     model: Optional[str] = None
     tokens_used: int = 0
     task_id: Optional[str] = None
+    metadata: dict = {}
     created_at: Optional[datetime] = None
 
 
@@ -64,17 +65,15 @@ class ConversationPatch(BaseModel):
     metadata: Optional[dict] = None
 
 
-def _get_user_id(current_user: Optional[dict]) -> str:
-    if current_user:
-        return current_user.get("email", "anonymous")
-    return "anonymous"
+def _get_user_id(current_user: dict) -> str:
+    return current_user.get("email", "anonymous")
 
 
 @router.get("")
 async def list_conversations(
     limit: int = QueryParam(50, ge=1, le=200),
     offset: int = QueryParam(0, ge=0),
-    current_user: Optional[dict] = Depends(optional_current_user),
+    current_user: dict = Depends(get_current_user_flexible),
 ) -> ConversationListResponse:
     user_id = _get_user_id(current_user)
     convs, total = await conversation_service.list_conversations(user_id, limit, offset)
@@ -97,7 +96,7 @@ async def list_conversations(
 @router.get("/{conversation_id}")
 async def get_conversation(
     conversation_id: str,
-    current_user: Optional[dict] = Depends(optional_current_user),
+    current_user: dict = Depends(get_current_user_flexible),
 ) -> ConversationDetail:
     conv = await conversation_service.get_conversation(conversation_id)
     if not conv:
@@ -122,7 +121,8 @@ async def get_conversation(
             MessageItem(
                 id=m.id, role=m.role, content=m.content,
                 model=m.model, tokens_used=m.tokens_used,
-                task_id=m.task_id, created_at=m.created_at,
+                task_id=m.task_id, metadata=m.metadata or {},
+                created_at=m.created_at,
             )
             for m in messages
         ],
@@ -135,7 +135,7 @@ async def get_messages(
     conversation_id: str,
     limit: int = QueryParam(100, ge=1, le=500),
     before: Optional[datetime] = None,
-    current_user: Optional[dict] = Depends(optional_current_user),
+    current_user: dict = Depends(get_current_user_flexible),
 ) -> list[MessageItem]:
     conv = await conversation_service.get_conversation(conversation_id)
     if not conv:
@@ -150,7 +150,8 @@ async def get_messages(
         MessageItem(
             id=m.id, role=m.role, content=m.content,
             model=m.model, tokens_used=m.tokens_used,
-            task_id=m.task_id, created_at=m.created_at,
+            task_id=m.task_id, metadata=m.metadata or {},
+            created_at=m.created_at,
         )
         for m in messages
     ]
@@ -159,7 +160,7 @@ async def get_messages(
 @router.delete("/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    current_user: Optional[dict] = Depends(optional_current_user),
+    current_user: dict = Depends(get_current_user_flexible),
 ):
     conv = await conversation_service.get_conversation(conversation_id)
     if not conv:
@@ -177,7 +178,7 @@ async def delete_conversation(
 async def update_conversation(
     conversation_id: str,
     patch: ConversationPatch,
-    current_user: Optional[dict] = Depends(optional_current_user),
+    current_user: dict = Depends(get_current_user_flexible),
 ):
     conv = await conversation_service.get_conversation(conversation_id)
     if not conv:

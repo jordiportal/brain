@@ -234,6 +234,30 @@ class ConversationRepository:
         )
         return result and "DELETE 1" in result
 
+    @staticmethod
+    async def update_message_metadata(message_id: str, metadata: dict):
+        db = get_db()
+        meta_json = json.dumps(metadata, ensure_ascii=False, default=str)
+        await db.execute(
+            "UPDATE conversation_messages SET metadata = $2::jsonb WHERE id = $1",
+            message_id, meta_json,
+        )
+
+    @staticmethod
+    async def get_last_assistant_message(conversation_id: str) -> Optional[ConversationMessage]:
+        db = get_db()
+        row = await db.fetch_one(
+            """
+            SELECT * FROM conversation_messages
+            WHERE conversation_id = $1 AND role = 'assistant'
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            conversation_id,
+        )
+        if not row:
+            return None
+        return ConversationRepository._row_to_message(row)
+
     # ---- Helpers ----
 
     @staticmethod
