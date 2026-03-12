@@ -16,30 +16,36 @@ import uuid
 # ============================================
 
 class TaskState(str, Enum):
-    """Task lifecycle states."""
+    """Task lifecycle states (aligned with A2A protocol)."""
     SUBMITTED = "submitted"
     WORKING = "working"
     INPUT_REQUIRED = "input_required"
+    AUTH_REQUIRED = "auth_required"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELED = "canceled"
+    REJECTED = "rejected"
 
 
-TERMINAL_STATES = {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED}
-ACTIVE_STATES = {TaskState.SUBMITTED, TaskState.WORKING, TaskState.INPUT_REQUIRED}
+TERMINAL_STATES = {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED, TaskState.REJECTED}
+ACTIVE_STATES = {TaskState.SUBMITTED, TaskState.WORKING, TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED}
 
 VALID_TRANSITIONS: dict[TaskState, set[TaskState]] = {
-    TaskState.SUBMITTED: {TaskState.WORKING, TaskState.CANCELED, TaskState.FAILED},
+    TaskState.SUBMITTED: {TaskState.WORKING, TaskState.CANCELED, TaskState.FAILED, TaskState.REJECTED},
     TaskState.WORKING: {
         TaskState.COMPLETED,
         TaskState.FAILED,
         TaskState.CANCELED,
         TaskState.INPUT_REQUIRED,
+        TaskState.AUTH_REQUIRED,
+        TaskState.REJECTED,
     },
     TaskState.INPUT_REQUIRED: {TaskState.WORKING, TaskState.CANCELED, TaskState.FAILED},
+    TaskState.AUTH_REQUIRED: {TaskState.WORKING, TaskState.CANCELED, TaskState.FAILED},
     TaskState.FAILED: {TaskState.WORKING},  # retry from checkpoint
     TaskState.COMPLETED: set(),
     TaskState.CANCELED: set(),
+    TaskState.REJECTED: set(),
 }
 
 

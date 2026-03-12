@@ -5,7 +5,7 @@ Servidor FastAPI para gestión de cadenas de pensamiento con LangChain/LangGraph
 
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -38,6 +38,10 @@ from src.monitoring.router import router as monitoring_router
 from src.code_executor.router import router as workspace_router
 from src.artifacts.router import router as artifacts_router
 from src.middleware.monitoring import MonitoringMiddleware
+from src.a2a.router import router as a2a_router
+from src.a2a.errors import A2AProblemDetail, a2a_problem_handler
+from src.a2a.middleware import A2AVersionMiddleware
+from src.a2a.agent_card import build_agent_card
 
 # Configurar logging estructurado
 structlog.configure(
@@ -351,6 +355,12 @@ app.add_middleware(
 # Middleware de monitorización (captura métricas de todas las requests)
 app.add_middleware(MonitoringMiddleware)
 
+# A2A protocol version middleware (validates A2A-Version header)
+app.add_middleware(A2AVersionMiddleware)
+
+# A2A error handler (RFC 9457 Problem Details)
+app.add_exception_handler(A2AProblemDetail, a2a_problem_handler)
+
 # Incluir routers
 app.include_router(llm_router, prefix="/api/v1")
 app.include_router(chains_router, prefix="/api/v1")
@@ -376,6 +386,23 @@ app.include_router(auth_router)
 
 # OpenAI-Compatible API (sin prefix /api para compatibilidad)
 app.include_router(openai_compat_router)
+
+# A2A Protocol — HTTP+JSON/REST binding (Section 11)
+app.include_router(a2a_router, prefix="/a2a")
+
+
+# ===========================================
+# A2A Agent Card (well-known URI, RFC 8615)
+# ===========================================
+
+@app.get("/.well-known/agent-card.json", tags=["A2A Protocol"])
+async def well_known_agent_card(request: Request):
+    """Public Agent Card for A2A discovery."""
+    import json as _json
+    base_url = str(request.base_url).rstrip("/")
+    card = await build_agent_card(base_url=base_url)
+    data = _json.loads(card.model_dump_json(by_alias=True, exclude_none=True))
+    return data
 
 
 # ===========================================

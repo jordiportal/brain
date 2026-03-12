@@ -540,6 +540,215 @@ interface ApiConfig {
             </mat-card>
           </div>
         </mat-tab>
+
+        <!-- Tab A2A Protocol -->
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <mat-icon>hub</mat-icon>
+            <span class="tab-label">A2A Protocol</span>
+            <span class="badge a2a-badge">NEW</span>
+          </ng-template>
+
+          <div class="tab-content">
+            <!-- A2A Status -->
+            <div class="a2a-status-bar">
+              <div class="a2a-status-item">
+                <mat-icon [class.active]="agentCard()">{{ agentCard() ? 'check_circle' : 'hourglass_empty' }}</mat-icon>
+                <span>Agent Card</span>
+              </div>
+              <div class="a2a-status-item">
+                <mat-icon class="active">check_circle</mat-icon>
+                <span>HTTP+JSON Binding</span>
+              </div>
+              <div class="a2a-status-item">
+                <mat-icon class="active">check_circle</mat-icon>
+                <span>SSE Streaming</span>
+              </div>
+              <div class="a2a-status-item">
+                <mat-icon class="disabled">remove_circle_outline</mat-icon>
+                <span>Push Notifications</span>
+              </div>
+            </div>
+
+            <!-- Agent Card -->
+            <mat-card class="a2a-card">
+              <mat-card-header>
+                <div class="a2a-card-icon" mat-card-avatar>
+                  <mat-icon>badge</mat-icon>
+                </div>
+                <mat-card-title>Agent Card</mat-card-title>
+                <mat-card-subtitle>
+                  <code>GET /.well-known/agent-card.json</code>
+                  <button mat-icon-button (click)="copyToClipboard(getBaseUrl() + '/.well-known/agent-card.json')" matTooltip="Copiar URL">
+                    <mat-icon>content_copy</mat-icon>
+                  </button>
+                </mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                @if (loadingAgentCard()) {
+                  <div class="loading-container" style="padding: 24px">
+                    <mat-spinner diameter="32"></mat-spinner>
+                    <p>Cargando Agent Card...</p>
+                  </div>
+                } @else if (agentCard()) {
+                  <div class="agent-card-summary">
+                    <div class="agent-meta">
+                      <div class="meta-row">
+                        <span class="meta-label">Nombre</span>
+                        <span class="meta-value">{{ agentCard()!.name }}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">Versión</span>
+                        <span class="meta-value">{{ agentCard()!.version }}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">Binding</span>
+                        <span class="meta-value">{{ agentCard()!.supportedInterfaces?.[0]?.protocolBinding }} v{{ agentCard()!.supportedInterfaces?.[0]?.protocolVersion }}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">Endpoint</span>
+                        <code class="meta-value">{{ agentCard()!.supportedInterfaces?.[0]?.url }}</code>
+                      </div>
+                    </div>
+
+                    <!-- Capabilities -->
+                    <h4>Capabilities</h4>
+                    <div class="capabilities-row">
+                      <mat-chip [class]="agentCard()!.capabilities?.streaming ? 'cap-on' : 'cap-off'">
+                        <mat-icon>{{ agentCard()!.capabilities?.streaming ? 'check' : 'close' }}</mat-icon>
+                        Streaming
+                      </mat-chip>
+                      <mat-chip [class]="agentCard()!.capabilities?.pushNotifications ? 'cap-on' : 'cap-off'">
+                        <mat-icon>{{ agentCard()!.capabilities?.pushNotifications ? 'check' : 'close' }}</mat-icon>
+                        Push Notifications
+                      </mat-chip>
+                      <mat-chip [class]="agentCard()!.capabilities?.extendedAgentCard ? 'cap-on' : 'cap-off'">
+                        <mat-icon>{{ agentCard()!.capabilities?.extendedAgentCard ? 'check' : 'close' }}</mat-icon>
+                        Extended Card
+                      </mat-chip>
+                    </div>
+
+                    <!-- Skills -->
+                    @if (agentCard()!.skills?.length) {
+                      <h4>Skills ({{ agentCard()!.skills.length }})</h4>
+                      <div class="skills-grid">
+                        @for (skill of agentCard()!.skills; track skill.id) {
+                          <div class="skill-item">
+                            <div class="skill-header">
+                              <strong>{{ skill.name }}</strong>
+                              <code class="skill-id">{{ skill.id }}</code>
+                            </div>
+                            <p class="skill-desc">{{ skill.description }}</p>
+                            <div class="skill-tags">
+                              @for (tag of skill.tags; track tag) {
+                                <mat-chip class="skill-tag">{{ tag }}</mat-chip>
+                              }
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  <!-- Raw JSON toggle -->
+                  <div class="json-toggle">
+                    <button mat-button (click)="showAgentCardJson = !showAgentCardJson">
+                      <mat-icon>{{ showAgentCardJson ? 'visibility_off' : 'code' }}</mat-icon>
+                      {{ showAgentCardJson ? 'Ocultar JSON' : 'Ver JSON completo' }}
+                    </button>
+                    @if (showAgentCardJson) {
+                      <button mat-icon-button (click)="copyToClipboard(agentCardJson())" matTooltip="Copiar JSON">
+                        <mat-icon>content_copy</mat-icon>
+                      </button>
+                    }
+                  </div>
+                  @if (showAgentCardJson) {
+                    <pre class="code-block json-block"><code [innerText]="agentCardJson()"></code></pre>
+                  }
+                } @else {
+                  <div class="empty-state" style="padding: 24px">
+                    <mat-icon>error_outline</mat-icon>
+                    <p>No se pudo cargar el Agent Card</p>
+                    <button mat-raised-button color="primary" (click)="loadAgentCard()">Reintentar</button>
+                  </div>
+                }
+              </mat-card-content>
+            </mat-card>
+
+            <!-- Endpoints A2A -->
+            <mat-card class="docs-card" style="margin-top: 24px">
+              <mat-card-header>
+                <mat-card-title>Endpoints A2A (HTTP+JSON/REST)</mat-card-title>
+                <mat-card-subtitle>Prefijo: <code>{{ getBaseUrl() }}/a2a</code></mat-card-subtitle>
+              </mat-card-header>
+              <mat-card-content>
+                <table class="docs-table a2a-endpoints-table">
+                  <thead>
+                    <tr>
+                      <th>Método</th>
+                      <th>Endpoint</th>
+                      <th>Operación A2A</th>
+                      <th>Tipo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code class="method post">POST</code></td>
+                      <td><code>/a2a/message:send</code></td>
+                      <td>SendMessage</td>
+                      <td><mat-chip class="type-chip core">Core</mat-chip></td>
+                    </tr>
+                    <tr>
+                      <td><code class="method post">POST</code></td>
+                      <td><code>/a2a/message:stream</code></td>
+                      <td>SendStreamingMessage</td>
+                      <td><mat-chip class="type-chip streaming">SSE</mat-chip></td>
+                    </tr>
+                    <tr>
+                      <td><code class="method get">GET</code></td>
+                      <td><code>/a2a/tasks/&#123;id&#125;</code></td>
+                      <td>GetTask</td>
+                      <td><mat-chip class="type-chip core">Core</mat-chip></td>
+                    </tr>
+                    <tr>
+                      <td><code class="method get">GET</code></td>
+                      <td><code>/a2a/tasks</code></td>
+                      <td>ListTasks</td>
+                      <td><mat-chip class="type-chip core">Core</mat-chip></td>
+                    </tr>
+                    <tr>
+                      <td><code class="method post">POST</code></td>
+                      <td><code>/a2a/tasks/&#123;id&#125;:cancel</code></td>
+                      <td>CancelTask</td>
+                      <td><mat-chip class="type-chip core">Core</mat-chip></td>
+                    </tr>
+                    <tr>
+                      <td><code class="method post">POST</code></td>
+                      <td><code>/a2a/tasks/&#123;id&#125;:subscribe</code></td>
+                      <td>SubscribeToTask</td>
+                      <td><mat-chip class="type-chip streaming">SSE</mat-chip></td>
+                    </tr>
+                    <tr>
+                      <td><code class="method get">GET</code></td>
+                      <td><code>/a2a/extendedAgentCard</code></td>
+                      <td>GetExtendedAgentCard</td>
+                      <td><mat-chip class="type-chip optional">Auth</mat-chip></td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <h3>Ejemplo: SendMessage (cURL)</h3>
+                <pre class="code-block"><code [innerText]="getA2aCurlExample()"></code></pre>
+
+                <h3>Ejemplo: SendMessage (Python)</h3>
+                <pre class="code-block"><code [innerText]="getA2aPythonExample()"></code></pre>
+
+                <h3>Ejemplo: SendStreamingMessage (Python)</h3>
+                <pre class="code-block"><code [innerText]="getA2aStreamPythonExample()"></code></pre>
+              </mat-card-content>
+            </mat-card>
+          </div>
+        </mat-tab>
       </mat-tab-group>
     </div>
   `,
@@ -928,12 +1137,257 @@ interface ApiConfig {
       color: #ccc;
     }
 
+    /* A2A Protocol Tab */
+    .a2a-badge {
+      background: #00bfa5 !important;
+    }
+
+    .a2a-status-bar {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 24px;
+      padding: 16px 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .a2a-status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .a2a-status-item mat-icon.active {
+      color: #388e3c;
+    }
+
+    .a2a-status-item mat-icon.disabled {
+      color: #bdbdbd;
+    }
+
+    .a2a-card {
+      border-radius: 12px;
+    }
+
+    .a2a-card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #00bfa5 0%, #00897b 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 16px;
+      flex-shrink: 0;
+    }
+
+    .a2a-card-icon mat-icon {
+      color: white;
+      font-size: 24px;
+    }
+
+    .a2a-card mat-card-subtitle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .a2a-card mat-card-subtitle code {
+      background: #f5f5f5;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .agent-card-summary h4 {
+      margin: 20px 0 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .agent-meta {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      padding: 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .meta-label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .meta-value {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    code.meta-value {
+      font-family: monospace;
+      font-size: 12px;
+      background: #e8eaf6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      width: fit-content;
+    }
+
+    .capabilities-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .cap-on {
+      background: #e8f5e9 !important;
+      color: #2e7d32 !important;
+    }
+
+    .cap-off {
+      background: #fafafa !important;
+      color: #9e9e9e !important;
+    }
+
+    .skills-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .skill-item {
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .skill-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .skill-id {
+      font-size: 11px;
+      background: #e8eaf6;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .skill-desc {
+      font-size: 13px;
+      color: #666;
+      margin: 4px 0 8px;
+    }
+
+    .skill-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .skill-tag {
+      font-size: 10px !important;
+      min-height: 20px !important;
+      padding: 0 8px !important;
+    }
+
+    .json-toggle {
+      display: flex;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    .json-block {
+      max-height: 400px;
+      overflow: auto;
+    }
+
+    .a2a-endpoints-table {
+      border-collapse: collapse;
+    }
+
+    .a2a-endpoints-table thead th {
+      text-align: left;
+      padding: 12px;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #888;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .a2a-endpoints-table tbody td {
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      vertical-align: middle;
+    }
+
+    .method {
+      font-weight: 600;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .method.post {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+
+    .method.get {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .type-chip {
+      font-size: 10px !important;
+      min-height: 22px !important;
+    }
+
+    .type-chip.core {
+      background: #e3f2fd !important;
+      color: #1565c0 !important;
+    }
+
+    .type-chip.streaming {
+      background: #fce4ec !important;
+      color: #c62828 !important;
+    }
+
+    .type-chip.optional {
+      background: #fff3e0 !important;
+      color: #e65100 !important;
+    }
+
     @media (max-width: 768px) {
       .info-grid {
         grid-template-columns: repeat(2, 1fr);
       }
 
       .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .a2a-status-bar {
+        flex-wrap: wrap;
+      }
+
+      .agent-meta {
         grid-template-columns: 1fr;
       }
     }
@@ -951,6 +1405,11 @@ export class ExternalApiComponent implements OnInit {
   loadingKeys = signal(true);
   creatingKey = signal(false);
   savingConfig = signal(false);
+
+  // A2A Protocol
+  agentCard = signal<any>(null);
+  loadingAgentCard = signal(false);
+  showAgentCardJson = false;
 
   displayedColumns = ['name', 'key', 'usage', 'lastUsed', 'actions'];
 
@@ -993,6 +1452,7 @@ export class ExternalApiComponent implements OnInit {
     this.loadApiKeys();
     this.loadConfig();
     this.checkApiStatus();
+    this.loadAgentCard();
   }
 
   getBaseUrl(): string {
@@ -1265,5 +1725,113 @@ print(response.choices[0].message.content)`;
     "model": "brain-adaptive",
     "messages": [{"role": "user", "content": "Hola"}]
   }'`;
+  }
+
+  // ── A2A Protocol ──────────────────────────────────
+
+  loadAgentCard(): void {
+    this.loadingAgentCard.set(true);
+    const url = `${this.getBaseUrl()}/.well-known/agent-card.json`;
+    this.http.get<any>(url).subscribe({
+      next: (card) => {
+        this.agentCard.set(card);
+        this.loadingAgentCard.set(false);
+      },
+      error: () => {
+        this.agentCard.set(null);
+        this.loadingAgentCard.set(false);
+      }
+    });
+  }
+
+  agentCardJson(): string {
+    const card = this.agentCard();
+    return card ? JSON.stringify(card, null, 2) : '';
+  }
+
+  getA2aCurlExample(): string {
+    return `# SendMessage — enviar un mensaje a un agente A2A
+curl ${this.getBaseUrl()}/a2a/message:send \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer sk-brain-tu-api-key" \\
+  -H "A2A-Version: 1.0" \\
+  -d '{
+    "message": {
+      "messageId": "msg-001",
+      "role": "ROLE_USER",
+      "parts": [{"text": "Resume las ventas del último trimestre"}]
+    }
+  }'`;
+  }
+
+  getA2aPythonExample(): string {
+    return `import requests
+
+base = "${this.getBaseUrl()}/a2a"
+headers = {
+    "Authorization": "Bearer sk-brain-tu-api-key",
+    "Content-Type": "application/json",
+    "A2A-Version": "1.0",
+}
+
+# 1. SendMessage
+resp = requests.post(f"{base}/message:send", headers=headers, json={
+    "message": {
+        "messageId": "msg-001",
+        "role": "ROLE_USER",
+        "parts": [{"text": "Hola, ¿qué puedes hacer?"}],
+    }
+})
+data = resp.json()
+task = data.get("task", {})
+print(f"Task {task['id']} → {task['status']['state']}")
+
+# 2. GetTask
+task_id = task["id"]
+resp = requests.get(f"{base}/tasks/{task_id}", headers=headers)
+print(resp.json())
+
+# 3. ListTasks
+resp = requests.get(f"{base}/tasks?pageSize=10", headers=headers)
+print(resp.json())`;
+  }
+
+  getA2aStreamPythonExample(): string {
+    return `import requests
+import json
+
+base = "${this.getBaseUrl()}/a2a"
+headers = {
+    "Authorization": "Bearer sk-brain-tu-api-key",
+    "Content-Type": "application/json",
+    "A2A-Version": "1.0",
+}
+
+# SendStreamingMessage — recibe SSE en tiempo real
+resp = requests.post(
+    f"{base}/message:stream",
+    headers=headers,
+    json={
+        "message": {
+            "messageId": "msg-002",
+            "role": "ROLE_USER",
+            "parts": [{"text": "Explica qué es A2A"}],
+        }
+    },
+    stream=True,
+)
+
+for line in resp.iter_lines():
+    if line and line.startswith(b"data: "):
+        event = json.loads(line[6:])
+        if "taskStatusUpdate" in event:
+            status = event["taskStatusUpdate"]["status"]
+            msg = status.get("message", {})
+            parts = msg.get("parts", [])
+            for p in parts:
+                if "text" in p:
+                    print(p["text"], end="", flush=True)
+        elif "task" in event:
+            print(f"\\n→ Final: {event['task']['status']['state']}")`;
   }
 }
