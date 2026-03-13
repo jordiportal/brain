@@ -42,6 +42,8 @@ from src.a2a.router import router as a2a_router
 from src.a2a.errors import A2AProblemDetail, a2a_problem_handler
 from src.a2a.middleware import A2AVersionMiddleware
 from src.a2a.agent_card import build_agent_card
+from src.skills.router import router as skills_router
+from src.skills.sync_service import skill_sync_service
 
 # Configurar logging estructurado
 structlog.configure(
@@ -242,6 +244,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"No se pudieron registrar subagentes: {e}")
 
+    # Skills sync from Git repository (after subagents so DB agents exist)
+    try:
+        await skill_sync_service.start_background_sync()
+    except Exception as e:
+        logger.warning(f"Skills sync startup: {e}")
+
     # Cargar herramientas built-in (core tools) - después de subagentes para que delegate tenga el enum correcto
     tool_registry.register_builtin_tools()
     logger.info("Herramientas built-in registradas")
@@ -302,6 +310,7 @@ async def lifespan(app: FastAPI):
     yield
 
     _cleanup_task.cancel()
+    skill_sync_service.stop()
     
     # Shutdown
     logger.info("Cerrando Brain API")
@@ -389,6 +398,9 @@ app.include_router(openai_compat_router)
 
 # A2A Protocol — HTTP+JSON/REST binding (Section 11)
 app.include_router(a2a_router, prefix="/a2a")
+
+# Skills Sync from Git repository
+app.include_router(skills_router, prefix="/api/v1")
 
 
 # ===========================================

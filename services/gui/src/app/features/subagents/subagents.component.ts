@@ -36,6 +36,20 @@ interface Skill {
   description: string;
   content?: string;
   loaded?: boolean;
+  source?: string;
+}
+
+interface SkillSyncStatus {
+  configured: boolean;
+  in_progress: boolean;
+  last_sync: string | null;
+  last_commit: string;
+  branch: string;
+  repo_url: string;
+  skills_synced: number;
+  agents_updated: number;
+  duration_ms: number;
+  errors: string[];
 }
 
 interface Subagent {
@@ -206,6 +220,16 @@ interface TestRunResult {
           <p class="subtitle">Agentes de dominio para tareas específicas</p>
         </div>
         <div class="header-actions">
+          @if (syncStatus()?.configured) {
+            <button mat-stroked-button (click)="triggerSync()" [disabled]="syncing()">
+              @if (syncing()) {
+                <mat-spinner diameter="18"></mat-spinner>
+              } @else {
+                <mat-icon>sync</mat-icon>
+              }
+              Sync Skills
+            </button>
+          }
           <button mat-stroked-button (click)="startNewAgent()">
             <mat-icon>add</mat-icon>
             Nuevo Agente
@@ -220,6 +244,33 @@ interface TestRunResult {
           </button>
         </div>
       </div>
+
+      @if (syncStatus()?.configured) {
+        <div class="sync-status-bar">
+          <div class="sync-info">
+            <mat-icon class="sync-icon">cloud_sync</mat-icon>
+            <span class="sync-repo">{{ getSyncRepoName() }}</span>
+            <mat-chip class="sync-branch">{{ syncStatus()?.branch }}</mat-chip>
+            @if (syncStatus()?.last_commit) {
+              <span class="sync-commit">{{ syncStatus()?.last_commit }}</span>
+            }
+          </div>
+          <div class="sync-meta">
+            @if (syncStatus()?.last_sync) {
+              <span class="sync-time">{{ syncStatus()?.last_sync | date:'short' }}</span>
+              <span class="sync-count">{{ syncStatus()?.skills_synced }} skills</span>
+            } @else {
+              <span class="sync-time">Sin sincronizar</span>
+            }
+            @if (syncStatus()?.repo_url) {
+              <a [href]="syncStatus()?.repo_url?.replace('.git', '')" target="_blank" class="sync-link"
+                 matTooltip="Abrir repositorio en GitHub">
+                <mat-icon>open_in_new</mat-icon>
+              </a>
+            }
+          </div>
+        </div>
+      }
 
       <mat-tab-group [(selectedIndex)]="activeTabIndex" animationDuration="300ms">
         <!-- Tab: Lista de Agentes -->
@@ -589,9 +640,25 @@ interface TestRunResult {
                             <mat-panel-title>
                               <mat-icon class="skill-icon">school</mat-icon>
                               <span class="skill-name">{{ skill.name }}</span>
+                              @if (skill.source === 'git') {
+                                <mat-chip class="skill-source-chip git" matTooltip="Sincronizado desde Git">
+                                  <mat-icon>cloud_done</mat-icon> Git
+                                </mat-chip>
+                              } @else {
+                                <mat-chip class="skill-source-chip local" matTooltip="Skill local (solo BD)">
+                                  <mat-icon>storage</mat-icon> Local
+                                </mat-chip>
+                              }
                             </mat-panel-title>
                             <mat-panel-description>
                               <span class="skill-id">{{ skill.id }}</span>
+                              @if (skill.source === 'git' && syncStatus()?.repo_url) {
+                                <a [href]="getGitHubSkillUrl(skill)" target="_blank"
+                                   mat-icon-button class="skill-github-btn" matTooltip="Editar en GitHub"
+                                   (click)="$event.stopPropagation()">
+                                  <mat-icon>open_in_new</mat-icon>
+                                </a>
+                              }
                               <button mat-icon-button class="skill-delete-btn" matTooltip="Eliminar skill"
                                       (click)="removeSkill(skill); $event.stopPropagation()">
                                 <mat-icon>delete_outline</mat-icon>
@@ -3329,6 +3396,44 @@ interface TestRunResult {
     .episode-meta { font-size: 11px; color: #aaa; }
     .empty-state { text-align: center; padding: 64px 24px; color: #888; }
     .empty-state mat-icon { font-size: 48px; width: 48px; height: 48px; color: #ccc; display: block; margin: 0 auto 12px; }
+
+    /* Skills Sync */
+    .sync-status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 16px;
+      margin-bottom: 16px;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      border-radius: 8px;
+    }
+    .sync-info { display: flex; align-items: center; gap: 8px; }
+    .sync-icon { font-size: 20px; width: 20px; height: 20px; color: #6366f1; }
+    .sync-repo { font-weight: 500; font-size: 13px; }
+    .sync-branch { font-size: 11px !important; min-height: 22px !important; padding: 0 8px !important; }
+    .sync-commit { font-family: monospace; font-size: 12px; color: #888; }
+    .sync-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #888; }
+    .sync-time { font-size: 12px; }
+    .sync-count { font-weight: 500; color: #6366f1; }
+    .sync-link { color: #6366f1; }
+    .sync-link mat-icon { font-size: 18px; width: 18px; height: 18px; }
+
+    .skill-source-chip {
+      font-size: 10px !important;
+      min-height: 20px !important;
+      padding: 0 6px !important;
+      margin-left: 8px !important;
+    }
+    .skill-source-chip mat-icon {
+      font-size: 14px !important;
+      width: 14px !important;
+      height: 14px !important;
+      margin-right: 2px;
+    }
+    .skill-source-chip.git { background: rgba(34, 197, 94, 0.15) !important; color: #22c55e !important; }
+    .skill-source-chip.local { background: rgba(148, 163, 184, 0.15) !important; color: #94a3b8 !important; }
+    .skill-github-btn mat-icon { font-size: 18px; color: #6366f1; }
   `]
 })
 export class SubagentsComponent implements OnInit {
@@ -3413,6 +3518,10 @@ export class SubagentsComponent implements OnInit {
   addingSkill = signal(false);
   newSkill = { id: '', name: '', description: '', content: '' };
 
+  // Skills sync
+  syncStatus = signal<SkillSyncStatus | null>(null);
+  syncing = signal(false);
+
   // Tests
   testCategories = signal<TestCategory[]>([]);
   loadingTests = signal(false);
@@ -3451,6 +3560,7 @@ export class SubagentsComponent implements OnInit {
     this.loadProviders();
     this.loadAvailableTools();
     this.loadExaminerConfig();
+    this.loadSyncStatus();
   }
 
   loadExaminerConfig(): void {
@@ -3465,6 +3575,46 @@ export class SubagentsComponent implements OnInit {
       },
       error: () => {}
     });
+  }
+
+  loadSyncStatus(): void {
+    this.http.get<SkillSyncStatus>(`${environment.apiUrl}/skills/sync/status`).subscribe({
+      next: (status) => this.syncStatus.set(status),
+      error: () => {}
+    });
+  }
+
+  triggerSync(): void {
+    this.syncing.set(true);
+    this.http.post<any>(`${environment.apiUrl}/skills/sync`, {}).subscribe({
+      next: (res) => {
+        this.syncing.set(false);
+        this.loadSyncStatus();
+        this.loadSubagents();
+        const msg = res.errors?.length
+          ? `Sync parcial: ${res.skills_synced} skills, ${res.errors.length} errores`
+          : `Sync completado: ${res.skills_synced} skills, ${res.agents_updated} agentes`;
+        this.snackBar.open(msg, 'Cerrar', { duration: 4000 });
+      },
+      error: (err) => {
+        this.syncing.set(false);
+        this.snackBar.open(err.error?.detail || 'Error en sync', 'Cerrar', { duration: 4000 });
+      }
+    });
+  }
+
+  getSyncRepoName(): string {
+    const url = this.syncStatus()?.repo_url || '';
+    const match = url.match(/\/([^\/]+?)(?:\.git)?$/);
+    return match ? match[1] : url;
+  }
+
+  getGitHubSkillUrl(skill: Skill): string {
+    const url = this.syncStatus()?.repo_url || '';
+    const htmlUrl = url.replace(/\.git$/, '');
+    const branch = this.syncStatus()?.branch || 'main';
+    const skillName = skill.id.replace(/_/g, '-');
+    return `${htmlUrl}/blob/${branch}/skills/${skillName}/SKILL.md`;
   }
 
   loadAvailableTools(): void {
