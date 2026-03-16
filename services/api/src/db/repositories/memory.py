@@ -172,6 +172,21 @@ class MemoryRepository:
         )
 
     @staticmethod
+    async def update_fact(fact_id: int, content: str, fact_type: Optional[str] = None) -> bool:
+        db = get_db()
+        if fact_type:
+            result = await db.execute(
+                "UPDATE memory_long_term SET content = $2, type = $3 WHERE id = $1",
+                fact_id, content, fact_type,
+            )
+        else:
+            result = await db.execute(
+                "UPDATE memory_long_term SET content = $2 WHERE id = $1",
+                fact_id, content,
+            )
+        return result is not None and "UPDATE 1" in str(result)
+
+    @staticmethod
     async def delete_fact(fact_id: int) -> bool:
         db = get_db()
         result = await db.execute(
@@ -271,3 +286,26 @@ class MemoryRepository:
                 user_id,
             )
         return row["cnt"] if row else 0
+
+    @staticmethod
+    async def update_episode(episode_id: int, summary: str, key_points: Optional[list] = None) -> bool:
+        db = get_db()
+        if key_points is not None:
+            result = await db.execute(
+                "UPDATE memory_episodes SET summary = $2, key_points = $3 WHERE id = $1",
+                episode_id, summary, json.dumps(key_points, ensure_ascii=False),
+            )
+        else:
+            result = await db.execute(
+                "UPDATE memory_episodes SET summary = $2 WHERE id = $1",
+                episode_id, summary,
+            )
+        return result is not None and "UPDATE 1" in str(result)
+
+    @staticmethod
+    async def delete_episode(episode_id: int) -> bool:
+        db = get_db()
+        result = await db.execute(
+            "DELETE FROM memory_episodes WHERE id = $1", episode_id,
+        )
+        return result and "DELETE 1" in result

@@ -182,7 +182,7 @@ def get_available_agents_description() -> str:
             agents.append(f"- {chain_id}: {definition.description}")
     
     if not agents:
-        return "- conversational: Chat general y respuestas"
+        return "- adaptive: Agente inteligente con razonamiento adaptativo"
     
     return "\n".join(agents)
 

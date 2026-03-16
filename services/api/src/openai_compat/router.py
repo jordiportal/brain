@@ -494,12 +494,25 @@ async def execute_chat_completion(
         if task_id:
             try:
                 from ..engine.memory import MemoryManager, make_llm_call
+                from ..engine.models import Message as EngineMessage
                 _mm = MemoryManager()
                 _completed_task = await _tm.get(task_id)
-                if _completed_task:
-                    await _mm.save_interaction(_completed_task, llm_call=make_llm_call())
-            except Exception:
-                pass
+                if _completed_task and _completed_task.created_by:
+                    if not _completed_task.history and effective_conv_id:
+                        try:
+                            from ..engine.conversation_service import conversation_service as _cs2
+                            _conv_msgs = await _cs2.get_recent_messages(effective_conv_id, max_messages=30)
+                            if _conv_msgs:
+                                _completed_task.history = [
+                                    EngineMessage.text(m.role if m.role != "assistant" else "agent", m.content)
+                                    for m in _conv_msgs
+                                ]
+                        except Exception as e:
+                            logger.debug(f"Memory: failed loading conv messages: {e}")
+                    if _completed_task.history:
+                        await _mm.save_interaction(_completed_task, llm_call=make_llm_call())
+            except Exception as e:
+                logger.warning(f"Memory: post-completion failed: {e}")
 
         logger.info(
             "Chat completion completed",
@@ -757,10 +770,23 @@ async def stream_chat_completion(
         if task_id:
             try:
                 from ..engine.memory import MemoryManager, make_llm_call
+                from ..engine.models import Message as EngineMessage
                 _mm = MemoryManager()
                 _completed_task = await _tm.get(task_id)
                 if _completed_task:
-                    await _mm.save_interaction(_completed_task, llm_call=make_llm_call())
+                    if not _completed_task.history and conv_id:
+                        try:
+                            from ..engine.conversation_service import conversation_service as _cs2
+                            _conv_msgs = await _cs2.get_recent_messages(conv_id, max_messages=30)
+                            if _conv_msgs:
+                                _completed_task.history = [
+                                    EngineMessage.text(m.role if m.role != "assistant" else "agent", m.content)
+                                    for m in _conv_msgs
+                                ]
+                        except Exception:
+                            pass
+                    if _completed_task.history:
+                        await _mm.save_interaction(_completed_task, llm_call=make_llm_call())
             except Exception:
                 pass
 

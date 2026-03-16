@@ -386,7 +386,30 @@ class AgentRunner:
             return
         try:
             refreshed = await self._task_manager.get(task.id)
-            if refreshed:
+            if not refreshed:
+                return
+
+            # task.history is often empty because messages live in
+            # conversation_messages, not in the tasks table. Load them
+            # so that fact extraction and episode summarization work.
+            if not refreshed.history and refreshed.context_id:
+                try:
+                    from .conversation_service import conversation_service
+                    conv_msgs = await conversation_service.get_recent_messages(
+                        refreshed.context_id, max_messages=30,
+                    )
+                    if conv_msgs:
+                        refreshed.history = [
+                            Message.text(
+                                m.role if m.role != "assistant" else "agent",
+                                m.content,
+                            )
+                            for m in conv_msgs
+                        ]
+                except Exception as e:
+                    logger.debug(f"Could not load conversation messages for memory: {e}")
+
+            if refreshed.history:
                 from .memory import make_llm_call
                 await self._memory_manager.save_interaction(refreshed, llm_call=make_llm_call())
         except Exception as e:
