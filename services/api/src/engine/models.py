@@ -243,11 +243,14 @@ class ChainConfig(BaseModel):
     max_memory_messages: int = 20
     
     # Agent iteration config
-    max_iterations: int = 15  # Límite de iteraciones del agente (configurable)
-    ask_before_continue: bool = True  # Preguntar al usuario antes de superar el límite
+    max_iterations: int = 15
+    ask_before_continue: bool = True
+    
+    # Native thinking (use LLM internal reasoning instead of think/reflect tools)
+    native_thinking: bool = False
     
     # Otros
-    timeout: int = 300  # segundos
+    timeout: int = 300
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

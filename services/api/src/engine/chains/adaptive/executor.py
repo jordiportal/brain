@@ -223,6 +223,16 @@ class AdaptiveExecutor:
         Yields:
             StreamEvents durante la ejecución
         """
+        if getattr(self.chain_config, "native_thinking", False):
+            tools = [
+                t for t in tools
+                if not (
+                    (isinstance(t, dict) and t.get("type") == "function"
+                     and t.get("function", {}).get("name") in ("think", "reflect"))
+                    or (isinstance(t, dict) and t.get("name") in ("think", "reflect"))
+                )
+            ]
+
         while self.iteration < self.max_iterations and not self.execution_complete:
             self.iteration += 1
             
@@ -336,6 +346,27 @@ class AdaptiveExecutor:
         1. Respuesta directa (sin tool calls)
         2. Tool calls
         """
+        if response.reasoning_content:
+            node_id = f"thinking_{self.iteration}"
+            yield self.stream_emitter.node_start(
+                node_id,
+                "Razonando",
+                {"thinking": response.reasoning_content}
+            )
+            if self.emit_brain_events:
+                from ...brain_events import create_thinking_event
+                marker = create_thinking_event(response.reasoning_content, status="progress")
+                yield StreamEvent(
+                    event_type="token",
+                    execution_id=self.execution_id,
+                    node_id="brain_thinking",
+                    content=marker,
+                )
+            yield self.stream_emitter.node_end(
+                node_id,
+                {"thinking": response.reasoning_content}
+            )
+
         # Caso 1: Respuesta directa
         if response.content and not response.tool_calls:
             logger.info(f"📝 Direct response (iteration {self.iteration})")

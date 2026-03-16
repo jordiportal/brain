@@ -56,6 +56,9 @@ class ChainFullUpdateRequest(BaseModel):
     temperature: Optional[float] = None
     max_iterations: Optional[int] = None
     use_memory: Optional[bool] = None
+    max_memory_messages: Optional[int] = None
+    memory_key: Optional[str] = None
+    native_thinking: Optional[bool] = None
     change_reason: Optional[str] = None
 
 
@@ -199,8 +202,14 @@ async def full_update_chain(chain_id: str, request: ChainFullUpdateRequest):
         current_config["max_iterations"] = request.max_iterations
     if request.use_memory is not None:
         current_config["use_memory"] = request.use_memory
+    if request.max_memory_messages is not None:
+        current_config["max_memory_messages"] = request.max_memory_messages
+    if request.memory_key is not None:
+        current_config["memory_key"] = request.memory_key
+    if request.native_thinking is not None:
+        current_config["native_thinking"] = request.native_thinking
 
-    if any(k in request.model_fields_set for k in ("agents", "skills", "temperature", "max_iterations", "use_memory")):
+    if any(k in request.model_fields_set for k in ("agents", "skills", "temperature", "max_iterations", "use_memory", "max_memory_messages", "memory_key", "native_thinking")):
         data["config"] = current_config
 
     success = await ChainRepository.full_update(chain_id, data)

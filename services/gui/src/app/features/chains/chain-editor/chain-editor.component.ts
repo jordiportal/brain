@@ -26,9 +26,11 @@ interface ChainConfig {
   use_memory?: boolean;
   temperature?: number;
   max_memory_messages?: number;
+  memory_key?: string;
   system_prompt?: string;
   max_iterations?: number;
   ask_before_continue?: boolean;
+  native_thinking?: boolean;
   agents?: string[];
   skills?: any[];
 }
@@ -191,6 +193,40 @@ interface ChainVersion {
                       <mat-label>Versión</mat-label>
                       <input matInput [value]="editVersion" readonly>
                     </mat-form-field>
+                  </div>
+
+                  <div class="memory-config-section">
+                    <h4 class="section-title"><mat-icon>memory</mat-icon> Memoria</h4>
+                    <div class="memory-row">
+                      <mat-slide-toggle [(ngModel)]="editUseMemory" (change)="markDirty()" color="primary">
+                        Habilitar memoria
+                      </mat-slide-toggle>
+                    </div>
+                    @if (editUseMemory) {
+                      <div class="config-row">
+                        <mat-form-field appearance="outline">
+                          <mat-label>Máx. mensajes en memoria</mat-label>
+                          <input matInput type="number" min="1" max="100"
+                                 [(ngModel)]="editMaxMemoryMessages" (ngModelChange)="markDirty()">
+                          <mat-hint>Mensajes de historial a incluir</mat-hint>
+                        </mat-form-field>
+                        <mat-form-field appearance="outline">
+                          <mat-label>Clave de memoria</mat-label>
+                          <input matInput [(ngModel)]="editMemoryKey" (ngModelChange)="markDirty()">
+                          <mat-hint>Identificador interno (avanzado)</mat-hint>
+                        </mat-form-field>
+                      </div>
+                    }
+                  </div>
+
+                  <div class="memory-config-section">
+                    <h4 class="section-title"><mat-icon>psychology</mat-icon> Razonamiento</h4>
+                    <div class="memory-row">
+                      <mat-slide-toggle [(ngModel)]="editNativeThinking" (change)="markDirty()" color="primary"
+                                        matTooltip="Usa el razonamiento interno del modelo en vez de las tools think/reflect. Más eficiente y de mayor calidad.">
+                        Thinking nativo
+                      </mat-slide-toggle>
+                    </div>
                   </div>
                 </div>
                 <div class="info-col prompt-col">
@@ -381,6 +417,11 @@ interface ChainVersion {
     .prompt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .prompt-header h3 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: #334155; }
     .prompt-stats { font-size: 12px; color: #94a3b8; }
+    .memory-config-section { margin-top: 16px; padding: 16px; background: #f1f5f9; border-radius: 10px; border: 1px solid #e2e8f0; }
+    .memory-config-section .section-title { margin: 0 0 12px; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #475569; }
+    .memory-config-section .section-title mat-icon { font-size: 18px; width: 18px; height: 18px; color: #667eea; }
+    .memory-row { margin-bottom: 12px; }
+    .memory-config-section .config-row { margin-top: 8px; }
     .prompt-textarea { flex: 1; min-height: 280px; width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-family: 'Monaco','Menlo',monospace; font-size: 13px; line-height: 1.6; resize: none; background: #f8fafc; }
     .prompt-textarea:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
     .full-width { width: 100%; }
@@ -452,6 +493,10 @@ export class ChainEditorComponent implements OnInit {
   editVersion = '1.0.0';
   editTemperature = 0.5;
   editMaxIterations = 15;
+  editUseMemory = true;
+  editMaxMemoryMessages = 20;
+  editMemoryKey = 'chat_history';
+  editNativeThinking = false;
   systemPrompt = '';
 
   // Tools
@@ -500,6 +545,10 @@ export class ChainEditorComponent implements OnInit {
         this.editVersion = res.chain_version || res.chain.version || '1.0.0';
         this.editTemperature = res.chain.config?.temperature ?? 0.5;
         this.editMaxIterations = res.chain.config?.max_iterations ?? 15;
+        this.editUseMemory = res.chain.config?.use_memory ?? true;
+        this.editMaxMemoryMessages = res.chain.config?.max_memory_messages ?? 20;
+        this.editMemoryKey = res.chain.config?.memory_key ?? 'chat_history';
+        this.editNativeThinking = res.chain.config?.native_thinking ?? false;
         this.systemPrompt = res.system_prompt || '';
         this.selectedTools = res.chain_tools || [];
         this.selectedAgents = res.chain_agents || [];
@@ -664,6 +713,10 @@ export class ChainEditorComponent implements OnInit {
       agents: this.selectedAgents,
       temperature: this.editTemperature,
       max_iterations: this.editMaxIterations,
+      use_memory: this.editUseMemory,
+      max_memory_messages: this.editMaxMemoryMessages,
+      memory_key: this.editMemoryKey,
+      native_thinking: this.editNativeThinking,
     };
     if (changeReason) payload.change_reason = changeReason;
 

@@ -5,14 +5,28 @@ Incluye soporte para Web Search nativo de OpenAI.
 """
 
 import json
+import re
 import time
 import asyncio
 from contextvars import ContextVar
-from typing import List, Dict, AsyncGenerator, Optional
+from typing import List, Dict, AsyncGenerator, Optional, Tuple
 import httpx
 import structlog
 
 logger = structlog.get_logger()
+
+_THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+
+
+def _extract_think_tags(text: str) -> Tuple[Optional[str], str]:
+    """Separate <think> reasoning from actual content.
+    Returns (reasoning_content_or_None, clean_content)."""
+    parts = _THINK_RE.findall(text)
+    if not parts:
+        return None, text
+    clean = _THINK_RE.sub("", text).strip()
+    reasoning = "\n".join(p.strip() for p in parts if p.strip())
+    return (reasoning or None), clean
 
 # Context para propagar execution_id y chain_id a las llamadas LLM
 _execution_context: ContextVar[Optional[Dict[str, str]]] = ContextVar(
@@ -635,6 +649,7 @@ class LLMToolResponse:
     tool_calls: List[ToolCall] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: Optional[Dict[str, int]] = None
+    reasoning_content: Optional[str] = None
 
 
 async def call_llm_with_tools(
@@ -809,11 +824,17 @@ async def _call_ollama_with_tools(
                 "completion_tokens": data.get("eval_count", 0),
             }
 
+        raw_content = message.get("content")
+        reasoning = None
+        if raw_content:
+            reasoning, raw_content = _extract_think_tags(raw_content)
+
         return LLMToolResponse(
-            content=message.get("content"),
+            content=raw_content,
             tool_calls=tool_calls,
             finish_reason=data.get("done_reason", "stop"),
             usage=ollama_usage,
+            reasoning_content=reasoning,
         )
 
 
@@ -872,11 +893,20 @@ async def _call_openai_with_tools(
                     function=tc["function"]
                 ))
         
+        raw_content = message.get("content")
+        reasoning = message.get("reasoning_content")
+
+        if raw_content and not reasoning:
+            think_reasoning, raw_content = _extract_think_tags(raw_content)
+            if think_reasoning:
+                reasoning = think_reasoning
+
         return LLMToolResponse(
-            content=message.get("content"),
+            content=raw_content,
             tool_calls=tool_calls,
             finish_reason=choice.get("finish_reason", "stop"),
-            usage=data.get("usage")
+            usage=data.get("usage"),
+            reasoning_content=reasoning
         )
 
 
@@ -948,12 +978,14 @@ async def _call_anthropic_with_tools(
         
         data = response.json()
         
-        # Procesar contenido y tool calls
         content_text = ""
+        thinking_text = ""
         tool_calls = []
         
         for idx, block in enumerate(data.get("content", [])):
-            if block["type"] == "text":
+            if block["type"] == "thinking":
+                thinking_text += block.get("thinking", "")
+            elif block["type"] == "text":
                 content_text += block["text"]
             elif block["type"] == "tool_use":
                 tool_calls.append(ToolCall(
@@ -969,7 +1001,8 @@ async def _call_anthropic_with_tools(
             content=content_text if content_text else None,
             tool_calls=tool_calls,
             finish_reason=data.get("stop_reason", "end_turn"),
-            usage=data.get("usage")
+            usage=data.get("usage"),
+            reasoning_content=thinking_text if thinking_text else None
         )
 
 
@@ -1056,14 +1089,17 @@ async def _call_gemini_with_tools(
         if not candidates:
             return LLMToolResponse(content=None, tool_calls=[])
         
-        content_parts = candidates[0].get("content", {}).get("parts", [])
+        candidate = candidates[0]
+        content_parts = candidate.get("content", {}).get("parts", [])
         
-        # Procesar contenido y function calls
         content_text = ""
+        thinking_text = ""
         tool_calls = []
         
         for idx, part in enumerate(content_parts):
-            if "text" in part:
+            if part.get("thought"):
+                thinking_text += part.get("text", "")
+            elif "text" in part:
                 content_text += part["text"]
             elif "functionCall" in part:
                 fc = part["functionCall"]
@@ -1089,5 +1125,6 @@ async def _call_gemini_with_tools(
             tool_calls=tool_calls,
             finish_reason="stop",
             usage=gemini_usage,
+            reasoning_content=thinking_text if thinking_text else None,
         )
 
