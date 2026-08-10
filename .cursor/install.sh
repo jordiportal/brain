@@ -9,6 +9,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+echo "==> [install] Ensuring system dependencies"
+bash "$ROOT/.cursor/provision-system.sh"
+
 echo "==> [install] Python API dependencies"
 # The API pins dependencies (e.g. unstructured==0.12.4) that require Python 3.11,
 # matching services/api/Dockerfile (python:3.11-slim).
