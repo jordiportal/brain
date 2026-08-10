@@ -1,0 +1,11 @@
+{
+  "name": "Brain",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "ports": [
+    { "name": "API (FastAPI)", "port": 8000 },
+    { "name": "GUI (Angular)", "port": 4200 },
+    { "name": "PostgreSQL (pgvector)", "port": 5432 },
+    { "name": "Redis", "port": 6379 }
+  ]
+}
