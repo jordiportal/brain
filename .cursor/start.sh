@@ -72,4 +72,31 @@ if ! redis-cli -p "$REDIS_PORT" ping >/dev/null 2>&1; then
     --appendonly yes --port "$REDIS_PORT" >/dev/null
 fi
 
-echo "==> [start] Ready: PostgreSQL:$PGPORT (db=$POSTGRES_DB) + Redis:$REDIS_PORT"
+# ---------------------------------------------------------------------------
+# Application dev servers (launched in the background, then we return).
+# Guards keep this idempotent: skip if the port is already served, or if the
+# dependencies have not been installed yet (install.sh runs first).
+# ---------------------------------------------------------------------------
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&-; return 0; } || return 1; }
+
+API_BIN="$ROOT/services/api/.venv/bin/uvicorn"
+if [ -x "$API_BIN" ] && ! port_in_use 8000; then
+  echo "==> [start] Starting API (FastAPI) on :8000"
+  ( cd "$ROOT/services/api" && \
+    DATABASE_URL="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:$PGPORT/$POSTGRES_DB" \
+    REDIS_URL="redis://localhost:$REDIS_PORT" \
+    OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://localhost:11434}" \
+    JWT_SECRET="${JWT_SECRET:-brain-jwt-secret-dev-only}" \
+    nohup "$API_BIN" src.main:app --host 0.0.0.0 --port 8000 --reload \
+      >"$BRAIN_DATA/api.log" 2>&1 & )
+fi
+
+GUI_BIN="$ROOT/services/gui/node_modules/.bin/ng"
+if [ -x "$GUI_BIN" ] && ! port_in_use 4200; then
+  echo "==> [start] Starting GUI (Angular) on :4200"
+  ( cd "$ROOT/services/gui" && \
+    nohup "$GUI_BIN" serve --host 0.0.0.0 --port 4200 --poll 2000 \
+      >"$BRAIN_DATA/gui.log" 2>&1 & )
+fi
+
+echo "==> [start] Ready: PostgreSQL:$PGPORT (db=$POSTGRES_DB) + Redis:$REDIS_PORT + API:8000 + GUI:4200"
